@@ -295,8 +295,8 @@ if (isMonitorMode)
                                 {
                                     var copyScore = ps.GetDouble();
                                     var scoreVal = score!.Value;
-                                    var comparison = scoreVal > copyScore ? "THIS ONE IS BETTER"
-                                        : scoreVal < copyScore ? "this one is worse"
+                                    var comparison = scoreVal > copyScore ? "THE NEW ONE IS BETTER"
+                                        : scoreVal < copyScore ? "the new one is worse"
                                         : "same score";
                                     Console.WriteLine($"    Copy on {charName} scored {copyScore:F2}%. {comparison}.");
                                     if (copyScore >= scoreVal)
@@ -327,7 +327,7 @@ if (isMonitorMode)
                             }
                             if (score.HasValue && isBest)
                             {
-                                Console.WriteLine($"************** This is the best one! ***************");
+                                Console.WriteLine($"************** NEW BEST! ***************");
                                 if (beepOnBest) Console.Beep();
                             }
                         }
