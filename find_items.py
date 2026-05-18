@@ -126,7 +126,10 @@ def matches_field(item, field, pattern):
 
 def matches_all_filters(item, filters):
     """Check if an item matches ALL field/pattern filters.
-    Each filter is (field, pattern, negate) where negate inverts the match."""
+    Each filter is (field, pattern, negate) where negate inverts the match.
+    Unidentified items are always skipped."""
+    if any("Unidentified" in f for f in item.get("flags", [])):
+        return False
     for field, pattern, negate in filters:
         result = matches_field(item, field, pattern)
         if negate:
@@ -285,6 +288,8 @@ def collect_owned_item_names(directory, core_filter, gameversion_filter, mule_di
             if "type" in data and data["type"] == "SharedStash":
                 source = "Shared Stash"
             for item in data.get("items", []):
+                if any("Unidentified" in f for f in item.get("flags", [])):
+                    continue
                 name = item.get("name", "")
                 # Match the leading "Display Name" part from "Display Name (Base)"
                 m = re.match(r"^(.*?)\s*\(.*\)\s*$", name)

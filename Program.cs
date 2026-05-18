@@ -218,7 +218,8 @@ if (isMonitorMode)
             var currentItems = new Dictionary<string, Item>();
             foreach (var item in allItems)
             {
-                if (item.Quality is ItemQuality.Unique or ItemQuality.Set)
+                if (item.Quality is ItemQuality.Unique or ItemQuality.Set
+                    && item.Flags.HasFlag(ItemFlags.Identified))
                 {
                     var name = GetItemDisplayName(item);
                     currentItems.TryAdd(name, item);
@@ -439,7 +440,8 @@ if (isMonitorMode)
             var currentItems = new Dictionary<string, Item>();
             foreach (var item in allItems)
             {
-                if (item.Quality is ItemQuality.Unique or ItemQuality.Set)
+                if (item.Quality is ItemQuality.Unique or ItemQuality.Set
+                    && item.Flags.HasFlag(ItemFlags.Identified))
                 {
                     var name = GetItemDisplayName(item);
                     currentItems.TryAdd(name, item);
