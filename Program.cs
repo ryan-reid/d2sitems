@@ -71,11 +71,12 @@ foreach (var arg in fileArgs)
 
 // Build lookups from game_files/default/excel (shared across all files)
 int missingFileCount = 0;
-var itemNames = BuildItemNameLookup(excelDir);
-var skillNames = BuildSkillNameLookup(excelDir);
-var runewordsByRunes = BuildRunewordLookup(excelDir);
-var uniqueItemNames = BuildUniqueItemNameLookup(excelDir);
-var setItemNames = BuildSetItemNameLookup(excelDir);
+var stringTable = BuildStringTable(excelDir);
+var itemNames = BuildItemNameLookup(excelDir, stringTable);
+var skillNames = BuildSkillNameLookup(excelDir, stringTable);
+var runewordsByRunes = BuildRunewordLookup(excelDir, stringTable);
+var uniqueItemNames = BuildUniqueItemNameLookup(excelDir, stringTable);
+var setItemNames = BuildSetItemNameLookup(excelDir, stringTable);
 var gemApplyTypes = BuildGemApplyTypeLookup(excelDir);
 var gemStats = BuildGemStatsLookup(excelDir);
 var propertyToStats = BuildPropertyToStatsLookup(excelDir);
@@ -309,6 +310,15 @@ if (isMonitorMode)
 
                                 if (score.HasValue)
                                 {
+                                    // Show defense for armor
+                                    if (copy.TryGetProperty("defense", out var defEl))
+                                    {
+                                        var baseRangeStr = copy.TryGetProperty("baseDefenseRange", out var br) ? br.GetString() : null;
+                                        if (baseRangeStr != null)
+                                            Console.WriteLine($"      Defense: {defEl.GetInt32()} (base: {baseRangeStr})");
+                                        else
+                                            Console.WriteLine($"      Defense: {defEl.GetInt32()}");
+                                    }
                                     // Print stats of existing copy
                                     foreach (var statList in new[] { "runewordStats", "stats" })
                                     {
@@ -862,13 +872,6 @@ Dictionary<string, object> FormatStatJson(Stat stat, Dictionary<(int StatId, int
 
 string GetItemDisplayName(Item item)
 {
-    return SanitizeName(GetItemDisplayNameRaw(item));
-}
-
-string SanitizeName(string name) => name.Replace("McAuley", "Sander");
-
-string GetItemDisplayNameRaw(Item item)
-{
     var baseName = GetItemName(item.ItemCodeString);
 
     if (item.Flags.HasFlag(ItemFlags.Runeword))
@@ -983,7 +986,7 @@ string? GetSetName(Item item)
     if (item.Quality == ItemQuality.Set && item.QualityData is SetUniqueQualityData sqd)
     {
         if (setItemSetNames.TryGetValue(sqd.SetUniqueFileIndex, out var setName))
-            return SanitizeName(setName);
+            return setName;
     }
     return null;
 }
@@ -1252,7 +1255,7 @@ string? ResolvePropertyToText(string propCode, string param, int min, int max)
 
 // ── Data loading from game_files/default/excel ──
 
-Dictionary<string, string> BuildItemNameLookup(string dir)
+Dictionary<string, string> BuildItemNameLookup(string dir, Dictionary<string, string> stringTable)
 {
     var lookup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
@@ -1275,7 +1278,9 @@ Dictionary<string, string> BuildItemNameLookup(string dir)
             if (cols.Length > Math.Max(nameIdx, codeIdx))
             {
                 var code = cols[codeIdx].Trim();
-                var name = cols[nameIdx].Trim();
+                var fallback = cols[nameIdx].Trim();
+                // Base item names are keyed in item-names.json by the item code (e.g. "qf1", "xtp")
+                var name = stringTable.TryGetValue(code, out var loc) ? loc : fallback;
                 if (code.Length > 0 && name.Length > 0 && !lookup.ContainsKey(code))
                     lookup[code] = name;
             }
@@ -1285,7 +1290,7 @@ Dictionary<string, string> BuildItemNameLookup(string dir)
     return lookup;
 }
 
-Dictionary<int, string> BuildSkillNameLookup(string dir)
+Dictionary<int, string> BuildSkillNameLookup(string dir, Dictionary<string, string> stringTable)
 {
     var lookup = new Dictionary<int, string>();
     var path = Path.Combine(dir, "skills.txt");
@@ -1305,7 +1310,10 @@ Dictionary<int, string> BuildSkillNameLookup(string dir)
         if (cols.Length > Math.Max(nameIdx, idIdx)
             && int.TryParse(cols[idIdx].Trim(), out var id))
         {
-            var name = cols[nameIdx].Trim();
+            var fallback = cols[nameIdx].Trim();
+            // skills.json keys skills by "skillname<ID>"
+            var name = stringTable.TryGetValue($"skillname{id}", out var loc) && loc.Trim().Length > 0
+                ? loc.Trim() : fallback;
             if (name.Length > 0)
                 lookup[id] = name;
         }
@@ -1314,7 +1322,35 @@ Dictionary<int, string> BuildSkillNameLookup(string dir)
     return lookup;
 }
 
-Dictionary<string, string> BuildRunewordLookup(string dir)
+Dictionary<string, string> BuildStringTable(string dir)
+{
+    // Load localized string tables (Key -> enUS) for items, runes, and skills.
+    // The strings dir lives at ../../local/lng/strings relative to the excel dir.
+    var lookup = new Dictionary<string, string>(StringComparer.Ordinal);
+    var stringsDir = Path.GetFullPath(Path.Combine(dir, "..", "..", "local", "lng", "strings"));
+    foreach (var file in new[] { "item-names.json", "item-runes.json", "skills.json" })
+    {
+        var path = Path.Combine(stringsDir, file);
+        if (!File.Exists(path)) continue;
+        try
+        {
+            var doc = JsonDocument.Parse(File.ReadAllText(path));
+            foreach (var entry in doc.RootElement.EnumerateArray())
+            {
+                if (!entry.TryGetProperty("Key", out var keyEl)) continue;
+                if (!entry.TryGetProperty("enUS", out var enEl)) continue;
+                var key = keyEl.GetString();
+                var en = enEl.GetString();
+                if (key != null && en != null && !lookup.ContainsKey(key))
+                    lookup[key] = en;
+            }
+        }
+        catch { /* skip on parse error */ }
+    }
+    return lookup;
+}
+
+Dictionary<string, string> BuildRunewordLookup(string dir, Dictionary<string, string> stringTable)
 {
     // Maps "r31,r06,r30" -> "Enigma" (rune code combo -> runeword name)
     var lookup = new Dictionary<string, string>();
@@ -1325,6 +1361,7 @@ Dictionary<string, string> BuildRunewordLookup(string dir)
     if (lines.Length < 2) return lookup;
 
     var header = lines[0].Split('\t');
+    int keyIdx = Array.IndexOf(header, "Name");
     int nameIdx = Array.IndexOf(header, "*Rune Name");
     int completeIdx = Array.IndexOf(header, "complete");
     int rune1Idx = Array.IndexOf(header, "Rune1");
@@ -1338,7 +1375,9 @@ Dictionary<string, string> BuildRunewordLookup(string dir)
         // Only include complete runewords
         if (completeIdx >= 0 && cols[completeIdx].Trim() != "1") continue;
 
-        var name = cols[nameIdx].Trim();
+        var fallback = cols[nameIdx].Trim();
+        var strKey = keyIdx >= 0 ? cols[keyIdx].Trim() : "";
+        var name = (strKey.Length > 0 && stringTable.TryGetValue(strKey, out var loc)) ? loc : fallback;
         if (name.Length == 0) continue;
 
         var runes = new List<string>();
@@ -1360,17 +1399,17 @@ Dictionary<string, string> BuildRunewordLookup(string dir)
     return lookup;
 }
 
-Dictionary<int, string> BuildUniqueItemNameLookup(string dir)
+Dictionary<int, string> BuildUniqueItemNameLookup(string dir, Dictionary<string, string> stringTable)
 {
-    return BuildIndexedNameLookup(Path.Combine(dir, "uniqueitems.txt"));
+    return BuildIndexedNameLookup(Path.Combine(dir, "uniqueitems.txt"), stringTable);
 }
 
-Dictionary<int, string> BuildSetItemNameLookup(string dir)
+Dictionary<int, string> BuildSetItemNameLookup(string dir, Dictionary<string, string> stringTable)
 {
-    return BuildIndexedNameLookup(Path.Combine(dir, "setitems.txt"));
+    return BuildIndexedNameLookup(Path.Combine(dir, "setitems.txt"), stringTable);
 }
 
-Dictionary<int, string> BuildIndexedNameLookup(string path)
+Dictionary<int, string> BuildIndexedNameLookup(string path, Dictionary<string, string> stringTable)
 {
     var lookup = new Dictionary<int, string>();
     if (!File.Exists(path)) { Console.WriteLine($"Warning: game file not found: {path}"); missingFileCount++; return lookup; }
@@ -1389,7 +1428,8 @@ Dictionary<int, string> BuildIndexedNameLookup(string path)
         if (cols.Length > Math.Max(nameIdx, idIdx)
             && int.TryParse(cols[idIdx].Trim(), out var id))
         {
-            var name = cols[nameIdx].Trim();
+            var rawName = cols[nameIdx].Trim();
+            var name = stringTable.TryGetValue(rawName, out var loc) ? loc : rawName;
             if (name.Length > 0)
                 lookup[id] = name;
         }

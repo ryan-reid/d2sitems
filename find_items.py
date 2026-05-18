@@ -210,13 +210,34 @@ def search_items(directory, filters, core_filter, gameversion_filter, is_mule=Fa
                 results.append((source, save_file, item, is_mule))
     return results
 
-def sanitize_name(name):
-    return name.replace("McAuley", "Sander")
+def load_string_table(excel_dir):
+    """Load Key -> enUS mapping from the localization files."""
+    table = {}
+    strings_dir = os.path.normpath(os.path.join(excel_dir, "..", "..", "local", "lng", "strings"))
+    for filename in ("item-names.json", "item-runes.json"):
+        path = os.path.join(strings_dir, filename)
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, encoding="utf-8-sig") as f:
+                entries = json.load(f)
+            for entry in entries:
+                key = entry.get("Key")
+                en = entry.get("enUS")
+                if key and en and key not in table:
+                    table[key] = en
+        except (json.JSONDecodeError, OSError):
+            continue
+    return table
 
 def load_grail_items(excel_dir):
     """Load all unique items, set items, and runewords from excel dir.
-    Returns dict: category -> list of item names."""
+    Returns dict: category -> list of item names (localized)."""
     grail = {"Unique Items": [], "Set Items": [], "Runewords": []}
+    strings = load_string_table(excel_dir)
+
+    def localize(raw):
+        return strings.get(raw, raw)
 
     def read_tsv(path):
         if not os.path.exists(path):
@@ -233,7 +254,7 @@ def load_grail_items(excel_dir):
     if uniques:
         seen = set()
         for row in uniques:
-            name = sanitize_name(row.get("index", "").strip())
+            name = localize(row.get("index", "").strip())
             if name and name not in seen:
                 seen.add(name)
                 grail["Unique Items"].append(name)
@@ -242,7 +263,7 @@ def load_grail_items(excel_dir):
     if sets:
         seen = set()
         for row in sets:
-            name = sanitize_name(row.get("index", "").strip())
+            name = localize(row.get("index", "").strip())
             if name and name not in seen:
                 seen.add(name)
                 grail["Set Items"].append(name)
@@ -253,7 +274,10 @@ def load_grail_items(excel_dir):
         for row in runewords:
             if row.get("complete", "").strip() != "1":
                 continue
-            name = sanitize_name(row.get("*Rune Name", "").strip())
+            # Runewords use the "Name" column (e.g. "Runeword33") as the key, with "*Rune Name" as fallback
+            raw_key = row.get("Name", "").strip()
+            fallback = row.get("*Rune Name", "").strip()
+            name = strings.get(raw_key, fallback)
             if name and name not in seen:
                 seen.add(name)
                 grail["Runewords"].append(name)
