@@ -207,6 +207,122 @@ def search_items(directory, filters, core_filter, gameversion_filter, is_mule=Fa
                 results.append((source, save_file, item, is_mule))
     return results
 
+def sanitize_name(name):
+    return name.replace("McAuley", "Sander")
+
+def load_grail_items(excel_dir):
+    """Load all unique items, set items, and runewords from excel dir.
+    Returns dict: category -> list of item names."""
+    grail = {"Unique Items": [], "Set Items": [], "Runewords": []}
+
+    def read_tsv(path):
+        if not os.path.exists(path):
+            return None
+        with open(path) as f:
+            lines = [line.rstrip("\n") for line in f]
+        if len(lines) < 2:
+            return None
+        header = lines[0].split("\t")
+        rows = [dict(zip(header, line.split("\t"))) for line in lines[1:]]
+        return rows
+
+    uniques = read_tsv(os.path.join(excel_dir, "uniqueitems.txt"))
+    if uniques:
+        seen = set()
+        for row in uniques:
+            name = sanitize_name(row.get("index", "").strip())
+            if name and name not in seen:
+                seen.add(name)
+                grail["Unique Items"].append(name)
+
+    sets = read_tsv(os.path.join(excel_dir, "setitems.txt"))
+    if sets:
+        seen = set()
+        for row in sets:
+            name = sanitize_name(row.get("index", "").strip())
+            if name and name not in seen:
+                seen.add(name)
+                grail["Set Items"].append(name)
+
+    runewords = read_tsv(os.path.join(excel_dir, "runes.txt"))
+    if runewords:
+        seen = set()
+        for row in runewords:
+            if row.get("complete", "").strip() != "1":
+                continue
+            name = sanitize_name(row.get("*Rune Name", "").strip())
+            if name and name not in seen:
+                seen.add(name)
+                grail["Runewords"].append(name)
+
+    return grail
+
+def collect_owned_item_names(directory, core_filter, gameversion_filter, mule_dir=None):
+    """Return a dict mapping item base name -> list of (character, isMule) tuples."""
+    owned = {}
+
+    def scan(dir_path, is_mule):
+        if not dir_path or not os.path.isdir(dir_path):
+            return
+        for filename in sorted(os.listdir(dir_path)):
+            if not filename.endswith(".json"):
+                continue
+            with open(os.path.join(dir_path, filename)) as f:
+                try:
+                    data = json.load(f)
+                except json.JSONDecodeError:
+                    continue
+            char = data.get("character", {})
+            if core_filter != "both":
+                cc = char.get("core", "")
+                if cc and cc != core_filter:
+                    continue
+            if gameversion_filter != "all":
+                cgv = char.get("gameVersion", "")
+                if cgv and cgv.lower() != gameversion_filter.lower():
+                    continue
+            source = char.get("name", filename)
+            if "type" in data and data["type"] == "SharedStash":
+                source = "Shared Stash"
+            for item in data.get("items", []):
+                name = item.get("name", "")
+                # Match the leading "Display Name" part from "Display Name (Base)"
+                m = re.match(r"^(.*?)\s*\(.*\)\s*$", name)
+                key = m.group(1) if m else name
+                owned.setdefault(key, []).append((source, is_mule))
+        return
+
+    scan(directory, False)
+    scan(mule_dir, True)
+    return owned
+
+def run_grail(excel_dir, save_dir, mule_dir, core_filter, gameversion_filter):
+    grail = load_grail_items(excel_dir)
+    owned = collect_owned_item_names(save_dir, core_filter, gameversion_filter, mule_dir)
+
+    total_items = 0
+    total_owned = 0
+    for category, names in grail.items():
+        print(f"\n── {category} ──")
+        cat_owned = 0
+        for name in sorted(names):
+            holders = owned.get(name, [])
+            if holders:
+                cat_owned += 1
+                # Dedupe characters
+                unique_chars = sorted(set(h[0] for h in holders))
+                print(f"  [✓] {name}  ({', '.join(unique_chars)})")
+            else:
+                print(f"  [ ] {name}")
+        print(f"  Subtotal: {cat_owned} / {len(names)} ({100.0 * cat_owned / len(names):.1f}%)" if names else "  Subtotal: 0 / 0")
+        total_items += len(names)
+        total_owned += cat_owned
+
+    print(f"\n══════════════════════════════════════════")
+    pct = 100.0 * total_owned / total_items if total_items else 0.0
+    print(f"  Grail Total: {total_owned} / {total_items} ({pct:.2f}%)")
+    print(f"══════════════════════════════════════════")
+
 ALL_RESIST_ELEMENTS = ["fire", "cold", "lightning", "poison"]
 
 def transform_stat_pattern(pattern):
@@ -285,6 +401,8 @@ if __name__ == "__main__":
                         help="filter by game version: Classic, Expansion, ReignOfTheWarlock, or all (overrides config, default: all)")
     parser.add_argument("--json", action="store_true",
                         help="output results as JSON instead of human-readable text")
+    parser.add_argument("--grail", action="store_true",
+                        help="show a grail report: for every unique/set/runeword in the excel dir, indicate whether we already have one")
 
     args = parser.parse_args()
 
@@ -318,6 +436,14 @@ if __name__ == "__main__":
 
     core_filter = args.core or config.get("core", "both")
     gameversion_filter = args.gameversion or config.get("game_version", "all")
+
+    if args.grail:
+        excel_dir = config.get("excel_dir", "")
+        if not excel_dir or not os.path.isdir(excel_dir):
+            print(f"Error: excel_dir not configured or not found: {excel_dir}")
+            exit(1)
+        run_grail(excel_dir, save_dir, config.get("mule_dir"), core_filter, gameversion_filter)
+        exit(0)
 
     results = search_items(save_dir, filters, core_filter, gameversion_filter)
     mule_dir = config.get("mule_dir")

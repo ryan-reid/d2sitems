@@ -33,10 +33,9 @@ I do not think you actually need to install the D2SSharp Library or if it happen
 We need some game files to interpret the saves.  You are going to need to extract the files.
 Use the D2RExtractor tool at https://github.com/levinium/D2RExtractor
 By default, the tool will look in the default game location to find unpacked game files.
-<<<<<<< HEAD
 
 You can specify the location of an "excel" directory with the --excel parameter, to parse files for a mod.
-=======
+If you are using a mod and specifying an alternative excel directory, be sure to also update the saved games location
 
 Settings can be configured in d2sitems.conf.  The defaults should work for standard installations of D2R.
 
@@ -53,19 +52,13 @@ To run on all files in an alternative location:
 
 You can run this on your entire directory periodically - it will overwrite the old files to represent the currrent contents of your characters
 
-Then you can search the files for what you are looking for.
-
-- cd "c:\\Users\\YourUsername\\Saved Games\\Diablo II Resurrected"
-- findstr "Enigma" \*.txt
-
-( Or you can get as fancy as you want in searching with tools like grep or json parsers )
 
 
 To build a new exe file that can be run directly, you can run:
 
 - dotnet publish -r win-x64 -c Release /p:PublishSingleFile=true --self-contained true
 
-Then copy bin/Release/net10.0/win-x64/d2sitems.exe to the main directory or wherever you want it.
+Then copy bin/Release/net10.0/win-x64/d2sitems.exe to the main directory or wherever you want it.  You don't need to do this - you can just use the dotnet command to automtically compile and run the program for you each time.
 
 
 
@@ -81,6 +74,10 @@ You can search for items with the find_items.py script.
 
 - .\find_item.py --help
 
+Read the help message to see all the search parameters.  You can search for specific items, item types, ethereal items, socketed items, rare items, etc.
+
+
+Alternatively, you can use whatever json or search tools you want to search for items.
 
 
 
@@ -96,6 +93,8 @@ This will retrieve the character from the mules directory and restore it into yo
 
 The D2R client does not go to disk to update the list of characters that it has in memory.  In order to get an updated character list, you must exit the game and relaunch it.
 
+
+You can also view your grail status by runing .\find-item.py --grail
 
 
 

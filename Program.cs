@@ -860,6 +860,13 @@ Dictionary<string, object> FormatStatJson(Stat stat, Dictionary<(int StatId, int
 
 string GetItemDisplayName(Item item)
 {
+    return SanitizeName(GetItemDisplayNameRaw(item));
+}
+
+string SanitizeName(string name) => name.Replace("McAuley", "Sander");
+
+string GetItemDisplayNameRaw(Item item)
+{
     var baseName = GetItemName(item.ItemCodeString);
 
     if (item.Flags.HasFlag(ItemFlags.Runeword))
@@ -974,7 +981,7 @@ string? GetSetName(Item item)
     if (item.Quality == ItemQuality.Set && item.QualityData is SetUniqueQualityData sqd)
     {
         if (setItemSetNames.TryGetValue(sqd.SetUniqueFileIndex, out var setName))
-            return setName;
+            return SanitizeName(setName);
     }
     return null;
 }
