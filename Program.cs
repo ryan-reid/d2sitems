@@ -238,8 +238,8 @@ if (isMonitorMode)
                         var score = CalculatePerfectionScore(item, statRanges);
                         var scoreStr = score.HasValue ? $" - (Perfection: {score:F2}%)" : " - (No Perfection Score)";
                         var ethStr = item.Flags.HasFlag(ItemFlags.Ethereal) ? " [ETH]" : "";
-                        if (beepOnFound) Console.Beep();
-                        Speak("New");
+                        //if (beepOnFound) Console.Beep();
+                        Speak($"{name} is new");
                         Console.WriteLine($"\n------\n");
                         Console.WriteLine($"[{timestamp}] NEW ITEM DETECTED: {name}{ethStr}{scoreStr}");
                         if (score.HasValue)
@@ -490,8 +490,8 @@ if (isMonitorMode)
                         var score = CalculatePerfectionScore(item, statRanges);
                         var scoreStr = score.HasValue ? $" - (Perfection: {score:F2}%)" : " - (No Perfection Score)";
                         var ethStr = item.Flags.HasFlag(ItemFlags.Ethereal) ? " [ETH]" : "";
-                        if (beepOnFound) Console.Beep();
-                        Speak("New");
+                        //if (beepOnFound) Console.Beep();
+                        Speak($"{name} is new");
                         Console.WriteLine($"\n------\n");
                         Console.WriteLine($"[{timestamp}] NEW ITEM DETECTED: {name}{ethStr}{scoreStr}");
                         if (score.HasValue) {
