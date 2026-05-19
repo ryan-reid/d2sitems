@@ -239,6 +239,7 @@ if (isMonitorMode)
                         var scoreStr = score.HasValue ? $" - (Perfection: {score:F2}%)" : " - (No Perfection Score)";
                         var ethStr = item.Flags.HasFlag(ItemFlags.Ethereal) ? " [ETH]" : "";
                         if (beepOnFound) Console.Beep();
+                        Speak("New");
                         Console.WriteLine($"\n------\n");
                         Console.WriteLine($"[{timestamp}] NEW ITEM DETECTED: {name}{ethStr}{scoreStr}");
                         if (score.HasValue)
@@ -490,6 +491,7 @@ if (isMonitorMode)
                         var scoreStr = score.HasValue ? $" - (Perfection: {score:F2}%)" : " - (No Perfection Score)";
                         var ethStr = item.Flags.HasFlag(ItemFlags.Ethereal) ? " [ETH]" : "";
                         if (beepOnFound) Console.Beep();
+                        Speak("New");
                         Console.WriteLine($"\n------\n");
                         Console.WriteLine($"[{timestamp}] NEW ITEM DETECTED: {name}{ethStr}{scoreStr}");
                         if (score.HasValue) {
@@ -605,6 +607,20 @@ if (isMonitorMode)
 
         Thread.Sleep(monitorInterval * 1000);
     }
+}
+
+void Speak(string text)
+{
+    if (!OperatingSystem.IsWindows()) return;
+    try
+    {
+        var asm = System.Reflection.Assembly.Load("System.Speech");
+        var type = asm.GetType("System.Speech.Synthesis.SpeechSynthesizer");
+        if (type == null) return;
+        var synth = Activator.CreateInstance(type);
+        type.GetMethod("SpeakAsync", new[] { typeof(string) })?.Invoke(synth, new object[] { text });
+    }
+    catch { /* speech unavailable */ }
 }
 
 void ProcessCharacterSave(string saveFile, byte[] saveBytes)
