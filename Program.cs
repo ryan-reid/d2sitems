@@ -85,6 +85,7 @@ var itemTiers = BuildItemTierLookup(excelDir);
 var itemTypes = BuildItemTypeLookup(excelDir);
 var setItemSetNames = BuildSetItemSetNameLookup(excelDir);
 var itemDefenseRanges = BuildItemDefenseRangeLookup(excelDir);
+var questItemCodes = BuildQuestItemCodes(excelDir);
 var uniqueStatRanges = BuildUniqueStatRangesLookup(excelDir);
 var setStatRanges = BuildSetStatRangesLookup(excelDir);
 var runewordStatRanges = BuildRunewordStatRangesLookup(excelDir);
@@ -255,7 +256,8 @@ if (isMonitorMode)
             foreach (var item in allItems)
             {
                 if (item.Quality is ItemQuality.Unique or ItemQuality.Set
-                    && item.Flags.HasFlag(ItemFlags.Identified))
+                    && item.Flags.HasFlag(ItemFlags.Identified)
+                    && !IsQuestItem(item))
                 {
                     var name = GetItemDisplayName(item);
                     currentItems.TryAdd(name, item);
@@ -448,6 +450,12 @@ List<JsonElement> FindExistingItems(string itemName, string findScript)
     }
 }
 
+
+bool IsQuestItem(Item item)
+{
+    var code = item.ItemCodeString.TrimEnd('\0').Trim();
+    return questItemCodes.Contains(code);
+}
 
 string StripBaseType(string name)
 {
@@ -1605,6 +1613,35 @@ Dictionary<string, string> BuildItemDefenseRangeLookup(string dir)
     }
 
     return lookup;
+}
+
+HashSet<string> BuildQuestItemCodes(string dir)
+{
+    var codes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    foreach (var file in new[] { "armor.txt", "weapons.txt", "misc.txt" })
+    {
+        var path = Path.Combine(dir, file);
+        if (!File.Exists(path)) continue;
+
+        var lines = File.ReadAllLines(path);
+        if (lines.Length < 2) continue;
+
+        var header = lines[0].Split('\t');
+        int codeIdx = Array.IndexOf(header, "code");
+        int questIdx = Array.IndexOf(header, "quest");
+        if (codeIdx < 0 || questIdx < 0) continue;
+
+        for (int i = 1; i < lines.Length; i++)
+        {
+            var cols = lines[i].Split('\t');
+            if (cols.Length <= Math.Max(codeIdx, questIdx)) continue;
+            var code = cols[codeIdx].Trim();
+            var quest = cols[questIdx].Trim();
+            if (code.Length > 0 && quest.Length > 0 && quest != "0")
+                codes.Add(code);
+        }
+    }
+    return codes;
 }
 
 Dictionary<string, string> BuildItemTierLookup(string dir)
