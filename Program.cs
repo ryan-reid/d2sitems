@@ -237,9 +237,10 @@ if (isMonitorMode)
                         var statRanges = GetStatRangesForItem(item);
                         var score = CalculatePerfectionScore(item, statRanges);
                         var scoreStr = score.HasValue ? $" - (Perfection: {score:F2}%)" : " - (No Perfection Score)";
+                        var ethStr = item.Flags.HasFlag(ItemFlags.Ethereal) ? " [ETH]" : "";
                         if (beepOnFound) Console.Beep();
                         Console.WriteLine($"\n------\n");
-                        Console.WriteLine($"[{timestamp}] NEW ITEM DETECTED: {name}{scoreStr}");
+                        Console.WriteLine($"[{timestamp}] NEW ITEM DETECTED: {name}{ethStr}{scoreStr}");
                         if (score.HasValue)
                         {
 
@@ -279,6 +280,16 @@ if (isMonitorMode)
                         // Find existing copies across all saves
                         var existing = FindExistingItems(name, findScript);
                         bool isBest = false;
+                        bool itemEthereal = item.Flags.HasFlag(ItemFlags.Ethereal);
+                        int existingEth = 0, existingNonEth = 0;
+                        foreach (var copy in existing)
+                        {
+                            bool copyEth = false;
+                            if (copy.TryGetProperty("flags", out var fl))
+                                foreach (var f in fl.EnumerateArray())
+                                    if (f.GetString() == "Ethereal") { copyEth = true; break; }
+                            if (copyEth) existingEth++; else existingNonEth++;
+                        }
                         if (existing.Count == 0)
                         {
                             Console.WriteLine($"************** This is your first one! ***************");
@@ -288,10 +299,19 @@ if (isMonitorMode)
                         else
                         {
                             Console.WriteLine($"  You already have {existing.Count} of this item.");
+                            if (itemEthereal && existingEth == 0)
+                                Console.WriteLine($"************** This is your first ETHEREAL one! ***************");
+                            else if (!itemEthereal && existingNonEth == 0)
+                                Console.WriteLine($"************** This is your first NON-ETHEREAL one! ***************");
                             isBest = true;
                             foreach (var copy in existing)
                             {
                                 var charName = copy.TryGetProperty("character", out var cn) ? cn.GetString() : "?";
+                                bool copyEthereal = false;
+                                if (copy.TryGetProperty("flags", out var fl))
+                                    foreach (var f in fl.EnumerateArray())
+                                        if (f.GetString() == "Ethereal") { copyEthereal = true; break; }
+                                var copyEthStr = copyEthereal ? " [ETH]" : "";
                                 if (copy.TryGetProperty("perfectionScore", out var ps))
                                 {
                                     var copyScore = ps.GetDouble();
@@ -299,13 +319,13 @@ if (isMonitorMode)
                                     var comparison = scoreVal > copyScore ? "THE NEW ONE IS BETTER"
                                         : scoreVal < copyScore ? "the new one is worse"
                                         : "same score";
-                                    Console.WriteLine($"    Copy on {charName} scored {copyScore:F2}%. {comparison}.");
+                                    Console.WriteLine($"    Copy on {charName}{copyEthStr} scored {copyScore:F2}%. {comparison}.");
                                     if (copyScore >= scoreVal)
                                         isBest = false;
                                 }
                                 else
                                 {
-                                    Console.WriteLine($"    Copy on [{charName}]");
+                                    Console.WriteLine($"    Copy on [{charName}]{copyEthStr}");
                                 }
 
                                 if (score.HasValue)
@@ -468,9 +488,10 @@ if (isMonitorMode)
                         var statRanges = GetStatRangesForItem(item);
                         var score = CalculatePerfectionScore(item, statRanges);
                         var scoreStr = score.HasValue ? $" - (Perfection: {score:F2}%)" : " - (No Perfection Score)";
+                        var ethStr = item.Flags.HasFlag(ItemFlags.Ethereal) ? " [ETH]" : "";
                         if (beepOnFound) Console.Beep();
                         Console.WriteLine($"\n------\n");
-                        Console.WriteLine($"[{timestamp}] NEW ITEM DETECTED: {name}{scoreStr}");
+                        Console.WriteLine($"[{timestamp}] NEW ITEM DETECTED: {name}{ethStr}{scoreStr}");
                         if (score.HasValue) {
 
                             // Print stats with ranges
@@ -521,6 +542,11 @@ if (isMonitorMode)
                             foreach (var copy in existing)
                             {
                                 var charName = copy.TryGetProperty("character", out var cn) ? cn.GetString() : "?";
+                                bool copyEthereal = false;
+                                if (copy.TryGetProperty("flags", out var fl))
+                                    foreach (var f in fl.EnumerateArray())
+                                        if (f.GetString() == "Ethereal") { copyEthereal = true; break; }
+                                var copyEthStr = copyEthereal ? " [ETH]" : "";
                                 if (copy.TryGetProperty("perfectionScore", out var ps))
                                 {
                                     var copyScore = ps.GetDouble();
@@ -528,13 +554,13 @@ if (isMonitorMode)
                                     var comparison = scoreVal > copyScore ? "THE NEW ONE IS BETTER"
                                         : scoreVal < copyScore ? "the new one is worse"
                                         : "same score";
-                                    Console.WriteLine($"    Copy on {charName} scored {copyScore:F2}%. {comparison}.");
+                                    Console.WriteLine($"    Copy on {charName}{copyEthStr} scored {copyScore:F2}%. {comparison}.");
                                     if (copyScore >= scoreVal)
                                         isBest = false;
                                 }
                                 else
                                 {
-                                    Console.WriteLine($"    Copy on [{charName}]");
+                                    Console.WriteLine($"    Copy on [{charName}]{copyEthStr}");
                                 }
 
                                 if (score.HasValue) {
