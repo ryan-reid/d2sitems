@@ -169,9 +169,13 @@ if (isMonitorMode)
     var beepSettings = config.GetValueOrDefault("beep", "none")
         .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
         .Select(s => s.ToLowerInvariant()).ToHashSet();
-    bool beepOnFound = beepSettings.Contains("found");
-    bool beepOnBest = beepOnFound ? false : beepSettings.Contains("best");
-    bool beepOnNew = beepOnFound ? false : beepSettings.Contains("new");
+    bool beepOnBest = beepSettings.Contains("best");
+    bool beepOnNew = beepSettings.Contains("new");
+    var speakSettings = config.GetValueOrDefault("speak", "none")
+        .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+        .Select(s => s.ToLowerInvariant()).ToHashSet();
+    bool speakOnBest = speakSettings.Contains("best");
+    bool speakOnNew = speakSettings.Contains("new");
     // Determine the matching shared stash file for this character
     string? monitorStashFile = null;
     try
@@ -238,8 +242,6 @@ if (isMonitorMode)
                         var score = CalculatePerfectionScore(item, statRanges);
                         var scoreStr = score.HasValue ? $" - (Perfection: {score:F2}%)" : " - (No Perfection Score)";
                         var ethStr = item.Flags.HasFlag(ItemFlags.Ethereal) ? " [ETH]" : "";
-                        //if (beepOnFound) Console.Beep();
-                        Speak($"{name} is new");
                         Console.WriteLine($"\n------\n");
                         Console.WriteLine($"[{timestamp}] NEW ITEM DETECTED: {name}{ethStr}{scoreStr}");
                         if (score.HasValue)
@@ -296,6 +298,7 @@ if (isMonitorMode)
                             Console.WriteLine($"************** This is your first one! ***************");
                             isBest = true;
                             if (beepOnNew) Console.Beep();
+                            if (speakOnNew) Speak($"{name} is new");
                         }
                         else
                         {
@@ -359,6 +362,7 @@ if (isMonitorMode)
                             if (score.HasValue && isBest)
                             {
                                 Console.WriteLine($"************** NEW BEST! ***************");
+                                if (speakOnBest) Speak($"{name} is best");
                                 if (beepOnBest) Console.Beep();
                             }
                         }
@@ -413,201 +417,6 @@ List<JsonElement> FindExistingItems(string itemName, string findScript)
     }
 }
 
-// Monitor mode: watch a character for new unique/set items
-if (isMonitorMode)
-{
-    var monitorFile = fileArgs[0];
-    var monitorInterval = int.TryParse(config.GetValueOrDefault("monitor_interval", "5"), out var mi) ? mi : 5;
-    var beepSettings = config.GetValueOrDefault("beep", "none")
-        .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-        .Select(s => s.ToLowerInvariant()).ToHashSet();
-    bool beepOnFound = beepSettings.Contains("found");
-    bool beepOnBest = beepOnFound ? false : beepSettings.Contains("best");
-    bool beepOnNew = beepOnFound ? false : beepSettings.Contains("new");
-    // Determine the matching shared stash file for this character
-    string? monitorStashFile = null;
-    try
-    {
-        var initBytes = File.ReadAllBytes(monitorFile);
-        var initSave = D2Save.Read(initBytes);
-        var charGameVersion = initSave.Character.Preview.GameVersion.ToString();
-        var charCore = initSave.Character.Flags.HasFlag(CharacterFlags.Hardcore) ? "HardCore" : "SoftCore";
-        var stashPrefix = charGameVersion == "ReignOfTheWarlock" ? "Modern" : "";
-        var stashName = $"{stashPrefix}SharedStash{charCore}V2.d2i";
-        var stashPath = Path.Combine(defaultSaveDir, stashName);
-        if (File.Exists(stashPath))
-        {
-            monitorStashFile = stashPath;
-            Console.WriteLine($"Also refreshing shared stash: {Path.GetFileName(monitorStashFile)}");
-        }
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"Warning: could not read character for stash detection: {ex.Message}");
-    }
-
-    Console.WriteLine($"Monitoring {monitorFile} for new unique/set items every {monitorInterval}s (Ctrl+C to stop)...");
-
-    var findScript = Path.Combine(Directory.GetCurrentDirectory(), "find_items.py");
-    if (!File.Exists(findScript))
-        findScript = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "find_items.py");
-
-    Dictionary<string, Item> previousItems = new();
-    bool firstRun = true;
-
-    while (true)
-    {
-        try
-        {
-            byte[] saveBytes = File.ReadAllBytes(monitorFile);
-            D2Save save = D2Save.Read(saveBytes);
-
-            var allItems = new List<Item>(save.Items);
-            if (save.MercItems != null)
-                foreach (var item in save.MercItems.Items)
-                    allItems.Add(item);
-
-            // Collect current unique/set items by name
-            var currentItems = new Dictionary<string, Item>();
-            foreach (var item in allItems)
-            {
-                if (item.Quality is ItemQuality.Unique or ItemQuality.Set
-                    && item.Flags.HasFlag(ItemFlags.Identified))
-                {
-                    var name = GetItemDisplayName(item);
-                    currentItems.TryAdd(name, item);
-                }
-            }
-
-            if (!firstRun)
-            {
-                foreach (var (name, item) in currentItems)
-                {
-                    if (!previousItems.ContainsKey(name))
-                    {
-                        var timestamp = DateTime.Now.ToString("HH:mm:ss");
-                        var statRanges = GetStatRangesForItem(item);
-                        var score = CalculatePerfectionScore(item, statRanges);
-                        var scoreStr = score.HasValue ? $" - (Perfection: {score:F2}%)" : " - (No Perfection Score)";
-                        var ethStr = item.Flags.HasFlag(ItemFlags.Ethereal) ? " [ETH]" : "";
-                        //if (beepOnFound) Console.Beep();
-                        Speak($"{name} is new");
-                        Console.WriteLine($"\n------\n");
-                        Console.WriteLine($"[{timestamp}] NEW ITEM DETECTED: {name}{ethStr}{scoreStr}");
-                        if (score.HasValue) {
-
-                            // Print stats with ranges
-                            if (item.Defense.HasValue)
-                            {
-                                var baseRange = GetBaseDefenseRange(item.ItemCodeString);
-                                if (baseRange != null)
-                                    Console.WriteLine($"  Defense: {item.Defense} (base: {baseRange})");
-                                else
-                                    Console.WriteLine($"  Defense: {item.Defense}");
-                            }
-                            var allMonStats = new List<Stat>();
-                            if (item.RunewordStats != null) allMonStats.AddRange(item.RunewordStats);
-                            if (item.Stats != null) allMonStats.AddRange(item.Stats);
-                            foreach (var stat in allMonStats)
-                            {
-                                var text = FormatStat(stat);
-                                if (statRanges != null && statRanges.TryGetValue(((int)stat.Id, stat.Layer), out var range) && range.Min != range.Max)
-                                    Console.WriteLine($"  {text} [{range.Min}-{range.Max}]");
-                                else
-                                    Console.WriteLine($"  {text}");
-                            }
-                        } 
-
-                        // Refresh shared stash JSON before searching
-                        if (monitorStashFile != null)
-                        {
-                            try
-                            {
-                                var stashBytes = File.ReadAllBytes(monitorStashFile);
-                                ProcessSharedStash(monitorStashFile, stashBytes);
-                            }
-                            catch { }
-                        }
-
-                        // Find existing copies across all saves
-                        var existing = FindExistingItems(name, findScript);
-                        bool isBest = false;
-                        if (existing.Count == 0)
-                        {
-                            Console.WriteLine($"************** This is your first one! ***************");
-                            isBest = true;
-                            if (beepOnNew) Console.Beep();
-                        } else
-                        {
-                            Console.WriteLine($"  You already have {existing.Count} of this item.");
-                            isBest = true;
-                            foreach (var copy in existing)
-                            {
-                                var charName = copy.TryGetProperty("character", out var cn) ? cn.GetString() : "?";
-                                bool copyEthereal = false;
-                                if (copy.TryGetProperty("flags", out var fl))
-                                    foreach (var f in fl.EnumerateArray())
-                                        if (f.GetString() == "Ethereal") { copyEthereal = true; break; }
-                                var copyEthStr = copyEthereal ? " [ETH]" : "";
-                                if (copy.TryGetProperty("perfectionScore", out var ps))
-                                {
-                                    var copyScore = ps.GetDouble();
-                                    var scoreVal = score!.Value;
-                                    var comparison = scoreVal > copyScore ? "THE NEW ONE IS BETTER"
-                                        : scoreVal < copyScore ? "the new one is worse"
-                                        : "same score";
-                                    Console.WriteLine($"    Copy on {charName}{copyEthStr} scored {copyScore:F2}%. {comparison}.");
-                                    if (copyScore >= scoreVal)
-                                        isBest = false;
-                                }
-                                else
-                                {
-                                    Console.WriteLine($"    Copy on [{charName}]{copyEthStr}");
-                                }
-
-                                if (score.HasValue) {
-                                    // Print stats of existing copy
-                                    foreach (var statList in new[] { "runewordStats", "stats" })
-                                    {
-                                        if (copy.TryGetProperty(statList, out var stats))
-                                        {
-                                            foreach (var s in stats.EnumerateArray())
-                                            {
-                                                var desc = s.TryGetProperty("description", out var d) ? d.GetString() : "?";
-                                                var rangeStr = s.TryGetProperty("range", out var r) ? $" [{r.GetString()}]" : "";
-                                                Console.WriteLine($"      {desc}{rangeStr}");
-                                            }
-                                        }
-                                    }
-                                }
-
-                            }
-                            if (score.HasValue && isBest)
-                            {
-                                Console.WriteLine($"************** This is the best one! ***************");
-                                if (beepOnBest) Console.Beep();
-                            }
-                        }
-                    }
-                }
-            }
-            else
-            {
-                Console.WriteLine($"Loaded {currentItems.Count} unique/set items. Watching for changes...");
-                firstRun = false;
-            }
-
-            previousItems = currentItems;
-        }
-        catch (Exception ex)
-        {
-            // File might be locked during save, just skip this cycle
-            Console.WriteLine($"  (read error, retrying: {ex.Message})");
-        }
-
-        Thread.Sleep(monitorInterval * 1000);
-    }
-}
 
 void Speak(string text)
 {
