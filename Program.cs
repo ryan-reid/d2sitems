@@ -430,11 +430,8 @@ void Speak(string text)
     if (!OperatingSystem.IsWindows()) return;
     try
     {
-        var asm = System.Reflection.Assembly.Load("System.Speech");
-        var type = asm.GetType("System.Speech.Synthesis.SpeechSynthesizer");
-        if (type == null) return;
-        var synth = Activator.CreateInstance(type);
-        type.GetMethod("SpeakAsync", new[] { typeof(string) })?.Invoke(synth, new object[] { text });
+        SpeechState.Init();
+        SpeechState.SpeakAsyncMethod?.Invoke(SpeechState.Synth, new object[] { text });
     }
     catch { /* speech unavailable */ }
 }
@@ -1812,3 +1809,22 @@ Dictionary<string, string> LoadConfig(string filename)
 record GemMod(string Code, string Param, int Min, int Max);
 record GemModSet(List<GemMod> WeaponMods, List<GemMod> HelmMods, List<GemMod> ShieldMods);
 record PropertyEntry(int Func, string Stat);
+
+// Cached single SpeechSynthesizer so SpeakAsync calls queue up rather than overlap
+static class SpeechState
+{
+    public static object? Synth;
+    public static System.Reflection.MethodInfo? SpeakAsyncMethod;
+    static bool _initialized;
+    public static void Init()
+    {
+        if (_initialized) return;
+        _initialized = true;
+        if (!OperatingSystem.IsWindows()) return;
+        var asm = System.Reflection.Assembly.Load("System.Speech");
+        var type = asm.GetType("System.Speech.Synthesis.SpeechSynthesizer");
+        if (type == null) return;
+        Synth = Activator.CreateInstance(type);
+        SpeakAsyncMethod = type.GetMethod("SpeakAsync", new[] { typeof(string) });
+    }
+}
