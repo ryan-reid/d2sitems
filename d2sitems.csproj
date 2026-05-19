@@ -11,4 +11,8 @@
     <PackageReference Include="D2SSharp" Version="0.0.21" />
   </ItemGroup>
 
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <PackageReference Include="System.Speech" Version="9.0.0" />
+  </ItemGroup>
+
 </Project>

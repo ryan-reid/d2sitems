@@ -80,6 +80,12 @@ Read the help message to see all the search parameters.  You can search for spec
 Alternatively, you can use whatever json or search tools you want to search for items.
 
 
+You can have the tool monitor your save file in realtime and every time you identify a set/unique item, it will search all your characters for that item and notify you if you already have it.  
+
+- dotnet run --monitor CharacterName
+
+It prints information about the object to the dos prompt window, including ranges for all the rolled stats.  You can configure it to beep or speak to you if this is a new item that you haven't found yet.  You can have it beep or speak to you if this is the best version of this item that you have found so far.  Speaking and beeping is set up in the config file.
+
 
 It is quite annoying finding the character that you want to pull an item off of in your 200 mules.  So, we have the concept of muling and fetching.
 
