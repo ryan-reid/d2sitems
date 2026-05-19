@@ -169,9 +169,13 @@ if (isMonitorMode)
     var beepSettings = config.GetValueOrDefault("beep", "none")
         .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
         .Select(s => s.ToLowerInvariant()).ToHashSet();
-    bool beepOnFound = beepSettings.Contains("found");
-    bool beepOnBest = beepOnFound ? false : beepSettings.Contains("best");
-    bool beepOnNew = beepOnFound ? false : beepSettings.Contains("new");
+    bool beepOnBest = beepSettings.Contains("best");
+    bool beepOnNew = beepSettings.Contains("new");
+    var speakSettings = config.GetValueOrDefault("speak", "none")
+        .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+        .Select(s => s.ToLowerInvariant()).ToHashSet();
+    bool speakOnBest = speakSettings.Contains("best");
+    bool speakOnNew = speakSettings.Contains("new");
     // Determine the matching shared stash file for this character
     string? monitorStashFile = null;
     try
@@ -269,7 +273,6 @@ if (isMonitorMode)
                         var score = CalculatePerfectionScore(item, statRanges);
                         var scoreStr = score.HasValue ? $" - (Perfection: {score:F2}%)" : " - (No Perfection Score)";
                         var ethStr = item.Flags.HasFlag(ItemFlags.Ethereal) ? " [ETH]" : "";
-                        if (beepOnFound) Console.Beep();
                         Console.WriteLine($"\n------\n");
                         Console.WriteLine($"[{timestamp}] NEW ITEM DETECTED: {name}{ethStr}{scoreStr}");
                         if (score.HasValue)
@@ -326,6 +329,7 @@ if (isMonitorMode)
                             Console.WriteLine($"************** This is your first one! ***************");
                             isBest = true;
                             if (beepOnNew) Console.Beep();
+                            if (speakOnNew) Speak($"{StripBaseType(name)} is new");
                         }
                         else
                         {
@@ -389,6 +393,7 @@ if (isMonitorMode)
                             if (score.HasValue && isBest)
                             {
                                 Console.WriteLine($"************** NEW BEST! ***************");
+                                if (speakOnBest) Speak($"{StripBaseType(name)} is best");
                                 if (beepOnBest) Console.Beep();
                             }
                         }
@@ -443,6 +448,24 @@ List<JsonElement> FindExistingItems(string itemName, string findScript)
     }
 }
 
+
+string StripBaseType(string name)
+{
+    // "Andariel's Visage (Demonhead)" -> "Andariel's Visage"
+    var m = Regex.Match(name, @"^(.*?)\s*\([^)]*\)\s*$");
+    return m.Success ? m.Groups[1].Value : name;
+}
+
+void Speak(string text)
+{
+    if (!OperatingSystem.IsWindows()) return;
+    try
+    {
+        SpeechState.Init();
+        SpeechState.SpeakAsyncMethod?.Invoke(SpeechState.Synth, new object[] { text });
+    }
+    catch { /* speech unavailable */ }
+}
 
 void ProcessCharacterSave(string saveFile, byte[] saveBytes)
 {
@@ -1817,3 +1840,22 @@ Dictionary<string, string> LoadConfig(string filename)
 record GemMod(string Code, string Param, int Min, int Max);
 record GemModSet(List<GemMod> WeaponMods, List<GemMod> HelmMods, List<GemMod> ShieldMods);
 record PropertyEntry(int Func, string Stat);
+
+// Cached single SpeechSynthesizer so SpeakAsync calls queue up rather than overlap
+static class SpeechState
+{
+    public static object? Synth;
+    public static System.Reflection.MethodInfo? SpeakAsyncMethod;
+    static bool _initialized;
+    public static void Init()
+    {
+        if (_initialized) return;
+        _initialized = true;
+        if (!OperatingSystem.IsWindows()) return;
+        var asm = System.Reflection.Assembly.Load("System.Speech");
+        var type = asm.GetType("System.Speech.Synthesis.SpeechSynthesizer");
+        if (type == null) return;
+        Synth = Activator.CreateInstance(type);
+        SpeakAsyncMethod = type.GetMethod("SpeakAsync", new[] { typeof(string) });
+    }
+}
