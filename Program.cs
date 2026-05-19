@@ -298,7 +298,7 @@ if (isMonitorMode)
                             Console.WriteLine($"************** This is your first one! ***************");
                             isBest = true;
                             if (beepOnNew) Console.Beep();
-                            if (speakOnNew) Speak($"{name} is new");
+                            if (speakOnNew) Speak($"{StripBaseType(name)} is new");
                         }
                         else
                         {
@@ -362,7 +362,7 @@ if (isMonitorMode)
                             if (score.HasValue && isBest)
                             {
                                 Console.WriteLine($"************** NEW BEST! ***************");
-                                if (speakOnBest) Speak($"{name} is best");
+                                if (speakOnBest) Speak($"{StripBaseType(name)} is best");
                                 if (beepOnBest) Console.Beep();
                             }
                         }
@@ -417,6 +417,13 @@ List<JsonElement> FindExistingItems(string itemName, string findScript)
     }
 }
 
+
+string StripBaseType(string name)
+{
+    // "Andariel's Visage (Demonhead)" -> "Andariel's Visage"
+    var m = Regex.Match(name, @"^(.*?)\s*\([^)]*\)\s*$");
+    return m.Success ? m.Groups[1].Value : name;
+}
 
 void Speak(string text)
 {
