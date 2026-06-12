@@ -292,6 +292,18 @@ def load_grail_items(excel_dir, exclude=None):
     grail["_setOrder"] = set_order
     grail["_setItemBases"] = set_item_bases
 
+    # Build rune code -> rune name map from misc.txt
+    rune_names = {}
+    misc = read_tsv(os.path.join(excel_dir, "misc.txt"))
+    if misc:
+        for row in misc:
+            code = row.get("code", "").strip()
+            name = row.get("name", "").strip()
+            if re.match(r"^r\d+$", code) and name:
+                # Prefer string-table translation if available
+                rune_names[code] = strings.get(code, name)
+
+    runeword_runes = {}  # runeword_name -> [rune name, ...]
     runewords = read_tsv(os.path.join(excel_dir, "runes.txt"))
     if runewords:
         seen = set()
@@ -305,6 +317,16 @@ def load_grail_items(excel_dir, exclude=None):
             if name and name not in seen and name not in exclude:
                 seen.add(name)
                 grail["Runewords"].append(name)
+                runes = []
+                for i in range(1, 7):
+                    rune = row.get(f"Rune{i}", "").strip()
+                    if rune:
+                        # Strip "Rune" suffix from display name for brevity
+                        rn = rune_names.get(rune, rune)
+                        rn = re.sub(r"\s+Rune$", "", rn)
+                        runes.append(rn)
+                runeword_runes[name] = runes
+    grail["_runewordRunes"] = runeword_runes
 
     return grail
 
@@ -357,6 +379,7 @@ def run_grail(excel_dir, save_dir, mule_dir, core_filter, gameversion_filter, ex
     set_order = grail.pop("_setOrder", [])
     set_item_bases = grail.pop("_setItemBases", {})
     unique_item_bases = grail.pop("_uniqueItemBases", {})
+    runeword_runes = grail.pop("_runewordRunes", {})
 
     total_items = 0
     total_owned = 0
@@ -377,19 +400,25 @@ def run_grail(excel_dir, save_dir, mule_dir, core_filter, gameversion_filter, ex
                     if holders:
                         cat_owned += 1
                         unique_chars = sorted(set(h[0] for h in holders))
-                        print(f"    [✓] {name}{base_str}  ({', '.join(unique_chars)})")
+                        print(f"    [✓] {name}{base_str}")
+                        print(f"        {', '.join(unique_chars)}")
                     else:
                         print(f"    [ ] {name}{base_str}")
         else:
             bases = unique_item_bases if category == "Unique Items" else {}
+            runes = runeword_runes if category == "Runewords" else {}
             for name in sorted(names):
                 base = bases.get(name, "")
                 base_str = f" ({base})" if base else ""
+                rune_list = runes.get(name, [])
+                if rune_list:
+                    base_str = f" [{' + '.join(rune_list)}]"
                 holders = owned.get(name, [])
                 if holders:
                     cat_owned += 1
                     unique_chars = sorted(set(h[0] for h in holders))
-                    print(f"  [✓] {name}{base_str}  ({', '.join(unique_chars)})")
+                    print(f"  [✓] {name}{base_str}")
+                    print(f"      {', '.join(unique_chars)}")
                 else:
                     print(f"  [ ] {name}{base_str}")
         print(f"  Subtotal: {cat_owned} / {len(names)} ({100.0 * cat_owned / len(names):.1f}%)" if names else "  Subtotal: 0 / 0")
