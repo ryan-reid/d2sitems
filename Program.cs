@@ -454,6 +454,16 @@ List<JsonElement> FindExistingItems(string itemName, string findScript)
 }
 
 
+string CleanItemName(string s)
+{
+    // Strip D2 color codes (0xFF followed by 'c' and one more char), bullets,
+    // and other non-ASCII junk. Collapse whitespace.
+    s = Regex.Replace(s, "ÿc.", "");
+    s = Regex.Replace(s, "[^\\x20-\\x7E]", "");
+    s = Regex.Replace(s, "\\s+", " ");
+    return s.Trim();
+}
+
 string StripNonAscii(string s)
 {
     var sb = new System.Text.StringBuilder(s.Length);
@@ -1263,7 +1273,7 @@ Dictionary<string, string> BuildStringTable(string dir)
                 var key = keyEl.GetString();
                 var en = enEl.GetString();
                 if (key != null && en != null && !lookup.ContainsKey(key))
-                    lookup[key] = en;
+                    lookup[key] = CleanItemName(en);
             }
         }
         catch { /* skip on parse error */ }
