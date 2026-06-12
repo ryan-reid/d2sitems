@@ -259,14 +259,25 @@ def load_grail_items(excel_dir):
                 seen.add(name)
                 grail["Unique Items"].append(name)
 
+    # Set items: track each item's parent set name so we can group later
+    sets_by_set = {}  # set_name -> [item_name, ...]
+    set_order = []  # preserve insertion order
     sets = read_tsv(os.path.join(excel_dir, "setitems.txt"))
     if sets:
         seen = set()
         for row in sets:
             name = localize(row.get("index", "").strip())
+            set_name = localize(row.get("set", "").strip())
             if name and name not in seen:
                 seen.add(name)
                 grail["Set Items"].append(name)
+                if set_name:
+                    if set_name not in sets_by_set:
+                        sets_by_set[set_name] = []
+                        set_order.append(set_name)
+                    sets_by_set[set_name].append(name)
+    grail["_setsByName"] = sets_by_set
+    grail["_setOrder"] = set_order
 
     runewords = read_tsv(os.path.join(excel_dir, "runes.txt"))
     if runewords:
@@ -329,20 +340,38 @@ def run_grail(excel_dir, save_dir, mule_dir, core_filter, gameversion_filter):
     grail = load_grail_items(excel_dir)
     owned = collect_owned_item_names(save_dir, core_filter, gameversion_filter, mule_dir)
 
+    sets_by_set = grail.pop("_setsByName", {})
+    set_order = grail.pop("_setOrder", [])
+
     total_items = 0
     total_owned = 0
     for category, names in grail.items():
         print(f"\n── {category} ──")
         cat_owned = 0
-        for name in sorted(names):
-            holders = owned.get(name, [])
-            if holders:
-                cat_owned += 1
-                # Dedupe characters
-                unique_chars = sorted(set(h[0] for h in holders))
-                print(f"  [✓] {name}  ({', '.join(unique_chars)})")
-            else:
-                print(f"  [ ] {name}")
+        if category == "Set Items" and sets_by_set:
+            # Group set items by parent set, sorted by set name
+            for set_name in sorted(set_order):
+                items_in_set = sets_by_set[set_name]
+                set_owned = sum(1 for n in items_in_set if owned.get(n))
+                pct = 100.0 * set_owned / len(items_in_set) if items_in_set else 0.0
+                print(f"\n  {set_name}  [{set_owned}/{len(items_in_set)} - {pct:.0f}%]")
+                for name in sorted(items_in_set):
+                    holders = owned.get(name, [])
+                    if holders:
+                        cat_owned += 1
+                        unique_chars = sorted(set(h[0] for h in holders))
+                        print(f"    [✓] {name}  ({', '.join(unique_chars)})")
+                    else:
+                        print(f"    [ ] {name}")
+        else:
+            for name in sorted(names):
+                holders = owned.get(name, [])
+                if holders:
+                    cat_owned += 1
+                    unique_chars = sorted(set(h[0] for h in holders))
+                    print(f"  [✓] {name}  ({', '.join(unique_chars)})")
+                else:
+                    print(f"  [ ] {name}")
         print(f"  Subtotal: {cat_owned} / {len(names)} ({100.0 * cat_owned / len(names):.1f}%)" if names else "  Subtotal: 0 / 0")
         total_items += len(names)
         total_owned += cat_owned
