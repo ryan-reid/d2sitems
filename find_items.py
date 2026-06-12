@@ -251,14 +251,20 @@ def load_grail_items(excel_dir, exclude=None):
         rows = [dict(zip(header, line.split("\t"))) for line in lines[1:]]
         return rows
 
+    unique_item_bases = {}  # item_name -> base_name
     uniques = read_tsv(os.path.join(excel_dir, "uniqueitems.txt"))
     if uniques:
         seen = set()
         for row in uniques:
             name = localize(row.get("index", "").strip())
+            base_code = row.get("code", "").strip()
+            base_fallback = row.get("*ItemName", "").strip()
+            base_name = strings.get(base_code, base_fallback)
             if name and name not in seen and name not in exclude:
                 seen.add(name)
                 grail["Unique Items"].append(name)
+                unique_item_bases[name] = base_name
+    grail["_uniqueItemBases"] = unique_item_bases
 
     # Set items: track each item's parent set name and base type so we can group later
     sets_by_set = {}  # set_name -> [(item_name, base_name), ...]
@@ -350,6 +356,7 @@ def run_grail(excel_dir, save_dir, mule_dir, core_filter, gameversion_filter, ex
     sets_by_set = grail.pop("_setsByName", {})
     set_order = grail.pop("_setOrder", [])
     set_item_bases = grail.pop("_setItemBases", {})
+    unique_item_bases = grail.pop("_uniqueItemBases", {})
 
     total_items = 0
     total_owned = 0
@@ -374,14 +381,17 @@ def run_grail(excel_dir, save_dir, mule_dir, core_filter, gameversion_filter, ex
                     else:
                         print(f"    [ ] {name}{base_str}")
         else:
+            bases = unique_item_bases if category == "Unique Items" else {}
             for name in sorted(names):
+                base = bases.get(name, "")
+                base_str = f" ({base})" if base else ""
                 holders = owned.get(name, [])
                 if holders:
                     cat_owned += 1
                     unique_chars = sorted(set(h[0] for h in holders))
-                    print(f"  [✓] {name}  ({', '.join(unique_chars)})")
+                    print(f"  [✓] {name}{base_str}  ({', '.join(unique_chars)})")
                 else:
-                    print(f"  [ ] {name}")
+                    print(f"  [ ] {name}{base_str}")
         print(f"  Subtotal: {cat_owned} / {len(names)} ({100.0 * cat_owned / len(names):.1f}%)" if names else "  Subtotal: 0 / 0")
         total_items += len(names)
         total_owned += cat_owned
