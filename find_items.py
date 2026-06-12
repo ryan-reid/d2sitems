@@ -230,9 +230,10 @@ def load_string_table(excel_dir):
             continue
     return table
 
-def load_grail_items(excel_dir):
+def load_grail_items(excel_dir, exclude=None):
     """Load all unique items, set items, and runewords from excel dir.
     Returns dict: category -> list of item names (localized)."""
+    exclude = exclude or set()
     grail = {"Unique Items": [], "Set Items": [], "Runewords": []}
     strings = load_string_table(excel_dir)
 
@@ -255,22 +256,27 @@ def load_grail_items(excel_dir):
         seen = set()
         for row in uniques:
             name = localize(row.get("index", "").strip())
-            if name and name not in seen:
+            if name and name not in seen and name not in exclude:
                 seen.add(name)
                 grail["Unique Items"].append(name)
 
-    # Set items: track each item's parent set name so we can group later
-    sets_by_set = {}  # set_name -> [item_name, ...]
+    # Set items: track each item's parent set name and base type so we can group later
+    sets_by_set = {}  # set_name -> [(item_name, base_name), ...]
     set_order = []  # preserve insertion order
+    set_item_bases = {}  # item_name -> base_name
     sets = read_tsv(os.path.join(excel_dir, "setitems.txt"))
     if sets:
         seen = set()
         for row in sets:
             name = localize(row.get("index", "").strip())
             set_name = localize(row.get("set", "").strip())
-            if name and name not in seen:
+            base_code = row.get("item", "").strip()
+            base_fallback = row.get("*ItemName", "").strip()
+            base_name = strings.get(base_code, base_fallback)
+            if name and name not in seen and name not in exclude:
                 seen.add(name)
                 grail["Set Items"].append(name)
+                set_item_bases[name] = base_name
                 if set_name:
                     if set_name not in sets_by_set:
                         sets_by_set[set_name] = []
@@ -278,6 +284,7 @@ def load_grail_items(excel_dir):
                     sets_by_set[set_name].append(name)
     grail["_setsByName"] = sets_by_set
     grail["_setOrder"] = set_order
+    grail["_setItemBases"] = set_item_bases
 
     runewords = read_tsv(os.path.join(excel_dir, "runes.txt"))
     if runewords:
@@ -289,7 +296,7 @@ def load_grail_items(excel_dir):
             raw_key = row.get("Name", "").strip()
             fallback = row.get("*Rune Name", "").strip()
             name = strings.get(raw_key, fallback)
-            if name and name not in seen:
+            if name and name not in seen and name not in exclude:
                 seen.add(name)
                 grail["Runewords"].append(name)
 
@@ -336,12 +343,13 @@ def collect_owned_item_names(directory, core_filter, gameversion_filter, mule_di
     scan(mule_dir, True)
     return owned
 
-def run_grail(excel_dir, save_dir, mule_dir, core_filter, gameversion_filter):
-    grail = load_grail_items(excel_dir)
+def run_grail(excel_dir, save_dir, mule_dir, core_filter, gameversion_filter, exclude=None):
+    grail = load_grail_items(excel_dir, exclude=exclude)
     owned = collect_owned_item_names(save_dir, core_filter, gameversion_filter, mule_dir)
 
     sets_by_set = grail.pop("_setsByName", {})
     set_order = grail.pop("_setOrder", [])
+    set_item_bases = grail.pop("_setItemBases", {})
 
     total_items = 0
     total_owned = 0
@@ -356,13 +364,15 @@ def run_grail(excel_dir, save_dir, mule_dir, core_filter, gameversion_filter):
                 pct = 100.0 * set_owned / len(items_in_set) if items_in_set else 0.0
                 print(f"\n  {set_name}  [{set_owned}/{len(items_in_set)} - {pct:.0f}%]")
                 for name in sorted(items_in_set):
+                    base = set_item_bases.get(name, "")
+                    base_str = f" ({base})" if base else ""
                     holders = owned.get(name, [])
                     if holders:
                         cat_owned += 1
                         unique_chars = sorted(set(h[0] for h in holders))
-                        print(f"    [✓] {name}  ({', '.join(unique_chars)})")
+                        print(f"    [✓] {name}{base_str}  ({', '.join(unique_chars)})")
                     else:
-                        print(f"    [ ] {name}")
+                        print(f"    [ ] {name}{base_str}")
         else:
             for name in sorted(names):
                 holders = owned.get(name, [])
@@ -500,7 +510,8 @@ if __name__ == "__main__":
         if not excel_dir or not os.path.isdir(excel_dir):
             print(f"Error: excel_dir not configured or not found: {excel_dir}")
             exit(1)
-        run_grail(excel_dir, save_dir, config.get("mule_dir"), core_filter, gameversion_filter)
+        exclude = set(n.strip() for n in config.get("exclude_items", "").split(",") if n.strip())
+        run_grail(excel_dir, save_dir, config.get("mule_dir"), core_filter, gameversion_filter, exclude=exclude)
         exit(0)
 
     results = search_items(save_dir, filters, core_filter, gameversion_filter)
