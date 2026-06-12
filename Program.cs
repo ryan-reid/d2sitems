@@ -86,6 +86,9 @@ var itemTypes = BuildItemTypeLookup(excelDir);
 var setItemSetNames = BuildSetItemSetNameLookup(excelDir, stringTable);
 var itemDefenseRanges = BuildItemDefenseRangeLookup(excelDir);
 var questItemCodes = BuildQuestItemCodes(excelDir);
+var excludedItemNames = config.GetValueOrDefault("exclude_items", "")
+    .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+    .ToHashSet(StringComparer.OrdinalIgnoreCase);
 var uniqueStatRanges = BuildUniqueStatRangesLookup(excelDir);
 var setStatRanges = BuildSetStatRangesLookup(excelDir);
 var runewordStatRanges = BuildRunewordStatRangesLookup(excelDir);
@@ -460,6 +463,19 @@ string StripNonAscii(string s)
     return sb.ToString();
 }
 
+bool IsExcludedByName(Item item)
+{
+    if (excludedItemNames.Count == 0) return false;
+    var baseName = GetItemName(item.ItemCodeString);
+    if (excludedItemNames.Contains(baseName)) return true;
+    var displayName = GetItemDisplayName(item);
+    if (excludedItemNames.Contains(displayName)) return true;
+    // Also strip the "(base)" suffix and try the leading portion
+    var m = Regex.Match(displayName, @"^(.*?)\s*\([^)]*\)\s*$");
+    if (m.Success && excludedItemNames.Contains(m.Groups[1].Value)) return true;
+    return false;
+}
+
 bool IsQuestItem(Item item)
 {
     var code = item.ItemCodeString.TrimEnd('\0').Trim();
@@ -533,7 +549,7 @@ void ProcessCharacterSave(string saveFile, byte[] saveBytes)
         },
         ["stats"] = BuildCharStatsJson(save),
         ["items"] = equipped.Concat(belt).Concat(inventory).Concat(stash).Concat(cube).Concat(merc)
-            .Select(BuildItemJson).ToList()
+            .Where(i => !IsExcludedByName(i)).Select(BuildItemJson).ToList()
     };
 
     var jsonPath = Path.ChangeExtension(saveFile, ".json");
@@ -566,7 +582,7 @@ void ProcessSharedStash(string saveFile, byte[] saveBytes)
     var gameVersion = fileName.StartsWith("Modern", StringComparison.OrdinalIgnoreCase)
         ? "ReignOfTheWarlock" : "Expansion";
 
-    var allItems = tabItems.SelectMany(t => t.Items).Select(BuildItemJson).ToList();
+    var allItems = tabItems.SelectMany(t => t.Items).Where(i => !IsExcludedByName(i)).Select(BuildItemJson).ToList();
     var jsonData = new Dictionary<string, object>
     {
         ["file"] = Path.GetFileName(saveFile),
