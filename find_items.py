@@ -292,6 +292,9 @@ def load_grail_items(excel_dir, exclude=None):
     grail["_setOrder"] = set_order
     grail["_setItemBases"] = set_item_bases
 
+    def strip_non_ascii(s):
+        return "".join(c for c in s if 0x20 <= ord(c) <= 0x7E)
+
     # Build rune code -> rune name map from misc.txt
     rune_names = {}
     misc = read_tsv(os.path.join(excel_dir, "misc.txt"))
@@ -300,8 +303,8 @@ def load_grail_items(excel_dir, exclude=None):
             code = row.get("code", "").strip()
             name = row.get("name", "").strip()
             if re.match(r"^r\d+$", code) and name:
-                # Prefer string-table translation if available
-                rune_names[code] = strings.get(code, name)
+                # Prefer string-table translation if available; strip color codes etc.
+                rune_names[code] = strip_non_ascii(strings.get(code, name)).strip()
 
     runeword_runes = {}  # runeword_name -> [rune name, ...]
     runewords = read_tsv(os.path.join(excel_dir, "runes.txt"))
