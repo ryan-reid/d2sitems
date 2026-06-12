@@ -83,7 +83,7 @@ var propertyToStats = BuildPropertyToStatsLookup(excelDir);
 var statNameToId = BuildStatNameToIdLookup(excelDir);
 var itemTiers = BuildItemTierLookup(excelDir);
 var itemTypes = BuildItemTypeLookup(excelDir);
-var setItemSetNames = BuildSetItemSetNameLookup(excelDir);
+var setItemSetNames = BuildSetItemSetNameLookup(excelDir, stringTable);
 var itemDefenseRanges = BuildItemDefenseRangeLookup(excelDir);
 var questItemCodes = BuildQuestItemCodes(excelDir);
 var uniqueStatRanges = BuildUniqueStatRangesLookup(excelDir);
@@ -451,6 +451,15 @@ List<JsonElement> FindExistingItems(string itemName, string findScript)
 }
 
 
+string StripNonAscii(string s)
+{
+    var sb = new System.Text.StringBuilder(s.Length);
+    foreach (var c in s)
+        if (c <= 0x7E && (c >= 0x20 || c == '\t' || c == '\n' || c == '\r'))
+            sb.Append(c);
+    return sb.ToString();
+}
+
 bool IsQuestItem(Item item)
 {
     var code = item.ItemCodeString.TrimEnd('\0').Trim();
@@ -528,7 +537,8 @@ void ProcessCharacterSave(string saveFile, byte[] saveBytes)
     };
 
     var jsonPath = Path.ChangeExtension(saveFile, ".json");
-    File.WriteAllText(jsonPath, JsonSerializer.Serialize(jsonData, jsonOptions));
+    var json = JsonSerializer.Serialize(jsonData, jsonOptions);
+    File.WriteAllText(jsonPath, StripNonAscii(json));
     // Console.WriteLine($"  JSON written to {jsonPath}");
 }
 
@@ -573,7 +583,8 @@ void ProcessSharedStash(string saveFile, byte[] saveBytes)
     };
 
     var jsonPath = Path.ChangeExtension(saveFile, ".json");
-    File.WriteAllText(jsonPath, JsonSerializer.Serialize(jsonData, jsonOptions));
+    var json = JsonSerializer.Serialize(jsonData, jsonOptions);
+    File.WriteAllText(jsonPath, StripNonAscii(json));
     // Console.WriteLine($"  JSON written to {jsonPath}");
 }
 
@@ -1558,7 +1569,7 @@ Dictionary<string, string> BuildItemTypeLookup(string dir)
     return lookup;
 }
 
-Dictionary<int, string> BuildSetItemSetNameLookup(string dir)
+Dictionary<int, string> BuildSetItemSetNameLookup(string dir, Dictionary<string, string> stringTable)
 {
     var lookup = new Dictionary<int, string>();
     var path = Path.Combine(dir, "setitems.txt");
@@ -1578,7 +1589,8 @@ Dictionary<int, string> BuildSetItemSetNameLookup(string dir)
         if (cols.Length > Math.Max(idIdx, setIdx)
             && int.TryParse(cols[idIdx].Trim(), out var id))
         {
-            var setName = cols[setIdx].Trim();
+            var raw = cols[setIdx].Trim();
+            var setName = stringTable.TryGetValue(raw, out var loc) ? loc : raw;
             if (setName.Length > 0)
                 lookup[id] = setName;
         }
