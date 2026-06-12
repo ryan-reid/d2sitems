@@ -173,7 +173,7 @@ def print_item(source, filename, item, is_mule=False):
     for bonus in item.get("socketBonuses", []):
         print(f"  {bonus}")
     if item.get("sockets"):
-        socket_names = [s.get("name", "?") for s in item["sockets"]]
+        socket_names = [clean_item_name(s.get("name", "?")) for s in item["sockets"]]
         print(f"  Sockets [{item.get('socketCount', '?')}]: {', '.join(socket_names)}")
     print()
 
@@ -209,6 +209,14 @@ def search_items(directory, filters, core_filter, gameversion_filter, is_mule=Fa
             if matches_all_filters(item, filters):
                 results.append((source, save_file, item, is_mule))
     return results
+
+def clean_item_name(name):
+    """Strip D2 color codes (ÿcX), bullets, and other non-ASCII junk."""
+    # Remove the D2 color code pattern: ÿ followed by 'c' and one more char
+    name = re.sub(r"\xffc.", "", name)
+    name = re.sub(r"[^\x20-\x7E]", "", name)
+    name = re.sub(r"\s+", " ", name)
+    return name.strip()
 
 def load_string_table(excel_dir):
     """Load Key -> enUS mapping from the localization files."""
