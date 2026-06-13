@@ -99,10 +99,11 @@ This will retrieve the character from the mules directory and restore it into yo
 
 The D2R client does not go to disk to update the list of characters that it has in memory.  In order to get an updated character list, you must exit the game and relaunch it.
 
+- .\fetch.py --sort
+
+This updates the last modified time for all the saved games - so that they show up in alphabetical order.  This is to make it easier to find mules in your character list inside the D2R game.  It leaves the most recently played character at the top.  It also treats written numbers as numbers.  For example, MuleTwo will come before MuleFive.  You will need to restart the game to see the updated character order
 
 You can also view your grail status by runing .\find-item.py --grail
-
-
 
 d2s save files are not edited or changed in any way.  We just read them and create extra files for fast searching.  I had tried another solution in the past that kept items in a database, but changes to the game and changes to the app corrupted the database and I lost all my items.  The design philosophy here is to leave the save files intact - only edit and change them with the game to be safe.  But build tools around the game to make managing items and mules easier.
 
