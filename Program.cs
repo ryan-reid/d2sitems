@@ -940,6 +940,8 @@ string FormatStat(Stat stat)
         || stat.Id == StatId.AddClassSkills || stat.Id == StatId.AddSkillTab))
     {
         var skillName = GetSkillName(stat.Id, stat.Layer);
+        if (stat.Id == StatId.Aura)
+            return $"Aura: {skillName} Level {value}";
         return $"+{value} to {skillName}";
     }
 
@@ -983,10 +985,13 @@ string GetPerLevelDescription(StatId id) => id switch
 
 bool IsSkillStat(StatId id) => id is
     StatId.NonClassSkill or StatId.SingleSkill or StatId.AddSkillTab or
-    StatId.AddClassSkills;
+    StatId.AddClassSkills or StatId.Aura;
 
 string GetSkillName(StatId statType, int id)
 {
+    if (statType == StatId.Aura)
+        return skillNames.TryGetValue(id, out var auraName) ? auraName : $"Aura #{id}";
+
     if (statType == StatId.AddSkillTab)
     {
         // Skill tabs are class_index * 8 + tab_offset (0-2)
