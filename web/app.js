@@ -398,7 +398,7 @@ function createItemCardElement(it, showVerifierDetails = false) {
   if (it.socketCount > 0) {
     badgesHtml += `<span class="badge badge-socket">${it.socketCount} Sockets</span>`;
   }
-  if (it.perfectionNum !== null) {
+  if (typeof it.perfectionNum === 'number' && !isNaN(it.perfectionNum)) {
     const isHigh = it.perfectionNum >= 90;
     badgesHtml += `<span class="badge ${isHigh ? 'badge-perf-high' : 'badge-perf'}">★ ${it.perfectionNum.toFixed(1)}%</span>`;
   }
@@ -497,7 +497,7 @@ function renderItemsTable() {
     const tier = it.tier || '-';
     const loc = escapeHtml(it.location || '-');
     const owner = escapeHtml(it.sourceName);
-    const perf = it.perfectionNum !== null ? `${it.perfectionNum.toFixed(1)}%` : '-';
+    const perf = (typeof it.perfectionNum === 'number' && !isNaN(it.perfectionNum)) ? `${it.perfectionNum.toFixed(1)}%` : '-';
     const oodBadge = it.isOutOfDate ? ` <span class="badge badge-out-of-date" style="font-size: 9px; vertical-align: middle;">⚠️ Out of Date</span>` : '';
 
     // Summary of stats
@@ -553,7 +553,7 @@ function openItemDetailModal(it) {
     </div>
   `;
 
-  if (it.perfectionNum !== null) {
+  if (typeof it.perfectionNum === 'number' && !isNaN(it.perfectionNum)) {
     contentHtml += `
       <div style="background: rgba(196, 154, 69, 0.15); border: 1px solid var(--border-gold); padding: 8px 12px; border-radius: 6px; margin-bottom: 14px;">
         <div style="display: flex; justify-content: space-between; font-weight: 700; color: var(--color-accent); margin-bottom: 4px;">
@@ -636,7 +636,7 @@ function openItemDetailModal(it) {
   dom.itemModalCopyBtn.onclick = () => {
     let copyText = `${it.displayName} (${it.baseName || ''})\n`;
     copyText += `Location: ${it.sourceName} - ${it.location}\n`;
-    if (it.perfectionNum !== null) copyText += `Perfection: ${it.perfectionNum}%\n`;
+    if (typeof it.perfectionNum === 'number' && !isNaN(it.perfectionNum)) copyText += `Perfection: ${it.perfectionNum.toFixed(1)}%\n`;
     allStats.forEach(s => copyText += `${s.description || s.id}\n`);
     navigator.clipboard.writeText(copyText).then(() => {
       showToast('Item details copied to clipboard!', 'success');
@@ -1153,9 +1153,10 @@ function renderGrailView() {
   if (!state.grail) return;
 
   const g = state.grail;
-  dom.grailOverallScore.textContent = `${g.percent.toFixed(2)}%`;
-  dom.grailOverallBar.style.width = `${g.percent}%`;
-  dom.grailCountText.textContent = `${g.total_owned} / ${g.total_items} items collected`;
+  const pct = (typeof g.percent === 'number' && !isNaN(g.percent)) ? g.percent.toFixed(2) : '0.00';
+  dom.grailOverallScore.textContent = `${pct}%`;
+  dom.grailOverallBar.style.width = `${pct}%`;
+  dom.grailCountText.textContent = `${g.total_owned || 0} / ${g.total_items || 0} items collected`;
 
   dom.grailCategories.innerHTML = '';
   (g.categories || []).forEach(cat => {
