@@ -262,15 +262,25 @@ class SaveDataManager:
                         it_norm["displayName"] = raw_name
 
                         # Perfection
-                        perf = it_norm.get("perfection")
+                        perf = it_norm.get("perfectionScore") if it_norm.get("perfectionScore") is not None else it_norm.get("perfection")
                         if perf is not None:
                             try:
                                 if isinstance(perf, str) and perf.endswith("%"):
                                     it_norm["perfectionNum"] = float(perf[:-1])
                                 else:
                                     it_norm["perfectionNum"] = float(perf)
-                            except ValueError:
+                                it_norm["perfection"] = it_norm["perfectionNum"]
+                                it_norm["perfectionScore"] = it_norm["perfectionNum"]
+                            except (ValueError, TypeError):
                                 it_norm["perfectionNum"] = None
+                        else:
+                            it_norm["perfectionNum"] = None
+
+                        if it_norm.get("perfectionNum") is not None and it_norm["perfectionNum"] >= 100.0:
+                            if "flags" not in it_norm or it_norm["flags"] is None:
+                                it_norm["flags"] = []
+                            if "Perfect" not in it_norm["flags"]:
+                                it_norm["flags"].append("Perfect")
                         it_norm["isOutOfDate"] = bool(it.get("isOutOfDate", False))
                         it_norm["outOfDateIssues"] = it.get("outOfDateIssues") or []
 
@@ -328,6 +338,7 @@ class SaveDataManager:
         sockets = query_params.get("sockets", "").strip()
         min_perf = query_params.get("min_perf")
         max_perf = query_params.get("max_perf")
+        perfect = query_params.get("perfect", "").strip().lower()
         stat_keyword = query_params.get("stat", "").strip().lower()
         out_of_date = query_params.get("out_of_date", "").strip().lower()
         corrupted = query_params.get("corrupted", "").strip().lower()
@@ -406,6 +417,13 @@ class SaveDataManager:
 
             # 8. Perfection Score
             perf_val = it.get("perfectionNum")
+            if perfect in ("yes", "100", "perfect"):
+                if perf_val is None or perf_val < 100.0:
+                    continue
+            elif perfect == "90":
+                if perf_val is None or perf_val < 90.0:
+                    continue
+
             if min_perf:
                 try:
                     if perf_val is None or perf_val < float(min_perf):
@@ -421,6 +439,9 @@ class SaveDataManager:
 
             # 9. Free-text search (q)
             if q:
+                perf_query = q in ("perfect", "perf", "100%", "100% perf", "100% perfect")
+                perf_match = perf_query and (perf_val is not None and perf_val >= 100.0)
+
                 # Matches name, baseName, itemCode, sockets, or stat description
                 name_match = q in it.get("displayName", "").lower()
                 base_match = q in (it.get("baseName") or "").lower()
@@ -452,7 +473,7 @@ class SaveDataManager:
                             stat_match = True
                             break
 
-                if not (name_match or base_match or set_match or flag_match or stat_match):
+                if not (name_match or base_match or set_match or flag_match or stat_match or perf_match):
                     continue
 
             # 10. Specific stat keyword filter

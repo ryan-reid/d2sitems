@@ -660,6 +660,32 @@ body {
   text-shadow: 0 0 6px rgba(255, 215, 0, 0.5);
 }
 
+.badge-perf-perfect {
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.4), rgba(255, 140, 0, 0.3));
+  border-color: #ffd700;
+  color: #fffbdf;
+  font-weight: 800;
+  text-shadow: 0 0 8px rgba(255, 215, 0, 0.8);
+  box-shadow: 0 0 8px rgba(255, 215, 0, 0.3);
+}
+
+.badge-link-gold {
+  background: rgba(255, 215, 0, 0.15);
+  border: 1px solid #ffd700;
+  color: #ffd700;
+}
+.badge-link-gold:hover {
+  background: rgba(255, 215, 0, 0.3);
+  box-shadow: 0 0 8px rgba(255, 215, 0, 0.4);
+}
+
+.seg-btn-gold.active {
+  background: #ffd700;
+  color: #111;
+  font-weight: 800;
+  box-shadow: 0 0 8px rgba(255, 215, 0, 0.4);
+}
+
 .badge-eth {
   background: rgba(125, 197, 230, 0.2);
   border-color: var(--color-ethereal);

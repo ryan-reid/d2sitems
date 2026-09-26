@@ -23,6 +23,7 @@ const state = {
     sockets: 'all',
     ethereal: 'all',
     out_of_date: 'all',
+    perfect: 'all',
     min_perf: 0,
     stat: '',
     sort: 'perfection_desc'
@@ -57,6 +58,8 @@ const dom = {
   perfMinSlider: document.getElementById('perf-min-slider'),
   perfValLabel: document.getElementById('perf-val-label'),
   perf90Btn: document.getElementById('perf-90-btn'),
+  perf100Btn: document.getElementById('perf-100-btn'),
+  perfectControl: document.getElementById('perfect-control'),
   statFilter: document.getElementById('stat-filter'),
   resetFiltersBtn: document.getElementById('reset-filters-btn'),
   charactersGrid: document.getElementById('characters-grid'),
@@ -329,6 +332,7 @@ async function executeSearch() {
   if (state.filters.sockets !== 'all') params.set('sockets', state.filters.sockets);
   if (state.filters.ethereal !== 'all') params.set('ethereal', state.filters.ethereal);
   if (state.filters.out_of_date && state.filters.out_of_date !== 'all') params.set('out_of_date', state.filters.out_of_date);
+  if (state.filters.perfect && state.filters.perfect !== 'all') params.set('perfect', state.filters.perfect);
   if (state.filters.min_perf > 0) params.set('min_perf', state.filters.min_perf);
   if (state.filters.stat) params.set('stat', state.filters.stat);
   if (state.filters.sort) params.set('sort', state.filters.sort);
@@ -402,8 +406,11 @@ function createItemCardElement(it, showVerifierDetails = false) {
     badgesHtml += `<span class="badge badge-socket">${it.socketCount} Sockets</span>`;
   }
   if (typeof it.perfectionNum === 'number' && !isNaN(it.perfectionNum)) {
+    const isPerfect = it.perfectionNum >= 100;
     const isHigh = it.perfectionNum >= 90;
-    badgesHtml += `<span class="badge ${isHigh ? 'badge-perf-high' : 'badge-perf'}">★ ${it.perfectionNum.toFixed(1)}%</span>`;
+    const badgeClass = isPerfect ? 'badge-perf-perfect' : (isHigh ? 'badge-perf-high' : 'badge-perf');
+    const label = isPerfect ? '★ 100% Perfect' : `★ ${it.perfectionNum.toFixed(1)}%`;
+    badgesHtml += `<span class="badge ${badgeClass}">${label}</span>`;
   }
 
   // Base Defense / Damage stats
@@ -501,7 +508,11 @@ function renderItemsTable() {
     const tier = it.tier || '-';
     const loc = escapeHtml(it.location || '-');
     const owner = escapeHtml(it.sourceName);
-    const perf = (typeof it.perfectionNum === 'number' && !isNaN(it.perfectionNum)) ? `${it.perfectionNum.toFixed(1)}%` : '-';
+    const perf = (typeof it.perfectionNum === 'number' && !isNaN(it.perfectionNum)) 
+      ? (it.perfectionNum >= 100 
+          ? `<span class="badge badge-perf-perfect">★ 100%</span>` 
+          : `<span class="badge ${it.perfectionNum >= 90 ? 'badge-perf-high' : 'badge-perf'}">${it.perfectionNum.toFixed(1)}%</span>`)
+      : '-';
     const oodBadge = it.isOutOfDate ? ` <span class="badge badge-out-of-date" style="font-size: 9px; vertical-align: middle;">⚠️ Out of Date</span>` : '';
 
     // Summary of stats
@@ -810,17 +821,72 @@ document.querySelectorAll('[data-out-of-date]').forEach(btn => {
 });
 
 dom.perfMinSlider.addEventListener('input', (e) => {
-  const val = e.target.value;
+  const val = parseInt(e.target.value, 10);
   dom.perfValLabel.textContent = val + '%';
-  state.filters.min_perf = parseInt(val, 10);
+  state.filters.min_perf = val;
+  // Sync segmented control
+  document.querySelectorAll('#perfect-control .seg-btn').forEach(b => b.classList.remove('active'));
+  if (val >= 100) {
+    state.filters.perfect = '100';
+    const b100 = document.querySelector('#perfect-control [data-perfect="100"]');
+    if (b100) b100.classList.add('active');
+  } else if (val >= 90) {
+    state.filters.perfect = '90';
+    const b90 = document.querySelector('#perfect-control [data-perfect="90"]');
+    if (b90) b90.classList.add('active');
+  } else if (val === 0) {
+    state.filters.perfect = 'all';
+    const bAll = document.querySelector('#perfect-control [data-perfect="all"]');
+    if (bAll) bAll.classList.add('active');
+  } else {
+    state.filters.perfect = 'all';
+  }
   debouncedSearch();
 });
 
-dom.perf90Btn.addEventListener('click', () => {
+dom.perf90Btn?.addEventListener('click', () => {
   dom.perfMinSlider.value = 90;
   dom.perfValLabel.textContent = '90%';
   state.filters.min_perf = 90;
+  state.filters.perfect = '90';
+  document.querySelectorAll('#perfect-control .seg-btn').forEach(b => b.classList.remove('active'));
+  const b90 = document.querySelector('#perfect-control [data-perfect="90"]');
+  if (b90) b90.classList.add('active');
   executeSearch();
+});
+
+dom.perf100Btn?.addEventListener('click', () => {
+  dom.perfMinSlider.value = 100;
+  dom.perfValLabel.textContent = '100%';
+  state.filters.min_perf = 100;
+  state.filters.perfect = '100';
+  document.querySelectorAll('#perfect-control .seg-btn').forEach(b => b.classList.remove('active'));
+  const b100 = document.querySelector('#perfect-control [data-perfect="100"]');
+  if (b100) b100.classList.add('active');
+  executeSearch();
+});
+
+document.querySelectorAll('#perfect-control .seg-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#perfect-control .seg-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const p = btn.dataset.perfect;
+    state.filters.perfect = p;
+    if (p === '100') {
+      dom.perfMinSlider.value = 100;
+      dom.perfValLabel.textContent = '100%';
+      state.filters.min_perf = 100;
+    } else if (p === '90') {
+      dom.perfMinSlider.value = 90;
+      dom.perfValLabel.textContent = '90%';
+      state.filters.min_perf = 90;
+    } else {
+      dom.perfMinSlider.value = 0;
+      dom.perfValLabel.textContent = '0%';
+      state.filters.min_perf = 0;
+    }
+    executeSearch();
+  });
 });
 
 dom.statFilter.addEventListener('input', (e) => {
@@ -851,6 +917,9 @@ dom.resetFiltersBtn.addEventListener('click', () => {
   dom.socketsFilter.value = 'all';
   dom.perfMinSlider.value = 0;
   dom.perfValLabel.textContent = '0%';
+  document.querySelectorAll('#perfect-control .seg-btn').forEach(b => b.classList.remove('active'));
+  const allPerfBtn = document.querySelector('#perfect-control [data-perfect="all"]');
+  if (allPerfBtn) allPerfBtn.classList.add('active');
   document.querySelectorAll('#quality-chips .chip').forEach(c => c.classList.remove('active'));
   document.querySelector('#quality-chips .chip[data-value="all"]').classList.add('active');
   document.querySelectorAll('[data-ethereal]').forEach(b => b.classList.remove('active'));
@@ -869,6 +938,7 @@ dom.resetFiltersBtn.addEventListener('click', () => {
     sockets: 'all',
     ethereal: 'all',
     out_of_date: 'all',
+    perfect: 'all',
     min_perf: 0,
     stat: '',
     sort: 'perfection_desc'
