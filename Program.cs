@@ -827,7 +827,7 @@ Dictionary<string, object?> BuildItemJson(Item item)
         var statList = new List<Dictionary<string, object>>();
         foreach (var s in item.Stats)
         {
-            var formatted = FormatStatJson(s, statRanges);
+            var formatted = FormatStatJson(s, item.RunewordStats?.Count > 0 ? null : statRanges);
             if (formatted != null)
                 statList.Add(formatted);
             else
@@ -1106,12 +1106,44 @@ string FormatStat(Stat stat)
         return $"+{value / 8.0:0.###} {desc} (per level)";
     }
 
+    if (stat.Id == StatId.Aura || statIntId == 151)
+    {
+        var skillName = GetSkillName(StatId.Aura, stat.Layer);
+        return $"Level {value} {skillName} Aura When Equipped";
+    }
+
+    if (stat.Id == StatId.ItemChargedSkill || statIntId == 204)
+    {
+        int skillLevel = stat.Layer & 0x3F;
+        int skillId = stat.Layer >> 6;
+        int curCharges = (int)(value & 0xFF);
+        int maxCharges = (int)((value >> 8) & 0xFF);
+        var skillName = GetSkillName(StatId.SingleSkill, skillId);
+        return $"Level {skillLevel} {skillName} ({curCharges}/{maxCharges} Charges)";
+    }
+
+    if (statIntId is 195 or 196 or 197 or 198 or 199 or 201)
+    {
+        int skillLevel = stat.Layer & 0x3F;
+        int skillId = stat.Layer >> 6;
+        var skillName = GetSkillName(StatId.SingleSkill, skillId);
+        int chance = (int)value;
+        return statIntId switch
+        {
+            195 => $"{chance}% Chance to cast level {skillLevel} {skillName} on attack",
+            196 => $"{chance}% Chance to cast level {skillLevel} {skillName} when you Kill an Enemy",
+            197 => $"{chance}% Chance to cast level {skillLevel} {skillName} when you Die",
+            198 => $"{chance}% Chance to cast level {skillLevel} {skillName} on striking",
+            199 => $"{chance}% Chance to cast level {skillLevel} {skillName} when you Level-Up",
+            201 => $"{chance}% Chance to cast level {skillLevel} {skillName} when struck",
+            _ => $"{chance}% Chance to cast level {skillLevel} {skillName}"
+        };
+    }
+
     if (IsSkillStat(stat.Id) && (stat.Layer != 0
         || stat.Id == StatId.AddClassSkills || stat.Id == StatId.AddSkillTab))
     {
         var skillName = GetSkillName(stat.Id, stat.Layer);
-        if (stat.Id == StatId.Aura)
-            return $"Aura: {skillName} Level {value}";
         return $"+{value} to {skillName}";
     }
 
@@ -1203,10 +1235,35 @@ string FormatStatKeyDescription(int statId, int layer, (int Min, int Max) range)
         var skillName = GetSkillName(StatId.SingleSkill, layer);
         return $"+{rangeStr} to {skillName}";
     }
-    if (statIdEnum == StatId.Aura)
+    if (statIdEnum == StatId.Aura || statId == 151)
     {
         var auraName = GetSkillName(StatId.Aura, layer);
         return $"Level {rangeStr} {auraName} Aura When Equipped";
+    }
+
+    if (statId == 204 || statIdEnum == StatId.ItemChargedSkill)
+    {
+        int skillLevel = layer & 0x3F;
+        int skillId = layer >> 6;
+        var skillName = GetSkillName(StatId.SingleSkill, skillId);
+        return $"Level {skillLevel} {skillName} Charges";
+    }
+
+    if (statId is 195 or 196 or 197 or 198 or 199 or 201)
+    {
+        int skillLevel = layer & 0x3F;
+        int skillId = layer >> 6;
+        var skillName = GetSkillName(StatId.SingleSkill, skillId);
+        return statId switch
+        {
+            195 => $"{rangeStr}% Chance to cast level {skillLevel} {skillName} on attack",
+            196 => $"{rangeStr}% Chance to cast level {skillLevel} {skillName} when you Kill an Enemy",
+            197 => $"{rangeStr}% Chance to cast level {skillLevel} {skillName} when you Die",
+            198 => $"{rangeStr}% Chance to cast level {skillLevel} {skillName} on striking",
+            199 => $"{rangeStr}% Chance to cast level {skillLevel} {skillName} when you Level-Up",
+            201 => $"{rangeStr}% Chance to cast level {skillLevel} {skillName} when struck",
+            _ => $"{rangeStr}% Chance to cast level {skillLevel} {skillName}"
+        };
     }
 
     if (statCostLookup.TryGetValue(statId, out var costInfo) && costInfo.StatName.Equals("item_elemskill", StringComparison.OrdinalIgnoreCase))
@@ -1599,7 +1656,37 @@ Dictionary<string, string> BuildItemNameLookup(string dir, Dictionary<string, st
     var header = lines[0].Split('\t');
     int nameIdx = Array.IndexOf(header, "skill");
     int idIdx = Array.IndexOf(header, "*Id");
+    if (idIdx < 0) idIdx = Array.IndexOf(header, "Id");
+    int sdescIdx = Array.IndexOf(header, "skilldesc");
     if (nameIdx < 0 || idIdx < 0) return (idToName, nameToId);
+
+    // Read skilldesc.txt to map skilldesc key to "str name" (e.g. "plague poppy" -> "Skillname223" -> "Poison Creeper")
+    var skilldescPath = Path.Combine(dir, "skilldesc.txt");
+    var skilldescToStrName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    if (File.Exists(skilldescPath))
+    {
+        var sdescLines = File.ReadAllLines(skilldescPath);
+        if (sdescLines.Length >= 2)
+        {
+            var sdHeader = sdescLines[0].Split('\t');
+            int sdKeyIdx = Array.IndexOf(sdHeader, "skilldesc");
+            int sdStrIdx = Array.IndexOf(sdHeader, "str name");
+            if (sdKeyIdx >= 0 && sdStrIdx >= 0)
+            {
+                for (int j = 1; j < sdescLines.Length; j++)
+                {
+                    var sdCols = sdescLines[j].Split('\t');
+                    if (sdCols.Length > Math.Max(sdKeyIdx, sdStrIdx))
+                    {
+                        var k = sdCols[sdKeyIdx].Trim();
+                        var v = sdCols[sdStrIdx].Trim();
+                        if (k.Length > 0 && v.Length > 0 && !skilldescToStrName.ContainsKey(k))
+                            skilldescToStrName[k] = v;
+                    }
+                }
+            }
+        }
+    }
 
     for (int i = 1; i < lines.Length; i++)
     {
@@ -1608,9 +1695,24 @@ Dictionary<string, string> BuildItemNameLookup(string dir, Dictionary<string, st
             && int.TryParse(cols[idIdx].Trim(), out var id))
         {
             var rawSkill = cols[nameIdx].Trim();
-            // skills.json keys skills by "skillname<ID>"
-            var locName = stringTable.TryGetValue($"skillname{id}", out var loc) && loc.Trim().Length > 0
-                ? loc.Trim() : rawSkill;
+            string? locName = null;
+            if (sdescIdx >= 0 && cols.Length > sdescIdx)
+            {
+                var sdescKey = cols[sdescIdx].Trim();
+                if (skilldescToStrName.TryGetValue(sdescKey, out var strKey)
+                    && stringTable.TryGetValue(strKey, out var loc) && loc.Trim().Length > 0)
+                {
+                    locName = loc.Trim();
+                }
+            }
+            if (string.IsNullOrEmpty(locName))
+            {
+                if (stringTable.TryGetValue(rawSkill, out var loc) && loc.Trim().Length > 0)
+                    locName = loc.Trim();
+                else
+                    locName = rawSkill;
+            }
+
             if (locName.Length > 0)
                 idToName[id] = locName;
 
