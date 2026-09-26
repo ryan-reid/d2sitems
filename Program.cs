@@ -87,7 +87,7 @@ foreach (var arg in fileArgs)
 int missingFileCount = 0;
 var stringTable = BuildStringTable(excelDir);
 var itemNames = BuildItemNameLookup(excelDir, stringTable);
-var skillNames = BuildSkillNameLookup(excelDir, stringTable);
+var (skillNames, skillNameToId) = BuildSkillLookups(excelDir, stringTable);
 var runewordsByRunes = BuildRunewordLookup(excelDir, stringTable);
 var uniqueItemNames = BuildUniqueItemNameLookup(excelDir, stringTable);
 var setItemNames = BuildSetItemNameLookup(excelDir, stringTable);
@@ -906,8 +906,7 @@ Dictionary<string, object?> BuildItemJson(Item item)
         {
             if (!presentKeys.Contains(kvp.Key))
             {
-                var statIdEnum = (StatId)kvp.Key.StatId;
-                var statName = FormatStatName(statIdEnum);
+                var statName = FormatStatKeyDescription(kvp.Key.StatId, kvp.Key.Layer, kvp.Value);
                 issues.Add($"Missing stat: {statName} [{kvp.Value.Min}-{kvp.Value.Max}] from current game file");
             }
         }
@@ -1177,6 +1176,54 @@ string FormatStat(Stat stat)
         return $"{name}: {(value >= 0 ? "+" : "")}{value}";
 
     return $"{name}: {value}";
+}
+
+string FormatStatKeyDescription(int statId, int layer, (int Min, int Max) range)
+{
+    var statIdEnum = (StatId)statId;
+    var rangeStr = range.Min == range.Max ? $"{range.Min}" : $"{range.Min}-{range.Max}";
+
+    if (statIdEnum == StatId.AddClassSkills)
+    {
+        var className = GetSkillName(StatId.AddClassSkills, layer);
+        return $"+{rangeStr} to {className}";
+    }
+    if (statIdEnum == StatId.AddSkillTab)
+    {
+        var tabName = GetSkillName(StatId.AddSkillTab, layer);
+        return $"+{rangeStr} to {tabName}";
+    }
+    if (statIdEnum == StatId.NonClassSkill)
+    {
+        var skillName = GetSkillName(StatId.NonClassSkill, layer);
+        return $"+{rangeStr} to {skillName} (oskill)";
+    }
+    if (statIdEnum == StatId.SingleSkill)
+    {
+        var skillName = GetSkillName(StatId.SingleSkill, layer);
+        return $"+{rangeStr} to {skillName}";
+    }
+    if (statIdEnum == StatId.Aura)
+    {
+        var auraName = GetSkillName(StatId.Aura, layer);
+        return $"Level {rangeStr} {auraName} Aura When Equipped";
+    }
+
+    if (statCostLookup.TryGetValue(statId, out var costInfo) && costInfo.StatName.Equals("item_elemskill", StringComparison.OrdinalIgnoreCase))
+    {
+        var elemName = layer switch
+        {
+            1 => "Fire Skills",
+            2 => "Lightning Skills",
+            3 => "Magic Skills",
+            4 => "Cold Skills",
+            5 => "Poison Skills",
+            _ => "Elemental Skills"
+        };
+        return $"+{rangeStr} to {elemName}";
+    }
+
+    return FormatStatName(statIdEnum);
 }
 
 string FormatStatName(StatId id)
@@ -1461,7 +1508,10 @@ string? ResolvePropertyToText(string propCode, string param, int min, int max)
                 break;
             case 10: // skilltab
                 if (int.TryParse(param, out var tabId))
-                    parts.Add($"+{value} to {GetSkillName(StatId.AddSkillTab, tabId)}");
+                {
+                    int saveLayer = (tabId / 3) * 8 + (tabId % 3);
+                    parts.Add($"+{value} to {GetSkillName(StatId.AddSkillTab, saveLayer)}");
+                }
                 else
                     parts.Add($"+{value} to Skill Tab {param}");
                 break;
@@ -1474,7 +1524,15 @@ string? ResolvePropertyToText(string propCode, string param, int min, int max)
                     parts.Add($"{FormatStatName((StatId)statId)}: +{value}");
                 break;
             case 22: // skill (oskill/item_singleskill)
-                var sName = skillNames.TryGetValue(int.TryParse(param, out var pid) ? pid : -1, out var sn) ? sn : $"Skill {param}";
+                int skillId = -1;
+                if (int.TryParse(param, out var pid)) skillId = pid;
+                else if (skillNameToId.TryGetValue(param, out var sId)) skillId = sId;
+                else
+                {
+                    var clean = Regex.Replace(param, @"[^a-zA-Z0-9]", "").ToLowerInvariant();
+                    if (skillNameToId.TryGetValue(clean, out var cId)) skillId = cId;
+                }
+                var sName = skillNames.TryGetValue(skillId, out var sn) ? sn : $"Skill {param}";
                 parts.Add($"+{value} to {sName}");
                 break;
             default:
@@ -1528,19 +1586,20 @@ Dictionary<string, string> BuildItemNameLookup(string dir, Dictionary<string, st
     return lookup;
 }
 
-Dictionary<int, string> BuildSkillNameLookup(string dir, Dictionary<string, string> stringTable)
+(Dictionary<int, string> SkillNames, Dictionary<string, int> SkillNameToId) BuildSkillLookups(string dir, Dictionary<string, string> stringTable)
 {
-    var lookup = new Dictionary<int, string>();
+    var idToName = new Dictionary<int, string>();
+    var nameToId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
     var path = Path.Combine(dir, "skills.txt");
-    if (!File.Exists(path)) { Console.WriteLine($"Warning: game file not found: {path}"); missingFileCount++; return lookup; }
+    if (!File.Exists(path)) { Console.WriteLine($"Warning: game file not found: {path}"); missingFileCount++; return (idToName, nameToId); }
 
     var lines = File.ReadAllLines(path);
-    if (lines.Length < 2) return lookup;
+    if (lines.Length < 2) return (idToName, nameToId);
 
     var header = lines[0].Split('\t');
     int nameIdx = Array.IndexOf(header, "skill");
     int idIdx = Array.IndexOf(header, "*Id");
-    if (nameIdx < 0 || idIdx < 0) return lookup;
+    if (nameIdx < 0 || idIdx < 0) return (idToName, nameToId);
 
     for (int i = 1; i < lines.Length; i++)
     {
@@ -1548,16 +1607,29 @@ Dictionary<int, string> BuildSkillNameLookup(string dir, Dictionary<string, stri
         if (cols.Length > Math.Max(nameIdx, idIdx)
             && int.TryParse(cols[idIdx].Trim(), out var id))
         {
-            var fallback = cols[nameIdx].Trim();
+            var rawSkill = cols[nameIdx].Trim();
             // skills.json keys skills by "skillname<ID>"
-            var name = stringTable.TryGetValue($"skillname{id}", out var loc) && loc.Trim().Length > 0
-                ? loc.Trim() : fallback;
-            if (name.Length > 0)
-                lookup[id] = name;
+            var locName = stringTable.TryGetValue($"skillname{id}", out var loc) && loc.Trim().Length > 0
+                ? loc.Trim() : rawSkill;
+            if (locName.Length > 0)
+                idToName[id] = locName;
+
+            if (rawSkill.Length > 0 && !nameToId.ContainsKey(rawSkill))
+                nameToId[rawSkill] = id;
+            if (locName.Length > 0 && !nameToId.ContainsKey(locName))
+                nameToId[locName] = id;
+
+            // Also index normalized versions (alphanumeric only, lowercase)
+            var normRaw = Regex.Replace(rawSkill, @"[^a-zA-Z0-9]", "").ToLowerInvariant();
+            if (normRaw.Length > 0 && !nameToId.ContainsKey(normRaw))
+                nameToId[normRaw] = id;
+            var normLoc = Regex.Replace(locName, @"[^a-zA-Z0-9]", "").ToLowerInvariant();
+            if (normLoc.Length > 0 && !nameToId.ContainsKey(normLoc))
+                nameToId[normLoc] = id;
         }
     }
 
-    return lookup;
+    return (idToName, nameToId);
 }
 
 Dictionary<string, string> BuildStringTable(string dir)
@@ -1796,10 +1868,12 @@ Dictionary<string, List<PropertyEntry>> BuildPropertyToStatsLookup(string dir)
     int codeIdx = Array.IndexOf(header, "code");
     var funcIndices = new int[5];
     var statIndices = new int[5];
+    var valIndices = new int[5];
     for (int f = 0; f < 5; f++)
     {
         funcIndices[f] = Array.IndexOf(header, $"func{f + 1}");
         statIndices[f] = Array.IndexOf(header, $"stat{f + 1}");
+        valIndices[f] = Array.IndexOf(header, $"val{f + 1}");
     }
 
     for (int i = 1; i < lines.Length; i++)
@@ -1817,7 +1891,9 @@ Dictionary<string, List<PropertyEntry>> BuildPropertyToStatsLookup(string dir)
             if (!int.TryParse(funcStr, out var func)) continue;
             var stat = (statIndices[f] >= 0 && statIndices[f] < cols.Length)
                 ? cols[statIndices[f]].Trim() : "";
-            entries.Add(new PropertyEntry(func, stat));
+            var val = (valIndices[f] >= 0 && valIndices[f] < cols.Length)
+                ? cols[valIndices[f]].Trim() : "";
+            entries.Add(new PropertyEntry(func, stat, val));
         }
 
         if (entries.Count > 0)
@@ -2097,61 +2173,124 @@ Dictionary<string, string> BuildItemTierLookup(string dir)
     return lookup;
 }
 
-// Resolve a property code to its StatId(s) using properties.txt and itemstatcost.txt
-List<int> ResolvePropertyToStatIds(string propCode)
+List<((int StatId, int Layer) Key, (int Min, int Max) Range)> ResolvePropertyToRanges(string propCode, string param, int min, int max)
 {
-    var result = new List<int>();
+    var result = new List<((int StatId, int Layer) Key, (int Min, int Max) Range)>();
     if (string.IsNullOrEmpty(propCode)) return result;
 
     var normCode = NormalizePropertyCode(propCode);
 
     // Hardcoded special engine property funcs without stat column
-    if (normCode.Equals("dmg-min", StringComparison.OrdinalIgnoreCase)) { result.Add(21); return result; }
-    if (normCode.Equals("dmg-max", StringComparison.OrdinalIgnoreCase)) { result.Add(22); return result; }
-    if (normCode.Equals("dmg%", StringComparison.OrdinalIgnoreCase)) { result.Add(17); return result; }
-    if (normCode.Equals("indestruct", StringComparison.OrdinalIgnoreCase)) { result.Add(152); return result; }
+    if (normCode.Equals("dmg-min", StringComparison.OrdinalIgnoreCase)) { result.Add(((21, 0), (min, max))); return result; }
+    if (normCode.Equals("dmg-max", StringComparison.OrdinalIgnoreCase)) { result.Add(((22, 0), (min, max))); return result; }
+    if (normCode.Equals("dmg%", StringComparison.OrdinalIgnoreCase)) { result.Add(((17, 0), (min, max))); return result; }
+    if (normCode.Equals("indestruct", StringComparison.OrdinalIgnoreCase)) { result.Add(((152, 0), (min, max))); return result; }
 
     if (!propertyToStats.TryGetValue(normCode, out var entries) && !propertyToStats.TryGetValue(propCode, out entries))
         return result;
 
+    // Check if this property has specific item_elemskill_{elem} stats alongside generic item_elemskill
+    bool hasSpecificElemSkill = entries.Any(e => e.Stat.StartsWith("item_elemskill_", StringComparison.OrdinalIgnoreCase));
+
     foreach (var entry in entries)
     {
         // Skip properties where min/max don't represent a value range
-        // 11=gethit-skill, 19=charged, 12=skill-rand, 36=randclassskill
+        // 11=gethit-skill, 19=charged, 12=skill-rand, 14=sock, 36=randclassskill
         // 15/16=elemental damage min/max (min=mindam, max=maxdam, not a roll range)
         // 17=per-level stats (param is the per-level value, not a range)
-        if (entry.Func is 11 or 19 or 12 or 15 or 16 or 17 or 36) continue;
+        if (entry.Func is 11 or 12 or 14 or 15 or 16 or 17 or 19 or 36) continue;
         if (string.IsNullOrEmpty(entry.Stat)) continue;
-        if (statNameToId.TryGetValue(entry.Stat, out var id))
-        {
-            if (!result.Contains(id))
-                result.Add(id);
-        }
-    }
-    return result;
-}
 
-// Resolve a property param to a layer value (e.g., skill name -> skill ID)
-int ResolveParamToLayer(string propCode, string param)
-{
-    if (string.IsNullOrEmpty(param)) return 0;
-    var normCode = NormalizePropertyCode(propCode);
-    if (!propertyToStats.TryGetValue(normCode, out var entries) && !propertyToStats.TryGetValue(propCode, out entries))
-        return 0;
-    if (entries.Count == 0) return 0;
-    var func = entries[0].Func;
-    if (func is 10 or 22) // skilltab, oskill/skill
-    {
-        // Try to look up skill name -> skill ID
-        if (int.TryParse(param, out var directId)) return directId;
-        foreach (var kvp in skillNames)
+        // If the mod defined specific item_elemskill_cold/fire/etc., skip the generic item_elemskill
+        if (hasSpecificElemSkill && entry.Stat.Equals("item_elemskill", StringComparison.OrdinalIgnoreCase))
+            continue;
+
+        if (!statNameToId.TryGetValue(entry.Stat, out var statId)) continue;
+
+        var effMin = min;
+        var effMax = max;
+        // Fix column-shift typos in mod files (e.g. Yang ring has mana-kill par=5 min=20 max=empty)
+        if (effMax == 0 && effMin > 0)
         {
-            if (kvp.Value.Equals(param, StringComparison.OrdinalIgnoreCase))
-                return kvp.Key;
+            if (entry.Func is 1 or 3 or 8 && int.TryParse(param, out var pVal) && pVal > 0)
+            {
+                effMax = effMin;
+                effMin = pVal;
+            }
+            else
+            {
+                effMax = effMin;
+            }
         }
+
+        int layer = 0;
+        if (entry.Func == 21) // class skills (ama, sor, nec, pal, bar, dru, ass, war) or elem skill
+        {
+            if (int.TryParse(entry.Val, out var valNum))
+                layer = valNum;
+            else if (!string.IsNullOrEmpty(param))
+            {
+                layer = param.ToLowerInvariant() switch
+                {
+                    "ama" or "amazon" => 0,
+                    "sor" or "sorceress" => 1,
+                    "nec" or "necromancer" => 2,
+                    "pal" or "paladin" => 3,
+                    "bar" or "barbarian" => 4,
+                    "dru" or "druid" => 5,
+                    "ass" or "assassin" => 6,
+                    "war" or "warlock" => 7,
+                    _ => int.TryParse(param, out var pN) ? pN : 0
+                };
+            }
+        }
+        else if (entry.Func == 10) // skilltab
+        {
+            // Tab index can be in entry.Val or in param
+            int tabIdx = -1;
+            if (int.TryParse(entry.Val, out var vTab))
+                tabIdx = vTab;
+            else if (int.TryParse(param, out var pTab))
+                tabIdx = pTab;
+
+            if (tabIdx >= 0)
+            {
+                // In D2 save files, AddSkillTab layer = (tabIdx / 3) * 8 + (tabIdx % 3)
+                layer = (tabIdx / 3) * 8 + (tabIdx % 3);
+            }
+        }
+        else if (entry.Func == 22) // oskill, skill, aura
+        {
+            var pToLookup = !string.IsNullOrEmpty(param) ? param : entry.Val;
+            if (!string.IsNullOrEmpty(pToLookup))
+            {
+                if (int.TryParse(pToLookup, out var directId))
+                    layer = directId;
+                else if (skillNameToId.TryGetValue(pToLookup, out var sId))
+                    layer = sId;
+                else
+                {
+                    var clean = Regex.Replace(pToLookup, @"[^a-zA-Z0-9]", "").ToLowerInvariant();
+                    if (skillNameToId.TryGetValue(clean, out var cId))
+                        layer = cId;
+                }
+            }
+        }
+        else if (entry.Func == 24) // monster damage, state, reanimate, etc.
+        {
+            if (int.TryParse(param, out var pN)) layer = pN;
+            else if (int.TryParse(entry.Val, out var vN)) layer = vN;
+        }
+        else
+        {
+            if (int.TryParse(param, out var pN)) layer = pN;
+            else if (int.TryParse(entry.Val, out var vN)) layer = vN;
+        }
+
+        result.Add(((statId, layer), (effMin, effMax)));
     }
-    if (int.TryParse(param, out var numParam)) return numParam;
-    return 0;
+
+    return result;
 }
 
 Dictionary<(int StatId, int Layer), (int Min, int Max)> ParseStatRangesFromProps(string[] cols, int propStart, int propCount, int propStride)
@@ -2166,14 +2305,12 @@ Dictionary<(int StatId, int Layer), (int Min, int Max)> ParseStatRangesFromProps
         var param = cols[baseIdx + 1].Trim();
         int.TryParse(cols[baseIdx + 2].Trim(), out var min);
         int.TryParse(cols[baseIdx + 3].Trim(), out var max);
-        var statIds = ResolvePropertyToStatIds(propCode);
-        if (statIds.Count == 0) continue;
-        var layer = ResolveParamToLayer(propCode, param);
-        foreach (var statId in statIds)
+
+        var list = ResolvePropertyToRanges(propCode, param, min, max);
+        foreach (var item in list)
         {
-            var key = (statId, layer);
-            if (!ranges.ContainsKey(key))
-                ranges[key] = (min, max);
+            if (!ranges.ContainsKey(item.Key))
+                ranges[item.Key] = item.Range;
         }
     }
     return ranges;
@@ -2310,7 +2447,7 @@ Dictionary<string, string> LoadConfig(string filename)
 // Record types must come after all top-level statements
 record GemMod(string Code, string Param, int Min, int Max);
 record GemModSet(List<GemMod> WeaponMods, List<GemMod> HelmMods, List<GemMod> ShieldMods);
-record PropertyEntry(int Func, string Stat);
+record PropertyEntry(int Func, string Stat, string Val);
 record StatCostInfo(int Id, string StatName, int DescPriority, int DescFunc, int DescVal, string DescStrPos, string DescStrNeg, string DescStr2);
 
 // Cached single SpeechSynthesizer so SpeakAsync calls queue up rather than overlap
