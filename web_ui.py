@@ -343,6 +343,9 @@ class SaveDataManager:
                 if req_q == "runeword":
                     if not it.get("isRuneword"):
                         continue
+                elif req_q in ("craft", "crafted"):
+                    if it_q not in ("craft", "crafted"):
+                        continue
                 elif it_q != req_q:
                     continue
 
@@ -854,6 +857,12 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         self.send_error(404)
+
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
+        super().end_headers()
 
     def send_json(self, obj):
         payload = json.dumps(obj).encode("utf-8")

@@ -94,8 +94,21 @@ const dom = {
   toastContainer: document.getElementById('toast-container')
 };
 
+// Global Error Handlers
+window.onerror = function(msg, url, lineNo, columnNo, error) {
+  console.error('UI Script Error:', msg, 'Line:', lineNo, error);
+  showToast(`Script error: ${msg} (line ${lineNo})`, 'error');
+  return false;
+};
+
+window.onunhandledrejection = function(event) {
+  console.error('Unhandled Promise Rejection:', event.reason);
+  showToast(`Operation failed: ${event.reason}`, 'error');
+};
+
 // Utilities
 function showToast(message, type = 'info') {
+  if (!dom.toastContainer) return;
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
   toast.innerHTML = `<span>${message}</span>`;
@@ -124,9 +137,11 @@ function getQualityClass(quality, isRuneword) {
     case 'unique': return 'quality-unique';
     case 'set': return 'quality-set';
     case 'rare': return 'quality-rare';
+    case 'craft':
     case 'crafted': return 'quality-crafted';
     case 'magic': return 'quality-magic';
     case 'superior':
+    case 'inferior':
     case 'normal': return 'quality-normal';
     default: return 'quality-normal';
   }
@@ -138,9 +153,11 @@ function getQualityColorClass(quality, isRuneword) {
     case 'unique': return 'color-unique';
     case 'set': return 'color-set';
     case 'rare': return 'color-rare';
+    case 'craft':
     case 'crafted': return 'color-crafted';
     case 'magic': return 'color-magic';
     case 'superior':
+    case 'inferior':
     case 'normal': return 'color-normal';
     default: return 'color-normal';
   }
@@ -1066,10 +1083,10 @@ async function renderArmoryForChar(charName) {
       <!-- Inventory & Stash Panels -->
       <div class="armory-inventory-panel">
         <div class="inventory-tabs">
-          <button class="inv-tab-btn active" onclick="switchInvTab('inventory')">Inventory (${(data.inventory || []).length})</button>
-          <button class="inv-tab-btn" onclick="switchInvTab('stash')">Personal Stash (${(data.stash || []).length})</button>
-          <button class="inv-tab-btn" onclick="switchInvTab('cube')">Cube (${(data.cube || []).length})</button>
-          <button class="inv-tab-btn" onclick="switchInvTab('merc')">Mercenary (${(data.mercenary || []).length})</button>
+          <button class="inv-tab-btn active" data-inv-tab="inventory" onclick="switchInvTab('inventory', this)">Inventory (${(data.inventory || []).length})</button>
+          <button class="inv-tab-btn" data-inv-tab="stash" onclick="switchInvTab('stash', this)">Personal Stash (${(data.stash || []).length})</button>
+          <button class="inv-tab-btn" data-inv-tab="cube" onclick="switchInvTab('cube', this)">Cube (${(data.cube || []).length})</button>
+          <button class="inv-tab-btn" data-inv-tab="merc" onclick="switchInvTab('merc', this)">Mercenary (${(data.mercenary || []).length})</button>
         </div>
 
         <div id="armory-tab-content" class="items-grid" style="grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));">
@@ -1091,9 +1108,10 @@ window.openArmorySlotItem = function(slotKey) {
   }
 };
 
-window.switchInvTab = function(tabName) {
+window.switchInvTab = function(tabName, btnEl) {
   document.querySelectorAll('.inv-tab-btn').forEach(b => b.classList.remove('active'));
-  event.target.classList.add('active');
+  const btn = btnEl || document.querySelector(`.inv-tab-btn[data-inv-tab="${tabName}"]`);
+  if (btn) btn.classList.add('active');
 
   const container = document.getElementById('armory-tab-content');
   if (!container || !window._currentArmoryData) return;
@@ -1101,7 +1119,7 @@ window.switchInvTab = function(tabName) {
   container.innerHTML = '';
   const list = window._currentArmoryData[tabName] || [];
   if (list.length === 0) {
-    container.innerHTML = '<div style="padding: 20px; color: var(--text-muted);">No items in this section.</div>';
+    container.innerHTML = '<div style="padding: 20px; color: var(--text-muted); grid-column: 1/-1;">No items in this section.</div>';
     return;
   }
 
