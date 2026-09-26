@@ -721,7 +721,7 @@ double? CalculatePerfectionScore(Item item, Dictionary<(int StatId, int Layer), 
         if (range.Min == range.Max) continue;
 
         var value = stat.Value;
-        if (stat.Id is StatId.MaxLife or StatId.MaxMana or StatId.MaxStamina)
+        if (stat.Id is StatId.MaxLife or StatId.MaxMana or StatId.MaxStamina or StatId.LifePerLevel or StatId.ManaPerLevel)
             value >>= 8;
 
         double pct = (double)(value - range.Min) / (range.Max - range.Min) * 100.0;
@@ -951,7 +951,7 @@ Dictionary<string, object>? FormatStatJson(Stat stat, Dictionary<(int StatId, in
     };
 
     var value = stat.Value;
-    if (stat.Id is StatId.MaxLife or StatId.MaxMana or StatId.MaxStamina)
+    if (stat.Id is StatId.MaxLife or StatId.MaxMana or StatId.MaxStamina or StatId.LifePerLevel or StatId.ManaPerLevel)
         value >>= 8;
     obj["value"] = value;
 
@@ -1098,7 +1098,7 @@ string FormatStat(Stat stat)
     var statIntId = (int)stat.Id;
     var value = stat.Value;
 
-    if (stat.Id is StatId.MaxLife or StatId.MaxMana or StatId.MaxStamina)
+    if (stat.Id is StatId.MaxLife or StatId.MaxMana or StatId.MaxStamina or StatId.LifePerLevel or StatId.ManaPerLevel)
         value >>= 8;
 
     if (IsPerLevelStat(stat.Id))
@@ -1391,11 +1391,34 @@ List<string> GetSocketStats(Item item)
     return lines;
 }
 
+string NormalizePropertyCode(string propCode)
+{
+    if (string.IsNullOrEmpty(propCode)) return "";
+    return propCode.Trim().ToLowerInvariant() switch
+    {
+        "cast" => "cast1",
+        "balance" => "balance1",
+        "move" => "move1",
+        "swing" => "swing1",
+        "block" => "block1",
+        "cold-res" => "res-cold",
+        "fire-res" => "res-fire",
+        "ltng-res" => "res-ltng",
+        "pois-res" => "res-pois",
+        "all-res" => "res-all",
+        "ern%" => "enr%",
+        "res-poi-len" => "res-pois-len",
+        "get-hit-skill" => "gethit-skill",
+        _ => propCode.Trim()
+    };
+}
+
 string? ResolvePropertyToText(string propCode, string param, int min, int max)
 {
     if (string.IsNullOrEmpty(propCode)) return null;
 
-    if (!propertyToStats.TryGetValue(propCode, out var propEntries))
+    var normCode = NormalizePropertyCode(propCode);
+    if (!propertyToStats.TryGetValue(normCode, out var propEntries) && !propertyToStats.TryGetValue(propCode, out propEntries))
         return $"{propCode}: {min}-{max}";
 
     var parts = new List<string>();
@@ -1437,7 +1460,10 @@ string? ResolvePropertyToText(string propCode, string param, int min, int max)
                 parts.Add($"Enhanced Damage: +{value}%");
                 break;
             case 10: // skilltab
-                parts.Add($"+{value} to Skill Tab {param}");
+                if (int.TryParse(param, out var tabId))
+                    parts.Add($"+{value} to {GetSkillName(StatId.AddSkillTab, tabId)}");
+                else
+                    parts.Add($"+{value} to Skill Tab {param}");
                 break;
             case 15: // min damage for elemental
                 if (statId >= 0)
@@ -1490,7 +1516,9 @@ Dictionary<string, string> BuildItemNameLookup(string dir, Dictionary<string, st
                 var code = cols[codeIdx].Trim();
                 var fallback = cols[nameIdx].Trim();
                 // Base item names are keyed in item-names.json by the item code (e.g. "qf1", "xtp")
-                var name = stringTable.TryGetValue(code, out var loc) ? loc : fallback;
+                // Runes are also keyed by code + "L" (e.g. "r01L", "r22L") in item-runes.json
+                var name = stringTable.TryGetValue(code, out var loc) ? loc 
+                    : (stringTable.TryGetValue(code + "L", out var runeLoc) ? runeLoc : fallback);
                 if (code.Length > 0 && name.Length > 0 && !lookup.ContainsKey(code))
                     lookup[code] = name;
             }
@@ -2069,28 +2097,48 @@ Dictionary<string, string> BuildItemTierLookup(string dir)
     return lookup;
 }
 
-// Resolve a property code to its primary StatId using properties.txt and itemstatcost.txt
-int ResolvePropertyToStatId(string propCode)
+// Resolve a property code to its StatId(s) using properties.txt and itemstatcost.txt
+List<int> ResolvePropertyToStatIds(string propCode)
 {
-    if (string.IsNullOrEmpty(propCode)) return -1;
-    if (!propertyToStats.TryGetValue(propCode, out var entries) || entries.Count == 0) return -1;
-    var entry = entries[0];
-    // Skip properties where min/max don't represent a value range
-    // 11=gethit-skill, 19=charged, 12=skill-rand, 36=randclassskill
-    // 15/16=elemental damage min/max (min=mindam, max=maxdam, not a roll range)
-    // 17=per-level stats (param is the per-level value, not a range)
-    if (entry.Func is 11 or 19 or 12 or 15 or 16 or 17 or 36) return -1;
-    if (string.IsNullOrEmpty(entry.Stat)) return -1;
-    if (statNameToId.TryGetValue(entry.Stat, out var id)) return id;
-    return -1;
+    var result = new List<int>();
+    if (string.IsNullOrEmpty(propCode)) return result;
+
+    var normCode = NormalizePropertyCode(propCode);
+
+    // Hardcoded special engine property funcs without stat column
+    if (normCode.Equals("dmg-min", StringComparison.OrdinalIgnoreCase)) { result.Add(21); return result; }
+    if (normCode.Equals("dmg-max", StringComparison.OrdinalIgnoreCase)) { result.Add(22); return result; }
+    if (normCode.Equals("dmg%", StringComparison.OrdinalIgnoreCase)) { result.Add(17); return result; }
+    if (normCode.Equals("indestruct", StringComparison.OrdinalIgnoreCase)) { result.Add(152); return result; }
+
+    if (!propertyToStats.TryGetValue(normCode, out var entries) && !propertyToStats.TryGetValue(propCode, out entries))
+        return result;
+
+    foreach (var entry in entries)
+    {
+        // Skip properties where min/max don't represent a value range
+        // 11=gethit-skill, 19=charged, 12=skill-rand, 36=randclassskill
+        // 15/16=elemental damage min/max (min=mindam, max=maxdam, not a roll range)
+        // 17=per-level stats (param is the per-level value, not a range)
+        if (entry.Func is 11 or 19 or 12 or 15 or 16 or 17 or 36) continue;
+        if (string.IsNullOrEmpty(entry.Stat)) continue;
+        if (statNameToId.TryGetValue(entry.Stat, out var id))
+        {
+            if (!result.Contains(id))
+                result.Add(id);
+        }
+    }
+    return result;
 }
 
 // Resolve a property param to a layer value (e.g., skill name -> skill ID)
 int ResolveParamToLayer(string propCode, string param)
 {
     if (string.IsNullOrEmpty(param)) return 0;
-    // For skill-based properties (oskill, skill, skilltab, gethit-skill), param is a skill name
-    if (!propertyToStats.TryGetValue(propCode, out var entries) || entries.Count == 0) return 0;
+    var normCode = NormalizePropertyCode(propCode);
+    if (!propertyToStats.TryGetValue(normCode, out var entries) && !propertyToStats.TryGetValue(propCode, out entries))
+        return 0;
+    if (entries.Count == 0) return 0;
     var func = entries[0].Func;
     if (func is 10 or 22) // skilltab, oskill/skill
     {
@@ -2118,12 +2166,15 @@ Dictionary<(int StatId, int Layer), (int Min, int Max)> ParseStatRangesFromProps
         var param = cols[baseIdx + 1].Trim();
         int.TryParse(cols[baseIdx + 2].Trim(), out var min);
         int.TryParse(cols[baseIdx + 3].Trim(), out var max);
-        var statId = ResolvePropertyToStatId(propCode);
-        if (statId < 0) continue;
+        var statIds = ResolvePropertyToStatIds(propCode);
+        if (statIds.Count == 0) continue;
         var layer = ResolveParamToLayer(propCode, param);
-        var key = (statId, layer);
-        if (!ranges.ContainsKey(key))
-            ranges[key] = (min, max);
+        foreach (var statId in statIds)
+        {
+            var key = (statId, layer);
+            if (!ranges.ContainsKey(key))
+                ranges[key] = (min, max);
+        }
     }
     return ranges;
 }

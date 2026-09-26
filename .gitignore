@@ -4,6 +4,7 @@ obj/
 *.user
 *.userosscache
 *.sln.docstates
+*.pdb
 
 # Python
 __pycache__/
