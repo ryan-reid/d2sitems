@@ -92,18 +92,26 @@ def detect_profiles():
                         r"E:\Games\Diablo II Resurrected\Mods",
                         r"C:\Program Files (x86)\Diablo II Resurrected\Mods"
                     ]
+                    entry_clean = re.sub(r'(Three|Ladder|Slam|[-_].*)$', '', entry, flags=re.I).strip()
+                    search_patterns = [entry]
+                    if entry_clean and entry_clean.lower() != entry.lower():
+                        search_patterns.append(entry_clean)
+
                     for cr in candidate_roots:
                         if os.path.isdir(cr):
-                            # Check for MPQ data global excel
-                            for mpq_match in glob.glob(os.path.join(cr, f"*{entry}*", "*.mpq", "data", "global", "excel")):
-                                if os.path.isdir(mpq_match):
-                                    mod_excel = mpq_match
-                                    break
-                            if not mod_excel:
-                                for direct_match in glob.glob(os.path.join(cr, f"*{entry}*", "data", "global", "excel")):
-                                    if os.path.isdir(direct_match):
+                            for sp in search_patterns:
+                                # Check for MPQ data global excel
+                                for mpq_match in glob.glob(os.path.join(cr, f"*{sp}*", "*.mpq", "data", "global", "excel")):
+                                    if os.path.isdir(mpq_match) and "backup" not in mpq_match.lower():
+                                        mod_excel = mpq_match
+                                        break
+                                if mod_excel: break
+                                for direct_match in glob.glob(os.path.join(cr, f"*{sp}*", "data", "global", "excel")):
+                                    if os.path.isdir(direct_match) and "backup" not in direct_match.lower():
                                         mod_excel = direct_match
                                         break
+                                if mod_excel: break
+                            if mod_excel: break
                     if not mod_excel:
                         mod_excel = conf_excel
 
@@ -247,6 +255,7 @@ class SaveDataManager:
                         flags = it_norm.get("flags") or []
                         it_norm["isEthereal"] = any("ethereal" in str(f).lower() for f in flags)
                         it_norm["isRuneword"] = any("runeword" in str(f).lower() for f in flags)
+                        it_norm["isCorrupted"] = bool(it_norm.get("isCorrupted")) or any("corrupt" in str(f).lower() for f in flags) or any(s.get("id") == "corrupted" for s in it_norm.get("stats", []))
 
                         # Extract clean display name
                         raw_name = it_norm.get("name") or it_norm.get("baseName") or "Unknown Item"
@@ -321,6 +330,7 @@ class SaveDataManager:
         max_perf = query_params.get("max_perf")
         stat_keyword = query_params.get("stat", "").strip().lower()
         out_of_date = query_params.get("out_of_date", "").strip().lower()
+        corrupted = query_params.get("corrupted", "").strip().lower()
         sort_by = query_params.get("sort", "name_asc")
 
         filtered = []
@@ -329,6 +339,12 @@ class SaveDataManager:
             if out_of_date == "yes" and not it.get("isOutOfDate"):
                 continue
             if out_of_date == "no" and it.get("isOutOfDate"):
+                continue
+
+            # Corrupted filter
+            if corrupted == "yes" and not it.get("isCorrupted"):
+                continue
+            if corrupted == "no" and it.get("isCorrupted"):
                 continue
 
             # 1. Source / Character filter

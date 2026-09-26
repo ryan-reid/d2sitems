@@ -679,6 +679,19 @@ body {
   text-shadow: 0 0 6px rgba(255, 71, 87, 0.4);
 }
 
+.badge-corrupted {
+  background: rgba(231, 76, 60, 0.25);
+  border-color: #e74c3c;
+  color: #ff6b6b;
+  font-weight: 800;
+  text-shadow: 0 0 6px rgba(231, 76, 60, 0.5);
+}
+
+.item-stat-row.stat-corrupted {
+  color: #ff6b6b;
+  font-weight: 700;
+}
+
 .seg-btn-warning.active {
   background: rgba(255, 71, 87, 0.3);
   color: #ff6b81;

@@ -394,6 +394,9 @@ function createItemCardElement(it, showVerifierDetails = false) {
   if (it.isOutOfDate) {
     badgesHtml += `<span class="badge badge-out-of-date" title="Differs from current game files">⚠️ Out of Date</span>`;
   }
+  if (it.isCorrupted) {
+    badgesHtml += `<span class="badge badge-corrupted" title="Item is Corrupted">💥 Corrupted</span>`;
+  }
   if (it.isEthereal) badgesHtml += `<span class="badge badge-eth">Ethereal</span>`;
   if (it.socketCount > 0) {
     badgesHtml += `<span class="badge badge-socket">${it.socketCount} Sockets</span>`;
@@ -424,7 +427,8 @@ function createItemCardElement(it, showVerifierDetails = false) {
     statsHtml = '<div class="item-stats-list">';
     statList.slice(0, 8).forEach(s => {
       const desc = escapeHtml(s.description || s.id || '');
-      statsHtml += `<div class="item-stat-row">${desc}</div>`;
+      const isCorruptStat = (s.description || s.id || '').toLowerCase().includes('corrupt');
+      statsHtml += `<div class="item-stat-row ${isCorruptStat ? 'stat-corrupted' : ''}">${desc}</div>`;
     });
     if (statList.length > 8) {
       statsHtml += `<div class="stat-roll-range">+ ${statList.length - 8} more properties...</div>`;
@@ -522,7 +526,8 @@ function renderItemsTable() {
 // Item Detail Modal
 function openItemDetailModal(it) {
   const qColorClass = getQualityColorClass(it.quality, it.isRuneword);
-  dom.itemModalTitle.innerHTML = `<span class="${qColorClass}">${escapeHtml(it.displayName)}</span>`;
+  const corruptBadge = it.isCorrupted ? '<span class="badge badge-corrupted" style="vertical-align: middle; margin-left: 8px;">💥 Corrupted</span>' : '';
+  dom.itemModalTitle.innerHTML = `<span class="${qColorClass}">${escapeHtml(it.displayName)}</span>${corruptBadge}`;
 
   let outOfDateBanner = '';
   if (it.isOutOfDate) {
@@ -584,7 +589,8 @@ function openItemDetailModal(it) {
   if (allStats.length > 0) {
     contentHtml += `<div style="margin-bottom: 14px;"><strong style="font-size: 12px; text-transform: uppercase; color: var(--text-muted);">Properties:</strong><div class="item-stats-list" style="margin-top: 6px;">`;
     allStats.forEach(s => {
-      contentHtml += `<div class="item-stat-row" style="font-size: 13px;">• ${escapeHtml(s.description || s.id)}</div>`;
+      const isCorruptStat = (s.description || s.id || '').toLowerCase().includes('corrupt');
+      contentHtml += `<div class="item-stat-row ${isCorruptStat ? 'stat-corrupted' : ''}" style="font-size: 13px;">• ${escapeHtml(s.description || s.id)}</div>`;
     });
     contentHtml += `</div></div>`;
   }

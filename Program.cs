@@ -95,6 +95,7 @@ var gemApplyTypes = BuildGemApplyTypeLookup(excelDir);
 var gemStats = BuildGemStatsLookup(excelDir);
 var propertyToStats = BuildPropertyToStatsLookup(excelDir);
 var statNameToId = BuildStatNameToIdLookup(excelDir);
+var statCostLookup = BuildStatCostLookup(excelDir);
 var itemTiers = BuildItemTierLookup(excelDir);
 var itemTypes = BuildItemTypeLookup(excelDir);
 var setItemSetNames = BuildSetItemSetNameLookup(excelDir, stringTable);
@@ -491,8 +492,9 @@ List<JsonElement> FindExistingItems(string itemName, string findScript)
 
 string CleanItemName(string s)
 {
-    // Strip D2 color codes (0xFF followed by 'c' and one more char), bullets,
+    // Strip D2 color codes (0xFF or \u00ff followed by 'c' and one more char), bullets,
     // and other non-ASCII junk. Collapse whitespace.
+    s = Regex.Replace(s, @"[\xff\u00ff]c.", "");
     s = Regex.Replace(s, "ÿc.", "");
     s = Regex.Replace(s, "[^\\x20-\\x7E]", "");
     s = Regex.Replace(s, "\\s+", " ");
@@ -770,6 +772,26 @@ Dictionary<string, object?> BuildItemJson(Item item)
     if (item.Flags.HasFlag(ItemFlags.Socketed)) flags.Add($"Socketed ({item.Sockets.Count})");
     if (!item.Flags.HasFlag(ItemFlags.Identified)) flags.Add("Unidentified");
     if (item.Flags.HasFlag(ItemFlags.Personalized)) flags.Add("Personalized");
+
+    bool isCorrupted = false;
+    if (item.Stats != null)
+    {
+        foreach (var s in item.Stats)
+        {
+            int sId = (int)s.Id;
+            if (sId == 368 || (statCostLookup.TryGetValue(sId, out var sci) && (sci.StatName.Equals("corrupted", StringComparison.OrdinalIgnoreCase) || sci.StatName.Equals("item_corrupted", StringComparison.OrdinalIgnoreCase))))
+            {
+                if (s.Value > 0)
+                    isCorrupted = true;
+            }
+        }
+    }
+    if (isCorrupted)
+    {
+        obj["isCorrupted"] = true;
+        flags.Add("Corrupted");
+    }
+
     if (flags.Count > 0)
         obj["flags"] = flags;
 
@@ -783,17 +805,50 @@ Dictionary<string, object?> BuildItemJson(Item item)
     if (item.Quantity.HasValue)
         obj["quantity"] = item.Quantity.Value;
 
+    var internalStats = new List<Dictionary<string, object>>();
+
     if (item.RunewordStats?.Count > 0)
-        obj["runewordStats"] = item.RunewordStats.Select(s => FormatStatJson(s, statRanges)).ToList();
+    {
+        var rwList = new List<Dictionary<string, object>>();
+        foreach (var s in item.RunewordStats)
+        {
+            var formatted = FormatStatJson(s, statRanges);
+            if (formatted != null)
+                rwList.Add(formatted);
+            else
+                internalStats.Add(new Dictionary<string, object> { ["id"] = ((int)s.Id).ToString(), ["value"] = s.Value });
+        }
+        if (rwList.Count > 0)
+            obj["runewordStats"] = rwList;
+    }
 
     if (item.Stats?.Count > 0)
-        obj["stats"] = item.Stats.Select(s => FormatStatJson(s, statRanges)).ToList();
+    {
+        var statList = new List<Dictionary<string, object>>();
+        foreach (var s in item.Stats)
+        {
+            var formatted = FormatStatJson(s, statRanges);
+            if (formatted != null)
+                statList.Add(formatted);
+            else
+                internalStats.Add(new Dictionary<string, object> { ["id"] = ((int)s.Id).ToString(), ["value"] = s.Value });
+        }
+        if (statList.Count > 0)
+            obj["stats"] = statList;
+    }
+
+    if (internalStats.Count > 0)
+        obj["internalStats"] = internalStats;
 
     for (int i = 0; i < (item.SetBonusStats?.Count ?? 0); i++)
     {
         if (item.SetBonusStats![i] != null && item.SetBonusStats[i].Count > 0)
         {
-            obj[$"setBonus{i + 1}"] = item.SetBonusStats[i].Select(s => FormatStatJson(s, null)).ToList();
+            var sbList = item.SetBonusStats[i].Select(s => FormatStatJson(s, null)).Where(s => s != null).Select(s => s!).ToList();
+            if (sbList.Count > 0)
+            {
+                obj[$"setBonus{i + 1}"] = sbList;
+            }
         }
     }
 
@@ -871,11 +926,27 @@ Dictionary<string, object?> BuildItemJson(Item item)
     return obj;
 }
 
-Dictionary<string, object> FormatStatJson(Stat stat, Dictionary<(int StatId, int Layer), (int Min, int Max)>? ranges)
+Dictionary<string, object>? FormatStatJson(Stat stat, Dictionary<(int StatId, int Layer), (int Min, int Max)>? ranges)
 {
+    var statIntId = (int)stat.Id;
+    if (statCostLookup.TryGetValue(statIntId, out var costInfo))
+    {
+        // If this stat has no description function and no display strings, it is an engine internal stat (e.g. corruptordesc 369)
+        if (costInfo.DescFunc <= 0 && string.IsNullOrEmpty(costInfo.DescStrPos) && string.IsNullOrEmpty(costInfo.DescStrNeg))
+        {
+            return null;
+        }
+    }
+
+    string idStr = stat.Id.ToString();
+    if (int.TryParse(idStr, out _) && statCostLookup.TryGetValue(statIntId, out var ci) && !string.IsNullOrEmpty(ci.StatName))
+    {
+        idStr = ci.StatName;
+    }
+
     var obj = new Dictionary<string, object>
     {
-        ["id"] = stat.Id.ToString(),
+        ["id"] = idStr,
         ["description"] = FormatStat(stat)
     };
 
@@ -1024,7 +1095,7 @@ string? GetSetName(Item item)
 
 string FormatStat(Stat stat)
 {
-    var name = FormatStatName(stat.Id);
+    var statIntId = (int)stat.Id;
     var value = stat.Value;
 
     if (stat.Id is StatId.MaxLife or StatId.MaxMana or StatId.MaxStamina)
@@ -1045,6 +1116,60 @@ string FormatStat(Stat stat)
         return $"+{value} to {skillName}";
     }
 
+    // Check custom / loaded stat metadata from itemstatcost.txt and string table
+    if (statCostLookup.TryGetValue(statIntId, out var info))
+    {
+        // 1. descfunc == 3: String only, no value (e.g. "Corrupted", "Augmented", "Freezes Target", "Knockback")
+        if (info.DescFunc == 3)
+        {
+            var strKey = !string.IsNullOrEmpty(info.DescStrPos) ? info.DescStrPos : info.DescStrNeg;
+            if (!string.IsNullOrEmpty(strKey) && stringTable.TryGetValue(strKey, out var localized) && !string.IsNullOrWhiteSpace(localized))
+                return localized;
+            if (!string.IsNullOrEmpty(info.StatName))
+                return FormatRawStatName(info.StatName);
+        }
+
+        // 2. Format with string table if descstrpos / descstrneg is present
+        var keyToUse = value >= 0 ? info.DescStrPos : (string.IsNullOrEmpty(info.DescStrNeg) ? info.DescStrPos : info.DescStrNeg);
+        if (!string.IsNullOrEmpty(keyToUse) && stringTable.TryGetValue(keyToUse, out var localizedStr) && !string.IsNullOrWhiteSpace(localizedStr))
+        {
+            // If string contains printf-style specifiers: %+d, %d, %i, %%
+            if (localizedStr.Contains("%+d") || localizedStr.Contains("%d") || localizedStr.Contains("%i"))
+            {
+                var formatted = localizedStr;
+                var signedVal = (value >= 0 ? "+" : "") + value;
+                formatted = formatted.Replace("%+d", signedVal);
+                formatted = formatted.Replace("%d", value.ToString());
+                formatted = formatted.Replace("%i", value.ToString());
+                formatted = formatted.Replace("%%", "%");
+                formatted = formatted.Replace("%0%", "%");
+                return formatted;
+            }
+
+            // If descfunc is 15 or 20 without %d (e.g. "Melee Splash Damage")
+            if (info.DescFunc is 15 or 20)
+            {
+                return localizedStr;
+            }
+
+            // If descval == 1: value before string (+X Fire Resist)
+            if (info.DescVal == 1)
+                return $"{(value >= 0 ? "+" : "")}{value} {localizedStr}";
+
+            // If descval == 2: value after string (Fire Resist: +X)
+            if (info.DescVal == 2)
+                return $"{localizedStr}: {(value >= 0 ? "+" : "")}{value}";
+
+            // If descfunc is 19 without %d
+            if (info.DescFunc == 19)
+                return $"{(value >= 0 ? "+" : "")}{value} {localizedStr}";
+
+            return $"{localizedStr}: {value}";
+        }
+    }
+
+    var name = FormatStatName(stat.Id);
+
     if (IsPercentStat(stat.Id))
         return $"{name}: {(value >= 0 ? "+" : "")}{value}%";
 
@@ -1056,8 +1181,57 @@ string FormatStat(Stat stat)
 
 string FormatStatName(StatId id)
 {
+    int statIntId = (int)id;
+    if (statCostLookup.TryGetValue(statIntId, out var info))
+    {
+        var keyToUse = !string.IsNullOrEmpty(info.DescStrPos) ? info.DescStrPos : info.DescStrNeg;
+        if (!string.IsNullOrEmpty(keyToUse) && stringTable.TryGetValue(keyToUse, out var localized) && !string.IsNullOrWhiteSpace(localized))
+        {
+            var cleaned = Regex.Replace(localized, @"%[-+0-9]*[a-zA-Z%]", "").Trim();
+            cleaned = Regex.Replace(cleaned, @"^to\s+", "", RegexOptions.IgnoreCase).Trim();
+            if (!string.IsNullOrWhiteSpace(cleaned))
+                return cleaned;
+        }
+        if (!string.IsNullOrEmpty(info.StatName))
+        {
+            return FormatRawStatName(info.StatName);
+        }
+    }
+
     var name = id.ToString();
+    if (int.TryParse(name, out _))
+        return $"Stat #{name}";
     return Regex.Replace(name, "([a-z])([A-Z])", "$1 $2");
+}
+
+string FormatRawStatName(string name)
+{
+    if (string.IsNullOrWhiteSpace(name)) return "";
+    if (name.StartsWith("item_", StringComparison.OrdinalIgnoreCase))
+        name = name.Substring(5);
+    else if (name.StartsWith("pl_", StringComparison.OrdinalIgnoreCase))
+        name = name.Substring(3);
+
+    var words = name.Split('_', StringSplitOptions.RemoveEmptyEntries);
+    for (int i = 0; i < words.Length; i++)
+    {
+        var w = words[i];
+        if (w.Equals("percent", StringComparison.OrdinalIgnoreCase) || w.Equals("pct", StringComparison.OrdinalIgnoreCase))
+            words[i] = "%";
+        else if (w.Equals("str", StringComparison.OrdinalIgnoreCase))
+            words[i] = "Strength";
+        else if (w.Equals("dex", StringComparison.OrdinalIgnoreCase))
+            words[i] = "Dexterity";
+        else if (w.Equals("vit", StringComparison.OrdinalIgnoreCase))
+            words[i] = "Vitality";
+        else if (w.Equals("enr", StringComparison.OrdinalIgnoreCase))
+            words[i] = "Energy";
+        else if (w.Equals("elemskill", StringComparison.OrdinalIgnoreCase))
+            words[i] = "Elemental Skill";
+        else if (w.Length > 0)
+            words[i] = char.ToUpperInvariant(w[0]) + w.Substring(1);
+    }
+    return string.Join(" ", words);
 }
 
 bool IsPerLevelStat(StatId id) => id is
@@ -1360,28 +1534,53 @@ Dictionary<int, string> BuildSkillNameLookup(string dir, Dictionary<string, stri
 
 Dictionary<string, string> BuildStringTable(string dir)
 {
-    // Load localized string tables (Key -> enUS) for items, runes, and skills.
+    // Load localized string tables (Key -> enUS) for items, runes, skills, and modifiers.
     // The strings dir lives at ../../local/lng/strings relative to the excel dir.
-    var lookup = new Dictionary<string, string>(StringComparer.Ordinal);
-    var stringsDir = Path.GetFullPath(Path.Combine(dir, "..", "..", "local", "lng", "strings"));
-    foreach (var file in new[] { "item-names.json", "item-runes.json", "skills.json" })
+    var lookup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+    var candidateDirs = new List<string>();
+    var relStrings = Path.GetFullPath(Path.Combine(dir, "..", "..", "local", "lng", "strings"));
+    if (Directory.Exists(relStrings)) candidateDirs.Add(relStrings);
+    var relLegacy = Path.GetFullPath(Path.Combine(dir, "..", "..", "local", "lng", "strings-legacy"));
+    if (Directory.Exists(relLegacy)) candidateDirs.Add(relLegacy);
+
+    var baseStrings = @"E:\Games\Diablo II Resurrected\Data\local\lng\strings";
+    if (Directory.Exists(baseStrings) && !candidateDirs.Contains(baseStrings, StringComparer.OrdinalIgnoreCase))
+        candidateDirs.Add(baseStrings);
+
+    var stringFiles = new[]
     {
-        var path = Path.Combine(stringsDir, file);
-        if (!File.Exists(path)) continue;
-        try
+        "item-names.json",
+        "item-runes.json",
+        "item-modifiers.json",
+        "item-nameaffixes.json",
+        "skills.json",
+        "ui.json"
+    };
+
+    // Load from fallback first, so mod-specific strings overwrite base
+    candidateDirs.Reverse();
+    foreach (var sDir in candidateDirs)
+    {
+        foreach (var file in stringFiles)
         {
-            var doc = JsonDocument.Parse(File.ReadAllText(path));
-            foreach (var entry in doc.RootElement.EnumerateArray())
+            var path = Path.Combine(sDir, file);
+            if (!File.Exists(path)) continue;
+            try
             {
-                if (!entry.TryGetProperty("Key", out var keyEl)) continue;
-                if (!entry.TryGetProperty("enUS", out var enEl)) continue;
-                var key = keyEl.GetString();
-                var en = enEl.GetString();
-                if (key != null && en != null && !lookup.ContainsKey(key))
-                    lookup[key] = CleanItemName(en);
+                var doc = JsonDocument.Parse(File.ReadAllText(path));
+                foreach (var entry in doc.RootElement.EnumerateArray())
+                {
+                    if (!entry.TryGetProperty("Key", out var keyEl)) continue;
+                    if (!entry.TryGetProperty("enUS", out var enEl)) continue;
+                    var key = keyEl.GetString();
+                    var en = enEl.GetString();
+                    if (key != null && en != null)
+                        lookup[key] = CleanItemName(en);
+                }
             }
+            catch { /* skip on parse error */ }
         }
-        catch { /* skip on parse error */ }
     }
     return lookup;
 }
@@ -1623,6 +1822,47 @@ Dictionary<string, int> BuildStatNameToIdLookup(string dir)
             var name = cols[nameIdx].Trim();
             if (name.Length > 0)
                 lookup[name] = id;
+        }
+    }
+
+    return lookup;
+}
+
+Dictionary<int, StatCostInfo> BuildStatCostLookup(string dir)
+{
+    var lookup = new Dictionary<int, StatCostInfo>();
+    var path = Path.Combine(dir, "itemstatcost.txt");
+    if (!File.Exists(path)) return lookup;
+
+    var lines = File.ReadAllLines(path);
+    if (lines.Length < 2) return lookup;
+
+    var header = lines[0].Split('\t');
+    int nameIdx = Array.IndexOf(header, "Stat");
+    int idIdx = Array.IndexOf(header, "*ID");
+    int priorityIdx = Array.IndexOf(header, "descpriority");
+    int funcIdx = Array.IndexOf(header, "descfunc");
+    int valIdx = Array.IndexOf(header, "descval");
+    int posIdx = Array.IndexOf(header, "descstrpos");
+    int negIdx = Array.IndexOf(header, "descstrneg");
+    int str2Idx = Array.IndexOf(header, "descstr2");
+
+    if (idIdx < 0 || nameIdx < 0) return lookup;
+
+    for (int i = 1; i < lines.Length; i++)
+    {
+        var cols = lines[i].Split('\t');
+        if (cols.Length > idIdx && int.TryParse(cols[idIdx].Trim(), out var id))
+        {
+            var statName = cols.Length > nameIdx ? cols[nameIdx].Trim() : "";
+            int priority = (priorityIdx >= 0 && cols.Length > priorityIdx && int.TryParse(cols[priorityIdx].Trim(), out var p)) ? p : 0;
+            int func = (funcIdx >= 0 && cols.Length > funcIdx && int.TryParse(cols[funcIdx].Trim(), out var f)) ? f : 0;
+            int val = (valIdx >= 0 && cols.Length > valIdx && int.TryParse(cols[valIdx].Trim(), out var v)) ? v : 0;
+            string pos = (posIdx >= 0 && cols.Length > posIdx) ? cols[posIdx].Trim() : "";
+            string neg = (negIdx >= 0 && cols.Length > negIdx) ? cols[negIdx].Trim() : "";
+            string str2 = (str2Idx >= 0 && cols.Length > str2Idx) ? cols[str2Idx].Trim() : "";
+
+            lookup[id] = new StatCostInfo(id, statName, priority, func, val, pos, neg, str2);
         }
     }
 
@@ -2020,6 +2260,7 @@ Dictionary<string, string> LoadConfig(string filename)
 record GemMod(string Code, string Param, int Min, int Max);
 record GemModSet(List<GemMod> WeaponMods, List<GemMod> HelmMods, List<GemMod> ShieldMods);
 record PropertyEntry(int Func, string Stat);
+record StatCostInfo(int Id, string StatName, int DescPriority, int DescFunc, int DescVal, string DescStrPos, string DescStrNeg, string DescStr2);
 
 // Cached single SpeechSynthesizer so SpeakAsync calls queue up rather than overlap
 static class SpeechState
