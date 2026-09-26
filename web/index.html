@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Diablo II Resurrected - Save & Item Explorer</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Top Navigation Bar -->
+  <header class="navbar">
+    <div class="nav-left">
+      <div class="logo">
+        <span class="logo-icon">⚔️</span>
+        <div class="logo-text">
+          <span class="logo-title">D2S ITEMS EXPLORER</span>
+          <span class="logo-subtitle">DIABLO II: RESURRECTED</span>
+        </div>
+      </div>
+
+      <nav class="nav-tabs">
+        <button class="nav-tab active" data-tab="search-view">
+          <span class="tab-icon">🔍</span> Item Search
+        </button>
+        <button class="nav-tab" data-tab="characters-view">
+          <span class="tab-icon">🛡️</span> Characters & Stash
+        </button>
+        <button class="nav-tab" data-tab="armory-view">
+          <span class="tab-icon">👤</span> Armory Sheet
+        </button>
+        <button class="nav-tab" data-tab="grail-view">
+          <span class="tab-icon">🏆</span> Holy Grail
+        </button>
+      </nav>
+    </div>
+
+    <div class="nav-right">
+      <div class="profile-selector-wrap">
+        <label for="profile-select" class="profile-label">PROFILE:</label>
+        <select id="profile-select" class="profile-dropdown"></select>
+      </div>
+
+      <button id="rescan-btn" class="btn btn-primary" title="Scan and re-parse save files">
+        <span class="btn-icon" id="rescan-icon">🔄</span>
+        <span id="rescan-label">Rescan Saves</span>
+      </button>
+
+      <button id="add-profile-btn" class="btn btn-secondary" title="Add custom save folder">
+        <span>+ Folder</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Notification Toast Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Main Content Area -->
+  <main class="main-content">
+
+    <!-- VIEW 1: ITEM SEARCH -->
+    <section id="search-view" class="view-panel active">
+      <div class="search-layout">
+        <!-- Sidebar Filters -->
+        <aside class="filter-sidebar">
+          <div class="sidebar-header">
+            <h3>Filters</h3>
+            <button id="reset-filters-btn" class="btn-link">Reset All</button>
+          </div>
+
+          <!-- Quality Filters -->
+          <div class="filter-group">
+            <label class="filter-title">Quality</label>
+            <div class="chip-grid" id="quality-chips">
+              <button class="chip active" data-filter="quality" data-value="all">All</button>
+              <button class="chip chip-unique" data-filter="quality" data-value="Unique">Unique</button>
+              <button class="chip chip-set" data-filter="quality" data-value="Set">Set</button>
+              <button class="chip chip-runeword" data-filter="quality" data-value="Runeword">Runeword</button>
+              <button class="chip chip-rare" data-filter="quality" data-value="Rare">Rare</button>
+              <button class="chip chip-crafted" data-filter="quality" data-value="Crafted">Crafted</button>
+              <button class="chip chip-magic" data-filter="quality" data-value="Magic">Magic</button>
+              <button class="chip chip-normal" data-filter="quality" data-value="Normal">Normal</button>
+            </div>
+          </div>
+
+          <!-- Character / Save Dropdown -->
+          <div class="filter-group">
+            <label class="filter-title" for="character-filter">Character / Source</label>
+            <select id="character-filter" class="form-select">
+              <option value="all">All Characters & Stashes</option>
+            </select>
+          </div>
+
+          <!-- Item Type Dropdown -->
+          <div class="filter-group">
+            <label class="filter-title" for="type-filter">Item Type</label>
+            <select id="type-filter" class="form-select">
+              <option value="all">All Types</option>
+              <option value="helm">Helms / Circlets</option>
+              <option value="armor">Body Armor</option>
+              <option value="shield">Shields</option>
+              <option value="gloves">Gloves</option>
+              <option value="boots">Boots</option>
+              <option value="belt">Belts</option>
+              <option value="weapon">Weapons (All)</option>
+              <option value="sword">Swords</option>
+              <option value="axe">Axes</option>
+              <option value="bow">Bows / Crossbows</option>
+              <option value="polearm">Polearms / Spears</option>
+              <option value="ring">Rings</option>
+              <option value="amulet">Amulets</option>
+              <option value="charm">Charms</option>
+              <option value="jewel">Jewels</option>
+              <option value="rune">Runes</option>
+            </select>
+          </div>
+
+          <!-- Tier Dropdown -->
+          <div class="filter-group">
+            <label class="filter-title" for="tier-filter">Item Tier</label>
+            <select id="tier-filter" class="form-select">
+              <option value="all">All Tiers</option>
+              <option value="normal">Normal</option>
+              <option value="exceptional">Exceptional</option>
+              <option value="elite">Elite</option>
+            </select>
+          </div>
+
+          <!-- Location Dropdown -->
+          <div class="filter-group">
+            <label class="filter-title" for="location-filter">Location</label>
+            <select id="location-filter" class="form-select">
+              <option value="all">All Locations</option>
+              <option value="equipped">Equipped</option>
+              <option value="inventory">Inventory</option>
+              <option value="stash">Stash</option>
+              <option value="cube">Cube</option>
+              <option value="belt">Belt</option>
+              <option value="merc">Mercenary</option>
+            </select>
+          </div>
+
+          <!-- Sockets Filter -->
+          <div class="filter-group">
+            <label class="filter-title" for="sockets-filter">Sockets</label>
+            <select id="sockets-filter" class="form-select">
+              <option value="all">Any Sockets</option>
+              <option value="has">Has Sockets (&gt;0)</option>
+              <option value="open">Has Open Sockets</option>
+              <option value="1">1 Socket</option>
+              <option value="2">2 Sockets</option>
+              <option value="3">3 Sockets</option>
+              <option value="4">4 Sockets</option>
+              <option value="5">5 Sockets</option>
+              <option value="6">6 Sockets</option>
+            </select>
+          </div>
+
+          <!-- Ethereal Filter -->
+          <div class="filter-group">
+            <label class="filter-title">Ethereal</label>
+            <div class="segmented-control">
+              <button class="seg-btn active" data-ethereal="all">Any</button>
+              <button class="seg-btn" data-ethereal="yes">Eth Only</button>
+              <button class="seg-btn" data-ethereal="no">Non-Eth</button>
+            </div>
+          </div>
+
+          <!-- Perfection Score Filter -->
+          <div class="filter-group">
+            <div class="filter-title-row">
+              <label class="filter-title" for="perf-min-slider">Perfection Min: <span id="perf-val-label">0%</span></label>
+              <button id="perf-90-btn" class="badge-link">90%+</button>
+            </div>
+            <input type="range" id="perf-min-slider" min="0" max="100" value="0" class="range-slider">
+          </div>
+
+          <!-- Stat Search Keyword -->
+          <div class="filter-group">
+            <label class="filter-title" for="stat-filter">Specific Stat</label>
+            <input type="text" id="stat-filter" class="form-input" placeholder="e.g. Resist, Faster Cast, Skills, Magic Find">
+            <div class="quick-stat-tags">
+              <span class="quick-tag" data-stat="faster cast rate">FCR</span>
+              <span class="quick-tag" data-stat="magic find">MF</span>
+              <span class="quick-tag" data-stat="skills">+Skills</span>
+              <span class="quick-tag" data-stat="resist">Resists</span>
+              <span class="quick-tag" data-stat="crushing blow">Crushing</span>
+            </div>
+          </div>
+        </aside>
+
+        <!-- Search Results View -->
+        <div class="search-content">
+          <!-- Main Search Bar Header -->
+          <div class="search-controls">
+            <div class="search-input-wrap">
+              <span class="search-icon">🔍</span>
+              <input type="text" id="search-input" class="search-input" placeholder="Search by item name, base, runeword, stats, sockets (e.g. 'Crown', 'Infinity', 'Torch', 'Resist 30')..." autofocus>
+              <button id="search-clear-btn" class="search-clear-btn" title="Clear search">✕</button>
+            </div>
+
+            <div class="search-meta">
+              <span id="results-count-badge" class="results-badge">0 items</span>
+
+              <div class="sort-wrap">
+                <label for="sort-select">Sort:</label>
+                <select id="sort-select" class="form-select-sm">
+                  <option value="perfection_desc">Perfection (High to Low)</option>
+                  <option value="perfection_asc">Perfection (Low to High)</option>
+                  <option value="name_asc">Name (A-Z)</option>
+                  <option value="quality_desc">Quality (Rarity)</option>
+                  <option value="ilvl_desc">Item Level (High to Low)</option>
+                  <option value="character_asc">Character Name</option>
+                </select>
+              </div>
+
+              <div class="view-mode-toggle">
+                <button id="mode-grid-btn" class="view-btn active" title="Grid View">🔲</button>
+                <button id="mode-table-btn" class="view-btn" title="Compact Table View">📋</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Items Grid Container -->
+          <div id="items-grid" class="items-grid"></div>
+
+          <!-- Items Table Container (Hidden by default) -->
+          <div id="items-table-wrap" class="items-table-wrap" style="display: none;">
+            <table class="items-table">
+              <thead>
+                <tr>
+                  <th>Item Name</th>
+                  <th>Base</th>
+                  <th>Quality</th>
+                  <th>Tier</th>
+                  <th>Location</th>
+                  <th>Owner</th>
+                  <th>Perfection</th>
+                  <th>Key Stats</th>
+                </tr>
+              </thead>
+              <tbody id="items-table-body"></tbody>
+            </table>
+          </div>
+
+          <!-- Empty State -->
+          <div id="empty-state" class="empty-state" style="display: none;">
+            <div class="empty-icon">🛡️</div>
+            <h3>No items found</h3>
+            <p>Try broadening your search query or adjusting your filters.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW 2: CHARACTERS & STASHES -->
+    <section id="characters-view" class="view-panel">
+      <div class="characters-header">
+        <div>
+          <h2>Characters & Shared Stashes</h2>
+          <p class="section-desc">Overview of all detected heroes, mules, and stash files.</p>
+        </div>
+        <div id="characters-summary-stats" class="summary-stats"></div>
+      </div>
+
+      <div id="characters-grid" class="characters-grid"></div>
+    </section>
+
+    <!-- VIEW 3: ARMORY / PAPERDOLL SHEET -->
+    <section id="armory-view" class="view-panel">
+      <div class="armory-header">
+        <div class="armory-title-row">
+          <h2>Hero Armory & Inventory</h2>
+          <div class="armory-char-selector">
+            <label for="armory-char-select">SELECT CHARACTER:</label>
+            <select id="armory-char-select" class="form-select"></select>
+          </div>
+        </div>
+      </div>
+
+      <div id="armory-content" class="armory-content">
+        <!-- Paperdoll & Attributes layout generated in JS -->
+      </div>
+    </section>
+
+    <!-- VIEW 4: HOLY GRAIL TRACKER -->
+    <section id="grail-view" class="view-panel">
+      <div class="grail-header">
+        <div>
+          <h2>The Holy Grail Tracker</h2>
+          <p class="section-desc">Track all Unique Items, Sets, and Runewords collected across your account.</p>
+        </div>
+        <div class="grail-filters">
+          <button class="chip active" data-grail-filter="all">All Items</button>
+          <button class="chip" data-grail-filter="collected">Collected Only</button>
+          <button class="chip" data-grail-filter="missing">Missing Only</button>
+        </div>
+      </div>
+
+      <!-- Overall Grail Progress Card -->
+      <div class="grail-progress-card">
+        <div class="grail-progress-header">
+          <span class="grail-score-title">GRAIL COMPLETION</span>
+          <span id="grail-overall-score" class="grail-overall-score">0.00%</span>
+        </div>
+        <div class="progress-bar-wrap">
+          <div id="grail-overall-bar" class="progress-bar-fill" style="width: 0%;"></div>
+        </div>
+        <div class="grail-progress-counts">
+          <span id="grail-count-text">0 / 0 items collected</span>
+        </div>
+      </div>
+
+      <div id="grail-categories" class="grail-categories"></div>
+    </section>
+  </main>
+
+  <!-- Modal for Custom Profile Folder Addition -->
+  <div id="profile-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3>Add Save Folder</h3>
+        <button id="modal-close-btn" class="modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="custom-profile-name">Profile Name:</label>
+          <input type="text" id="custom-profile-name" class="form-input" placeholder="e.g. My Mod Saves">
+        </div>
+        <div class="form-group">
+          <label for="custom-profile-path">Saved Games Directory Path:</label>
+          <input type="text" id="custom-profile-path" class="form-input" placeholder="C:\Users\Username\Saved Games\Diablo II Resurrected\Mods\MyMod">
+        </div>
+        <div class="form-group">
+          <label for="custom-excel-path">Game Excel Directory Path (Optional, for mod stats/grail):</label>
+          <input type="text" id="custom-excel-path" class="form-input" placeholder="E:\Games\Diablo II Resurrected\Mods\MyMod\data\global\excel">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="modal-cancel-btn" class="btn btn-secondary">Cancel</button>
+        <button id="modal-save-btn" class="btn btn-primary">Add Profile</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Item Detail Modal / Tooltip Popover -->
+  <div id="item-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-box item-modal-box">
+      <div class="modal-header">
+        <h3 id="item-modal-title">Item Details</h3>
+        <button id="item-modal-close-btn" class="modal-close">✕</button>
+      </div>
+      <div id="item-modal-body" class="modal-body item-modal-content"></div>
+      <div class="modal-footer">
+        <button id="item-modal-copy-btn" class="btn btn-secondary">Copy Item Text</button>
+        <button id="item-modal-done-btn" class="btn btn-primary">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

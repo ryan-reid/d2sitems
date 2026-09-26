@@ -515,10 +515,19 @@ if __name__ == "__main__":
                         help="filter by game version: Classic, Expansion, ReignOfTheWarlock, or all (overrides config, default: all)")
     parser.add_argument("--json", action="store_true",
                         help="output results as JSON instead of human-readable text")
+    parser.add_argument("--save-dir", "--dir", dest="save_dir", default=None,
+                        help="override save directory (default: from config or ~/Saved Games/Diablo II Resurrected)")
+    parser.add_argument("--excel-dir", "--excel", dest="excel_dir", default=None,
+                        help="override game excel directory for grail (default: from config)")
     parser.add_argument("--grail", action="store_true",
                         help="show a grail report: for every unique/set/runeword in the excel dir, indicate whether we already have one")
 
     args = parser.parse_args()
+
+    if args.save_dir:
+        save_dir = args.save_dir
+    if args.excel_dir:
+        config["excel_dir"] = args.excel_dir
 
     # Build filter list from all specified field arguments
     filters = []

@@ -16,6 +16,20 @@ var defaultSaveDir = config.GetValueOrDefault("save_dir",
     Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
         "Saved Games", "Diablo II Resurrected"));
 
+var filteredArgs = new List<string>();
+for (int i = 0; i < args.Length; i++)
+{
+    if (args[i] == "--excel" && i + 1 < args.Length)
+    {
+        excelDir = args[++i];
+    }
+    else
+    {
+        filteredArgs.Add(args[i]);
+    }
+}
+args = filteredArgs.ToArray();
+
 // Check for --monitor mode
 if (args.Length >= 2 && args[0] == "--monitor")
 {
@@ -93,15 +107,34 @@ var uniqueStatRanges = BuildUniqueStatRangesLookup(excelDir);
 var setStatRanges = BuildSetStatRangesLookup(excelDir);
 var runewordStatRanges = BuildRunewordStatRangesLookup(excelDir);
 
-// Set up external data for D2SSharp to use the configured excel files
-IExternalData externalData;
+// Set up external data cache for D2SSharp to use the configured excel files
+var externalDataCache = new Dictionary<int, IExternalData>();
+IExternalData GetExternalData(int version)
+{
+    if (externalDataCache.TryGetValue(version, out var cached))
+        return cached;
+    try
+    {
+        var data = new TxtFileExternalData(excelDir, version: (uint)version);
+        externalDataCache[version] = data;
+        return data;
+    }
+    catch (Exception ex)
+    {
+        if (externalDataCache.TryGetValue(105, out var fallback))
+            return fallback;
+        Console.WriteLine($"Error: could not load external data for version {version} from {excelDir}: {ex.Message}");
+        throw;
+    }
+}
+
 try
 {
-    externalData = new TxtFileExternalData(excelDir, version: 105);
+    GetExternalData(105);
 }
 catch (Exception ex)
 {
-    Console.WriteLine($"Error: could not load external data from {excelDir}: {ex.Message}");
+    Console.WriteLine($"Error: could not load default external data from {excelDir}: {ex.Message}");
     return;
 }
 
@@ -185,7 +218,8 @@ if (isMonitorMode)
     try
     {
         var initBytes = File.ReadAllBytes(monitorFile);
-        var initSave = D2Save.Read(initBytes, externalData);
+        int initVer = initBytes.Length >= 8 ? BitConverter.ToInt32(initBytes, 4) : 105;
+        var initSave = D2Save.Read(initBytes, GetExternalData(initVer));
         var charGameVersion = initSave.Character.Preview.GameVersion.ToString();
         var charCore = initSave.Character.Flags.HasFlag(CharacterFlags.Hardcore) ? "HardCore" : "SoftCore";
         var stashPrefix = charGameVersion == "ReignOfTheWarlock" ? "Modern" : "";
@@ -247,7 +281,8 @@ if (isMonitorMode)
             }
 
             byte[] saveBytes = File.ReadAllBytes(monitorFile);
-            D2Save save = D2Save.Read(saveBytes, externalData);
+            int ver = saveBytes.Length >= 8 ? BitConverter.ToInt32(saveBytes, 4) : 105;
+            D2Save save = D2Save.Read(saveBytes, GetExternalData(ver));
 
             var allItems = new List<Item>(save.Items);
             if (save.MercItems != null)
@@ -512,6 +547,8 @@ void Speak(string text)
 
 void ProcessCharacterSave(string saveFile, byte[] saveBytes)
 {
+    int ver = saveBytes.Length >= 8 ? BitConverter.ToInt32(saveBytes, 4) : 105;
+    IExternalData externalData = GetExternalData(ver);
     D2Save save = D2Save.Read(saveBytes, externalData);
 
     // Group items by location
@@ -570,6 +607,8 @@ void ProcessCharacterSave(string saveFile, byte[] saveBytes)
 
 void ProcessSharedStash(string saveFile, byte[] saveBytes)
 {
+    int ver = saveBytes.Length >= 12 ? BitConverter.ToInt32(saveBytes, 8) : 105;
+    IExternalData externalData = GetExternalData(ver);
     D2StashSave stashSave = D2StashSave.Read(saveBytes, externalData);
 
     // Collect items per tab
