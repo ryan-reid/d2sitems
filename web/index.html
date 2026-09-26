@@ -34,6 +34,9 @@
         <button class="nav-tab" data-tab="grail-view">
           <span class="tab-icon">🏆</span> Holy Grail
         </button>
+        <button class="nav-tab" data-tab="verifier-view">
+          <span class="tab-icon">⚖️</span> Item Verifier
+        </button>
       </nav>
     </div>
 
@@ -156,6 +159,16 @@
               <option value="5">5 Sockets</option>
               <option value="6">6 Sockets</option>
             </select>
+          </div>
+
+          <!-- Patch Compatibility / Out of Date Filter -->
+          <div class="filter-group">
+            <label class="filter-title">Patch Compatibility</label>
+            <div class="segmented-control" id="out-of-date-control">
+              <button class="seg-btn active" data-out-of-date="all">All Items</button>
+              <button class="seg-btn seg-btn-warning" data-out-of-date="yes">⚠️ Out of Date</button>
+              <button class="seg-btn" data-out-of-date="no">Up to Date</button>
+            </div>
           </div>
 
           <!-- Ethereal Filter -->
@@ -314,6 +327,72 @@
       </div>
 
       <div id="grail-categories" class="grail-categories"></div>
+    </section>
+
+    <!-- VIEW 5: ITEM VERIFIER (OUT-OF-DATE STAT CHECKER) -->
+    <section id="verifier-view" class="view-panel">
+      <div class="verifier-header">
+        <div>
+          <h2>Item &amp; Stat Verifier</h2>
+          <p class="section-desc">Detect legacy rolls, out-of-range stats, and mod/patch changes by comparing your owned items against current game definitions.</p>
+        </div>
+        <div class="verifier-actions">
+          <button id="verifier-refresh-btn" class="btn btn-secondary">
+            <span>🔄 Refresh Verifier</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Verifier Summary Stats Cards -->
+      <div class="verifier-stats-grid">
+        <div class="verifier-stat-card">
+          <div class="verifier-stat-title">Checked Items</div>
+          <div id="verifier-total-checked" class="verifier-stat-val">0</div>
+          <div class="verifier-stat-sub">Uniques, Sets &amp; Runewords</div>
+        </div>
+        <div class="verifier-stat-card stat-card-success">
+          <div class="verifier-stat-title">Up to Date</div>
+          <div id="verifier-total-up-to-date" class="verifier-stat-val">0</div>
+          <div class="verifier-stat-sub">Match current game files</div>
+        </div>
+        <div class="verifier-stat-card stat-card-warning">
+          <div class="verifier-stat-title">Out of Date</div>
+          <div id="verifier-total-out-of-date" class="verifier-stat-val">0</div>
+          <div id="verifier-pct-out-of-date" class="verifier-stat-sub">0.0% of collection</div>
+        </div>
+        <div class="verifier-stat-card">
+          <div class="verifier-stat-title">Issue Breakdown</div>
+          <div class="verifier-stat-breakdown">
+            <span id="verifier-below-min-tag" class="issue-pill pill-below">▼ 0 Below Min</span>
+            <span id="verifier-above-max-tag" class="issue-pill pill-above">▲ 0 Above Max</span>
+            <span id="verifier-missing-tag" class="issue-pill pill-missing">⚠️ 0 Missing</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filter / Search within verifier -->
+      <div class="verifier-controls">
+        <div class="search-input-wrap verifier-search-wrap">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="verifier-search-input" class="search-input" placeholder="Search out-of-date items or character...">
+        </div>
+        <div class="verifier-filters" id="verifier-issue-filters">
+          <button class="chip active" data-verifier-issue="all">All Out of Date</button>
+          <button class="chip chip-issue-below" data-verifier-issue="below">Below Min Only</button>
+          <button class="chip chip-issue-above" data-verifier-issue="above">Above Max Only</button>
+          <button class="chip chip-issue-missing" data-verifier-issue="missing">Missing Stats Only</button>
+        </div>
+      </div>
+
+      <!-- Out of date items list -->
+      <div id="verifier-items-list" class="items-grid"></div>
+
+      <!-- Verifier Empty State (All items up to date) -->
+      <div id="verifier-all-clean" class="empty-state" style="display: none;">
+        <div class="empty-icon" style="color: #00ff00;">✅</div>
+        <h3>All Items Up to Date!</h3>
+        <p>Every unique, set, and runeword in this profile matches the current game/mod definitions.</p>
+      </div>
     </section>
   </main>
 

@@ -671,6 +671,23 @@ body {
   color: #d1d5db;
 }
 
+.badge-out-of-date {
+  background: rgba(255, 71, 87, 0.22);
+  border-color: #ff4757;
+  color: #ff6b81;
+  font-weight: 800;
+  text-shadow: 0 0 6px rgba(255, 71, 87, 0.4);
+}
+
+.seg-btn-warning.active {
+  background: rgba(255, 71, 87, 0.3);
+  color: #ff6b81;
+}
+
+.item-card.is-out-of-date {
+  border-right: 3px solid #ff4757;
+}
+
 /* Item Defense / Damage Stats */
 .item-base-stats {
   display: flex;
@@ -1334,4 +1351,278 @@ body {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* ==========================================================================
+   ITEM VERIFIER & COMPARISON TABLE
+   ========================================================================== */
+.verifier-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.verifier-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.verifier-stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.verifier-stat-card.stat-card-success {
+  border-color: #27ae60;
+  background: rgba(39, 174, 96, 0.08);
+}
+
+.verifier-stat-card.stat-card-warning {
+  border-color: #ff4757;
+  background: rgba(255, 71, 87, 0.08);
+}
+
+.verifier-stat-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+}
+
+.verifier-stat-val {
+  font-family: var(--font-heading);
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--color-accent);
+}
+
+.stat-card-success .verifier-stat-val { color: #2ecc71; }
+.stat-card-warning .verifier-stat-val { color: #ff4757; }
+
+.verifier-stat-sub {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.verifier-stat-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.issue-pill {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.pill-below {
+  background: rgba(255, 71, 87, 0.2);
+  color: #ff6b81;
+  border: 1px solid rgba(255, 71, 87, 0.4);
+}
+
+.pill-above {
+  background: rgba(162, 155, 254, 0.2);
+  color: #a29bfe;
+  border: 1px solid rgba(162, 155, 254, 0.4);
+}
+
+.pill-missing {
+  background: rgba(255, 177, 66, 0.2);
+  color: #eccc68;
+  border: 1px solid rgba(255, 177, 66, 0.4);
+}
+
+.verifier-controls {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.verifier-search-wrap {
+  flex: 1;
+  min-width: 260px;
+}
+
+.verifier-filters {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chip-issue-below.active { border-color: #ff4757; color: #ff6b81; }
+.chip-issue-above.active { border-color: #a29bfe; color: #a29bfe; }
+.chip-issue-missing.active { border-color: #ffa502; color: #ffa502; }
+
+/* Out of date issues block inside item card */
+.out-of-date-issues-box {
+  background: rgba(255, 71, 87, 0.12);
+  border: 1px solid rgba(255, 71, 87, 0.35);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.out-of-date-issues-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #ff4757;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.out-of-date-issue-item {
+  color: #ff7675;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  line-height: 1.35;
+}
+
+.out-of-date-issue-item.issue-missing { color: #eccc68; }
+.out-of-date-issue-item.issue-above { color: #a29bfe; }
+
+/* Item Details Modal Box Expanded */
+.item-modal-box {
+  max-width: 720px;
+  width: 94%;
+  max-height: 88vh;
+  overflow-y: auto;
+}
+
+.comparison-section {
+  margin-top: 16px;
+  border-top: 1px solid var(--border-color);
+  padding-top: 14px;
+}
+
+.comparison-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.comparison-title-row h4 {
+  font-family: var(--font-heading);
+  font-size: 13px;
+  text-transform: uppercase;
+  color: var(--color-accent);
+  letter-spacing: 0.5px;
+}
+
+.comparison-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: #11131a;
+}
+
+.comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.comparison-table th {
+  background: #191c26;
+  padding: 8px 12px;
+  text-align: left;
+  font-weight: 700;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.comparison-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #1a1e28;
+  vertical-align: middle;
+}
+
+.comparison-table tr:last-child td {
+  border-bottom: none;
+}
+
+.comparison-table tr.row-mismatch {
+  background: rgba(255, 71, 87, 0.06);
+}
+
+.status-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.status-tag.status-ok {
+  background: rgba(46, 204, 113, 0.15);
+  color: #2ecc71;
+  border: 1px solid rgba(46, 204, 113, 0.3);
+}
+
+.status-tag.status-below {
+  background: rgba(255, 71, 87, 0.2);
+  color: #ff6b81;
+  border: 1px solid #ff4757;
+}
+
+.status-tag.status-above {
+  background: rgba(162, 155, 254, 0.2);
+  color: #a29bfe;
+  border: 1px solid #a29bfe;
+}
+
+.status-tag.status-missing {
+  background: rgba(255, 177, 66, 0.2);
+  color: #eccc68;
+  border: 1px solid #ffa502;
+}
+
+.comparison-banner-warning {
+  background: rgba(255, 71, 87, 0.15);
+  border: 1px solid #ff4757;
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  color: #ff6b81;
+  font-size: 13px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  line-height: 1.4;
+}
+
+.comparison-banner-success {
+  background: rgba(46, 204, 113, 0.12);
+  border: 1px solid #2ecc71;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-bottom: 14px;
+  color: #2ecc71;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }

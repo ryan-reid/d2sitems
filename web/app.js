@@ -10,6 +10,7 @@ const state = {
   saves: [],
   items: [],
   grail: null,
+  verifier: null,
   selectedChar: null,
   viewMode: 'grid', // 'grid' or 'table'
   filters: {
@@ -21,11 +22,14 @@ const state = {
     location: 'all',
     sockets: 'all',
     ethereal: 'all',
+    out_of_date: 'all',
     min_perf: 0,
     stat: '',
     sort: 'perfection_desc'
   },
-  grailFilter: 'all' // 'all', 'collected', 'missing'
+  grailFilter: 'all', // 'all', 'collected', 'missing'
+  verifierFilter: 'all', // 'all', 'below', 'above', 'missing'
+  verifierSearch: ''
 };
 
 // DOM Elements
@@ -63,6 +67,17 @@ const dom = {
   grailOverallBar: document.getElementById('grail-overall-bar'),
   grailCountText: document.getElementById('grail-count-text'),
   grailCategories: document.getElementById('grail-categories'),
+  verifierRefreshBtn: document.getElementById('verifier-refresh-btn'),
+  verifierTotalChecked: document.getElementById('verifier-total-checked'),
+  verifierTotalUpToDate: document.getElementById('verifier-total-up-to-date'),
+  verifierTotalOutOfDate: document.getElementById('verifier-total-out-of-date'),
+  verifierPctOutOfDate: document.getElementById('verifier-pct-out-of-date'),
+  verifierBelowMinTag: document.getElementById('verifier-below-min-tag'),
+  verifierAboveMaxTag: document.getElementById('verifier-above-max-tag'),
+  verifierMissingTag: document.getElementById('verifier-missing-tag'),
+  verifierSearchInput: document.getElementById('verifier-search-input'),
+  verifierItemsList: document.getElementById('verifier-items-list'),
+  verifierAllClean: document.getElementById('verifier-all-clean'),
   profileModal: document.getElementById('profile-modal'),
   modalCloseBtn: document.getElementById('modal-close-btn'),
   modalCancelBtn: document.getElementById('modal-cancel-btn'),
@@ -148,6 +163,8 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
       loadArmoryView();
     } else if (state.activeTab === 'grail-view') {
       loadGrailView();
+    } else if (state.activeTab === 'verifier-view') {
+      loadVerifierView();
     }
   });
 });
@@ -294,6 +311,7 @@ async function executeSearch() {
   if (state.filters.location !== 'all') params.set('location', state.filters.location);
   if (state.filters.sockets !== 'all') params.set('sockets', state.filters.sockets);
   if (state.filters.ethereal !== 'all') params.set('ethereal', state.filters.ethereal);
+  if (state.filters.out_of_date && state.filters.out_of_date !== 'all') params.set('out_of_date', state.filters.out_of_date);
   if (state.filters.min_perf > 0) params.set('min_perf', state.filters.min_perf);
   if (state.filters.stat) params.set('stat', state.filters.stat);
   if (state.filters.sort) params.set('sort', state.filters.sort);
@@ -341,11 +359,12 @@ function renderItemsGrid() {
   });
 }
 
-function createItemCardElement(it) {
+function createItemCardElement(it, showVerifierDetails = false) {
   const card = document.createElement('div');
   const qClass = getQualityClass(it.quality, it.isRuneword);
   const qColorClass = getQualityColorClass(it.quality, it.isRuneword);
-  card.className = `item-card ${qClass}`;
+  const outOfDateClass = it.isOutOfDate ? 'is-out-of-date' : '';
+  card.className = `item-card ${qClass} ${outOfDateClass}`.trim();
 
   // Header & Name
   const displayName = escapeHtml(it.displayName);
@@ -355,6 +374,9 @@ function createItemCardElement(it) {
   
   // Badges
   let badgesHtml = `${tier} ${type}`;
+  if (it.isOutOfDate) {
+    badgesHtml += `<span class="badge badge-out-of-date" title="Differs from current game files">⚠️ Out of Date</span>`;
+  }
   if (it.isEthereal) badgesHtml += `<span class="badge badge-eth">Ethereal</span>`;
   if (it.socketCount > 0) {
     badgesHtml += `<span class="badge badge-socket">${it.socketCount} Sockets</span>`;
@@ -393,6 +415,23 @@ function createItemCardElement(it) {
     statsHtml += '</div>';
   }
 
+  // Out of date issues details box
+  let outOfDateHtml = '';
+  if (it.isOutOfDate && it.outOfDateIssues && it.outOfDateIssues.length > 0) {
+    outOfDateHtml = '<div class="out-of-date-issues-box">';
+    outOfDateHtml += '<div class="out-of-date-issues-title">⚠️ Patch Mismatches:</div>';
+    it.outOfDateIssues.slice(0, 4).forEach(iss => {
+      let issClass = '';
+      if (iss.includes('Missing')) issClass = 'issue-missing';
+      else if (iss.includes('ABOVE')) issClass = 'issue-above';
+      outOfDateHtml += `<div class="out-of-date-issue-item ${issClass}">• ${escapeHtml(iss)}</div>`;
+    });
+    if (it.outOfDateIssues.length > 4) {
+      outOfDateHtml += `<div class="stat-roll-range" style="color: #ff7675;">+ ${it.outOfDateIssues.length - 4} more mismatches...</div>`;
+    }
+    outOfDateHtml += '</div>';
+  }
+
   // Socketed runes / gems
   let socketsHtml = '';
   if (it.sockets && it.sockets.length > 0) {
@@ -418,6 +457,7 @@ function createItemCardElement(it) {
     </div>
     ${baseStatsHtml ? `<div class="item-base-stats">${baseStatsHtml}</div>` : ''}
     ${statsHtml}
+    ${outOfDateHtml}
     ${socketsHtml}
     <div class="item-card-footer">
       <span class="item-owner"><span class="owner-icon">${ownerIcon}</span> ${ownerName}</span>
@@ -441,13 +481,14 @@ function renderItemsTable() {
     const loc = escapeHtml(it.location || '-');
     const owner = escapeHtml(it.sourceName);
     const perf = it.perfectionNum !== null ? `${it.perfectionNum.toFixed(1)}%` : '-';
+    const oodBadge = it.isOutOfDate ? ` <span class="badge badge-out-of-date" style="font-size: 9px; vertical-align: middle;">⚠️ Out of Date</span>` : '';
 
     // Summary of stats
     const stats = (it.runewordStats || []).concat(it.stats || []);
     const statSummary = stats.slice(0, 2).map(s => escapeHtml(s.description || '')).join(', ');
 
     tr.innerHTML = `
-      <td><strong class="${qColorClass}">${displayName}</strong></td>
+      <td><strong class="${qColorClass}">${displayName}</strong>${oodBadge}</td>
       <td>${baseName}</td>
       <td><span class="${qColorClass}">${quality}</span></td>
       <td>${tier}</td>
@@ -466,7 +507,21 @@ function openItemDetailModal(it) {
   const qColorClass = getQualityColorClass(it.quality, it.isRuneword);
   dom.itemModalTitle.innerHTML = `<span class="${qColorClass}">${escapeHtml(it.displayName)}</span>`;
 
+  let outOfDateBanner = '';
+  if (it.isOutOfDate) {
+    outOfDateBanner = `
+      <div class="comparison-banner-warning">
+        <span style="font-size: 18px;">⚠️</span>
+        <div>
+          <strong>Legacy / Out-of-Date Item Detected</strong>
+          <div style="font-size: 12px; margin-top: 2px;">This item has rolled properties or stat ranges that do not match current game/mod definitions.</div>
+        </div>
+      </div>
+    `;
+  }
+
   let contentHtml = `
+    ${outOfDateBanner}
     <div style="margin-bottom: 12px;">
       <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 6px;">
         <strong>Base:</strong> ${escapeHtml(it.baseName || '-')} | 
@@ -534,8 +589,31 @@ function openItemDetailModal(it) {
     contentHtml += `</div></div>`;
   }
 
+  // Comparison Section Placeholder (for Unique, Set, Runeword)
+  const isEligible = it.quality === 'Unique' || it.quality === 'Set' || it.isRuneword;
+  if (isEligible) {
+    contentHtml += `<div id="modal-comparison-container" class="comparison-section"><div style="padding: 10px; color: var(--text-dim);">Loading game file comparison...</div></div>`;
+  }
+
   dom.itemModalBody.innerHTML = contentHtml;
   dom.itemModal.style.display = 'flex';
+
+  if (isEligible) {
+    fetch(`/api/item-compare/${it.id}`)
+      .then(res => res.json())
+      .then(comp => {
+        const container = document.getElementById('modal-comparison-container');
+        if (container) {
+          container.outerHTML = renderComparisonSection(comp);
+        }
+      })
+      .catch(err => {
+        const container = document.getElementById('modal-comparison-container');
+        if (container) {
+          container.innerHTML = `<div style="font-size: 12px; color: var(--text-muted);">Could not load comparison data: ${escapeHtml(err.message)}</div>`;
+        }
+      });
+  }
 
   // Copy item info handler
   dom.itemModalCopyBtn.onclick = () => {
@@ -547,6 +625,83 @@ function openItemDetailModal(it) {
       showToast('Item details copied to clipboard!', 'success');
     });
   };
+}
+
+function renderComparisonSection(comp) {
+  if (!comp || !comp.stats_comparison || comp.stats_comparison.length === 0) return '';
+
+  let html = `
+    <div class="comparison-section">
+      <div class="comparison-title-row">
+        <h4>Game Definition Comparison</h4>
+        <span class="badge ${comp.is_out_of_date ? 'badge-out-of-date' : 'badge-perf'}">
+          ${comp.is_out_of_date ? '⚠️ Patch Mismatches Found' : '✅ Matches Game Files'}
+        </span>
+      </div>
+  `;
+
+  if (comp.is_out_of_date && comp.issues && comp.issues.length > 0) {
+    html += '<div class="out-of-date-issues-box" style="margin-bottom: 12px;">';
+    html += '<div class="out-of-date-issues-title">Detected Issues:</div>';
+    comp.issues.forEach(iss => {
+      let issClass = '';
+      if (iss.includes('Missing')) issClass = 'issue-missing';
+      else if (iss.includes('ABOVE')) issClass = 'issue-above';
+      html += `<div class="out-of-date-issue-item ${issClass}">• ${escapeHtml(iss)}</div>`;
+    });
+    html += '</div>';
+  }
+
+  html += `
+      <div class="comparison-table-wrap">
+        <table class="comparison-table">
+          <thead>
+            <tr>
+              <th>Property / Stat</th>
+              <th>Rolled Value</th>
+              <th>Expected Range</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+  `;
+
+  comp.stats_comparison.forEach(s => {
+    const isMismatch = s.status !== 'ok';
+    const rowClass = isMismatch ? 'row-mismatch' : '';
+    let statusBadge = '<span class="status-tag status-ok">✔ In Range</span>';
+    let valText = s.actualValue !== null && s.actualValue !== undefined ? escapeHtml(String(s.actualValue)) : '<em style="color: #eccc68;">None</em>';
+
+    if (s.status === 'below_min') {
+      statusBadge = '<span class="status-tag status-below">▼ Below Min</span>';
+      valText = `<strong style="color: #ff6b81;">${valText}</strong>`;
+    } else if (s.status === 'above_max') {
+      statusBadge = '<span class="status-tag status-above">▲ Above Max</span>';
+      valText = `<strong style="color: #a29bfe;">${valText}</strong>`;
+    } else if (s.status === 'missing') {
+      statusBadge = '<span class="status-tag status-missing">⚠️ Missing</span>';
+      valText = '<strong style="color: #ffa502;">Missing</strong>';
+    }
+
+    const rangeText = s.range ? escapeHtml(s.range) : (s.expectedMin !== null && s.expectedMax !== null ? (s.expectedMin === s.expectedMax ? s.expectedMin : `${s.expectedMin}-${s.expectedMax}`) : '-');
+
+    html += `
+      <tr class="${rowClass}">
+        <td><strong>${escapeHtml(s.description || s.id)}</strong></td>
+        <td>${valText}</td>
+        <td>${rangeText}</td>
+        <td>${statusBadge}</td>
+      </tr>
+    `;
+  });
+
+  html += `
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+  return html;
 }
 
 dom.itemModalCloseBtn.addEventListener('click', () => dom.itemModal.style.display = 'none');
@@ -622,6 +777,15 @@ document.querySelectorAll('[data-ethereal]').forEach(btn => {
   });
 });
 
+document.querySelectorAll('[data-out-of-date]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('[data-out-of-date]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.filters.out_of_date = btn.dataset.outOfDate;
+    executeSearch();
+  });
+});
+
 dom.perfMinSlider.addEventListener('input', (e) => {
   const val = e.target.value;
   dom.perfValLabel.textContent = val + '%';
@@ -668,6 +832,9 @@ dom.resetFiltersBtn.addEventListener('click', () => {
   document.querySelector('#quality-chips .chip[data-value="all"]').classList.add('active');
   document.querySelectorAll('[data-ethereal]').forEach(b => b.classList.remove('active'));
   document.querySelector('[data-ethereal="all"]').classList.add('active');
+  document.querySelectorAll('[data-out-of-date]').forEach(b => b.classList.remove('active'));
+  const allOodBtn = document.querySelector('[data-out-of-date="all"]');
+  if (allOodBtn) allOodBtn.classList.add('active');
 
   state.filters = {
     q: '',
@@ -678,6 +845,7 @@ dom.resetFiltersBtn.addEventListener('click', () => {
     location: 'all',
     sockets: 'all',
     ethereal: 'all',
+    out_of_date: 'all',
     min_perf: 0,
     stat: '',
     sort: 'perfection_desc'
@@ -1078,6 +1246,116 @@ dom.modalSaveBtn.addEventListener('click', async () => {
   } catch (err) {
     showToast('Error: ' + err.message, 'error');
   }
+});
+
+// ==========================================================================
+// ITEM VERIFIER VIEW
+// ==========================================================================
+async function loadVerifierView() {
+  dom.verifierItemsList.innerHTML = '<div class="empty-state"><h3>Verifying items against game files...</h3></div>';
+  dom.verifierAllClean.style.display = 'none';
+
+  try {
+    const res = await fetch('/api/verifier');
+    const data = await res.json();
+    if (data.error) {
+      dom.verifierItemsList.innerHTML = `<div class="empty-state"><h3>Verifier Error: ${escapeHtml(data.error)}</h3></div>`;
+      return;
+    }
+
+    state.verifier = data;
+    renderVerifierView();
+  } catch (err) {
+    dom.verifierItemsList.innerHTML = `<div class="empty-state"><h3>Failed to load verifier report: ${escapeHtml(err.message)}</h3></div>`;
+  }
+}
+
+function renderVerifierView() {
+  if (!state.verifier) return;
+  const v = state.verifier;
+
+  // Update summary stats
+  dom.verifierTotalChecked.textContent = v.total_checked || 0;
+  dom.verifierTotalUpToDate.textContent = v.total_up_to_date || 0;
+  dom.verifierTotalOutOfDate.textContent = v.total_out_of_date || 0;
+  dom.verifierPctOutOfDate.textContent = `${v.percent_out_of_date || 0}% of collection`;
+
+  const counts = v.counts_by_issue || {};
+  dom.verifierBelowMinTag.textContent = `▼ ${counts.below_min || 0} Below Min`;
+  dom.verifierAboveMaxTag.textContent = `▲ ${counts.above_max || 0} Above Max`;
+  dom.verifierMissingTag.textContent = `⚠️ ${counts.missing_stats || 0} Missing`;
+
+  let items = v.items || [];
+
+  // Filter by issue type
+  if (state.verifierFilter !== 'all') {
+    items = items.filter(it => {
+      const issues = it.outOfDateIssues || [];
+      if (state.verifierFilter === 'below') {
+        return issues.some(iss => iss.includes('BELOW'));
+      } else if (state.verifierFilter === 'above') {
+        return issues.some(iss => iss.includes('ABOVE'));
+      } else if (state.verifierFilter === 'missing') {
+        return issues.some(iss => iss.includes('Missing'));
+      }
+      return true;
+    });
+  }
+
+  // Filter by search text
+  if (state.verifierSearch) {
+    const q = state.verifierSearch.toLowerCase();
+    items = items.filter(it => {
+      return (it.displayName || '').toLowerCase().includes(q) ||
+             (it.baseName || '').toLowerCase().includes(q) ||
+             (it.sourceName || '').toLowerCase().includes(q) ||
+             (it.outOfDateIssues || []).some(iss => iss.toLowerCase().includes(q));
+    });
+  }
+
+  dom.verifierItemsList.innerHTML = '';
+
+  if (v.total_out_of_date === 0) {
+    dom.verifierAllClean.style.display = 'block';
+    dom.verifierItemsList.style.display = 'none';
+    return;
+  }
+
+  dom.verifierAllClean.style.display = 'none';
+  dom.verifierItemsList.style.display = 'grid';
+
+  if (items.length === 0) {
+    dom.verifierItemsList.innerHTML = '<div class="empty-state" style="grid-column: 1/-1;"><h3>No items match your verifier filter</h3><p>Try selecting a different issue category or clearing your search.</p></div>';
+    return;
+  }
+
+  items.forEach(it => {
+    const card = createItemCardElement(it, true);
+    dom.verifierItemsList.appendChild(card);
+  });
+}
+
+// Verifier Event Listeners
+if (dom.verifierRefreshBtn) {
+  dom.verifierRefreshBtn.addEventListener('click', () => {
+    loadVerifierView();
+  });
+}
+
+if (dom.verifierSearchInput) {
+  dom.verifierSearchInput.addEventListener('input', (e) => {
+    state.verifierSearch = e.target.value.trim();
+    renderVerifierView();
+  });
+}
+
+document.querySelectorAll('[data-verifier-issue]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('[data-verifier-issue]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.verifierFilter = btn.dataset.verifierIssue;
+    renderVerifierView();
+  });
 });
 
 // Initialize on page load

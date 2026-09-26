@@ -815,6 +815,59 @@ Dictionary<string, object?> BuildItemJson(Item item)
             .ToList();
     }
 
+    var issues = new List<string>();
+    var allItemStats = new List<Dictionary<string, object>>();
+    if (obj.TryGetValue("runewordStats", out var rws) && rws is List<Dictionary<string, object>> rList)
+        allItemStats.AddRange(rList);
+    if (obj.TryGetValue("stats", out var sts) && sts is List<Dictionary<string, object>> sList)
+        allItemStats.AddRange(sList);
+
+    foreach (var st in allItemStats)
+    {
+        if (st.TryGetValue("outOfRange", out var oor))
+        {
+            var desc = st.GetValueOrDefault("description")?.ToString() ?? st.GetValueOrDefault("id")?.ToString() ?? "Stat";
+            var val = st.GetValueOrDefault("value");
+            var min = st.GetValueOrDefault("expectedMin");
+            var max = st.GetValueOrDefault("expectedMax");
+            if (oor?.ToString() == "below_min")
+                issues.Add($"{desc} [Value: {val}] is BELOW current min {min}");
+            else if (oor?.ToString() == "above_max")
+                issues.Add($"{desc} [Value: {val}] is ABOVE current max {max}");
+        }
+    }
+
+    if (statRanges != null && statRanges.Count > 0)
+    {
+        var presentKeys = new HashSet<(int StatId, int Layer)>();
+        if (item.Stats != null)
+            foreach (var s in item.Stats)
+                presentKeys.Add(((int)s.Id, s.Layer));
+        if (item.RunewordStats != null)
+            foreach (var s in item.RunewordStats)
+                presentKeys.Add(((int)s.Id, s.Layer));
+
+        foreach (var kvp in statRanges)
+        {
+            if (!presentKeys.Contains(kvp.Key))
+            {
+                var statIdEnum = (StatId)kvp.Key.StatId;
+                var statName = FormatStatName(statIdEnum);
+                issues.Add($"Missing stat: {statName} [{kvp.Value.Min}-{kvp.Value.Max}] from current game file");
+            }
+        }
+    }
+
+    if (issues.Count > 0)
+    {
+        obj["isOutOfDate"] = true;
+        obj["outOfDateIssues"] = issues;
+    }
+    else
+    {
+        obj["isOutOfDate"] = false;
+    }
+
     return obj;
 }
 
@@ -834,8 +887,16 @@ Dictionary<string, object> FormatStatJson(Stat stat, Dictionary<(int StatId, int
     if (stat.Layer != 0)
         obj["layer"] = stat.Layer;
 
-    if (ranges != null && ranges.TryGetValue(((int)stat.Id, stat.Layer), out var range) && range.Min != range.Max)
+    if (ranges != null && ranges.TryGetValue(((int)stat.Id, stat.Layer), out var range))
+    {
         obj["range"] = $"{range.Min}-{range.Max}";
+        obj["expectedMin"] = range.Min;
+        obj["expectedMax"] = range.Max;
+        if (value < range.Min)
+            obj["outOfRange"] = "below_min";
+        else if (value > range.Max)
+            obj["outOfRange"] = "above_max";
+    }
 
     return obj;
 }

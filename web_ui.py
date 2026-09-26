@@ -262,8 +262,8 @@ class SaveDataManager:
                                     it_norm["perfectionNum"] = float(perf)
                             except ValueError:
                                 it_norm["perfectionNum"] = None
-                        else:
-                            it_norm["perfectionNum"] = None
+                        it_norm["isOutOfDate"] = bool(it.get("isOutOfDate", False))
+                        it_norm["outOfDateIssues"] = it.get("outOfDateIssues") or []
 
                         loaded_items.append(it_norm)
 
@@ -320,10 +320,17 @@ class SaveDataManager:
         min_perf = query_params.get("min_perf")
         max_perf = query_params.get("max_perf")
         stat_keyword = query_params.get("stat", "").strip().lower()
+        out_of_date = query_params.get("out_of_date", "").strip().lower()
         sort_by = query_params.get("sort", "name_asc")
 
         filtered = []
         for it in self.items:
+            # Out of date filter
+            if out_of_date == "yes" and not it.get("isOutOfDate"):
+                continue
+            if out_of_date == "no" and it.get("isOutOfDate"):
+                continue
+
             # 1. Source / Character filter
             if source and source != "all":
                 if it["sourceName"] != source and it["sourceFile"] != source:
@@ -639,6 +646,112 @@ class SaveDataManager:
         except Exception as ex:
             return {"error": f"Failed to compute grail report: {str(ex)}"}
 
+    def get_verifier_report(self):
+        """Returns statistics and list of all out-of-date items."""
+        with self.lock:
+            eligible_items = [it for it in self.items if it.get("quality") in ("Unique", "Set") or it.get("isRuneword")]
+            out_of_date_items = [it for it in eligible_items if it.get("isOutOfDate")]
+            up_to_date_items = [it for it in eligible_items if not it.get("isOutOfDate")]
+
+            by_char = {}
+            for it in out_of_date_items:
+                cname = it["sourceName"]
+                by_char[cname] = by_char.get(cname, 0) + 1
+
+            below_min_count = 0
+            above_max_count = 0
+            missing_count = 0
+
+            for it in out_of_date_items:
+                issues = it.get("outOfDateIssues", [])
+                for iss in issues:
+                    if "BELOW" in iss:
+                        below_min_count += 1
+                    elif "ABOVE" in iss:
+                        above_max_count += 1
+                    elif "Missing" in iss:
+                        missing_count += 1
+
+            return {
+                "total_checked": len(eligible_items),
+                "total_out_of_date": len(out_of_date_items),
+                "total_up_to_date": len(up_to_date_items),
+                "percent_out_of_date": round((len(out_of_date_items) / len(eligible_items) * 100) if eligible_items else 0, 1),
+                "by_character": by_char,
+                "counts_by_issue": {
+                    "below_min": below_min_count,
+                    "above_max": above_max_count,
+                    "missing_stats": missing_count
+                },
+                "items": out_of_date_items
+            }
+
+    def get_item_comparison(self, item_id):
+        """Returns detailed comparison for an item against its current game definition."""
+        with self.lock:
+            it = None
+            for item in self.items:
+                if item.get("id") == item_id:
+                    it = item
+                    break
+            if not it:
+                return None
+
+            all_stats = (it.get("runewordStats") or []) + (it.get("stats") or [])
+            stats_comparison = []
+
+            for s in all_stats:
+                stat_id = s.get("id", "")
+                desc = s.get("description", stat_id)
+                val = s.get("value")
+                exp_min = s.get("expectedMin")
+                exp_max = s.get("expectedMax")
+                rng = s.get("range")
+                oor = s.get("outOfRange")
+
+                status = "ok"
+                if oor == "below_min":
+                    status = "below_min"
+                elif oor == "above_max":
+                    status = "above_max"
+                elif exp_min is not None and exp_max is not None and (val < exp_min or val > exp_max):
+                    status = "below_min" if val < exp_min else "above_max"
+
+                stats_comparison.append({
+                    "id": stat_id,
+                    "description": desc,
+                    "actualValue": val,
+                    "expectedMin": exp_min,
+                    "expectedMax": exp_max,
+                    "range": rng,
+                    "status": status
+                })
+
+            # Also include missing stats detected in outOfDateIssues
+            for iss in it.get("outOfDateIssues", []):
+                if iss.startswith("Missing stat:"):
+                    m = re.match(r"^Missing stat:\s*(.*?)\s*\[(-?\d+)-(-?\d+)\]", iss)
+                    if m:
+                        s_name = m.group(1).strip()
+                        s_min = int(m.group(2))
+                        s_max = int(m.group(3))
+                        stats_comparison.append({
+                            "id": s_name,
+                            "description": s_name,
+                            "actualValue": None,
+                            "expectedMin": s_min,
+                            "expectedMax": s_max,
+                            "range": f"{s_min}-{s_max}" if s_min != s_max else str(s_min),
+                            "status": "missing"
+                        })
+
+            return {
+                "item": it,
+                "stats_comparison": stats_comparison,
+                "is_out_of_date": it.get("isOutOfDate", False),
+                "issues": it.get("outOfDateIssues", [])
+            }
+
 # Global manager instance
 DATA_MANAGER = SaveDataManager()
 
@@ -673,6 +786,23 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 "total": len(items),
                 "items": items[:500] # Return up to 500 items per search query
             })
+            return
+
+        if path == "/api/verifier":
+            report = DATA_MANAGER.get_verifier_report()
+            self.send_json(report)
+            return
+
+        if path.startswith("/api/item-compare/"):
+            try:
+                item_id = int(path[len("/api/item-compare/"):])
+                comp = DATA_MANAGER.get_item_comparison(item_id)
+                if comp:
+                    self.send_json(comp)
+                else:
+                    self.send_error(404, "Item not found")
+            except ValueError:
+                self.send_error(400, "Invalid item ID")
             return
 
         if path.startswith("/api/character/"):
