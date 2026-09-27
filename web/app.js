@@ -474,12 +474,16 @@ function createItemCardElement(it, showVerifierDetails = false) {
   const ownerIcon = it.isStash ? '📦' : '👤';
   const ownerName = escapeHtml(it.sourceName);
   const locationName = escapeHtml(it.location || 'Unknown');
+  const spriteImg = it.invFile ? `<div class="item-card-thumb"><img src="assets/items/${it.invFile}" alt="" loading="lazy" onerror="this.parentElement.style.display='none'" /></div>` : '';
 
   card.innerHTML = `
     <div class="item-card-header">
-      <div class="item-name-block">
-        <span class="item-name ${qColorClass}">${displayName}</span>
-        <span class="item-base-line">${baseName}</span>
+      <div class="item-card-title-group">
+        ${spriteImg}
+        <div class="item-name-block">
+          <span class="item-name ${qColorClass}">${displayName}</span>
+          <span class="item-base-line">${baseName}</span>
+        </div>
       </div>
       <div class="item-badges">${badgesHtml}</div>
     </div>
@@ -518,9 +522,10 @@ function renderItemsTable() {
     // Summary of stats
     const stats = (it.runewordStats || []).concat(it.stats || []);
     const statSummary = stats.slice(0, 2).map(s => escapeHtml(s.description || '')).join(', ');
+    const spriteThumb = it.invFile ? `<img src="assets/items/${it.invFile}" class="table-item-icon" loading="lazy" onerror="this.style.display='none'" />` : '';
 
     tr.innerHTML = `
-      <td><strong class="${qColorClass}">${displayName}</strong>${oodBadge}</td>
+      <td>${spriteThumb}<strong class="${qColorClass}">${displayName}</strong>${oodBadge}</td>
       <td>${baseName}</td>
       <td><span class="${qColorClass}">${quality}</span></td>
       <td>${tier}</td>
@@ -553,18 +558,27 @@ function openItemDetailModal(it) {
     `;
   }
 
+  const modalSprite = it.invFile ? `
+    <div class="modal-sprite-preview">
+      <img src="assets/items/${it.invFile}" alt="" onerror="this.parentElement.style.display='none'" />
+    </div>
+  ` : '';
+
   let contentHtml = `
     ${outOfDateBanner}
-    <div style="margin-bottom: 12px;">
-      <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 6px;">
-        <strong>Base:</strong> ${escapeHtml(it.baseName || '-')} | 
-        <strong>Quality:</strong> ${it.isRuneword ? 'Runeword' : (it.quality || 'Normal')} | 
-        <strong>Tier:</strong> ${it.tier || '-'} | 
-        <strong>Item Level:</strong> ${it.itemLevel || '-'}
-      </div>
-      <div style="font-size: 13px; color: var(--text-muted);">
-        <strong>Owner:</strong> ${escapeHtml(it.sourceName)} (${escapeHtml(it.sourceFile)}) | 
-        <strong>Location:</strong> ${escapeHtml(it.location || '-')}
+    <div style="display: flex; gap: 16px; align-items: center; margin-bottom: 14px;">
+      ${modalSprite}
+      <div>
+        <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 6px;">
+          <strong>Base:</strong> ${escapeHtml(it.baseName || '-')} | 
+          <strong>Quality:</strong> ${it.isRuneword ? 'Runeword' : (it.quality || 'Normal')} | 
+          <strong>Tier:</strong> ${it.tier || '-'} | 
+          <strong>Item Level:</strong> ${it.itemLevel || '-'}
+        </div>
+        <div style="font-size: 13px; color: var(--text-muted);">
+          <strong>Owner:</strong> ${escapeHtml(it.sourceName)} (${escapeHtml(it.sourceFile)}) | 
+          <strong>Location:</strong> ${escapeHtml(it.location || '-')}
+        </div>
       </div>
     </div>
   `;

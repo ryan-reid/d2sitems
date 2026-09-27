@@ -27,6 +27,17 @@ DEFAULT_USER_HOME = os.path.expanduser("~")
 DEFAULT_D2R_SAVE_DIR = os.path.join(DEFAULT_USER_HOME, "Saved Games", "Diablo II Resurrected")
 DEFAULT_D2R_EXCEL_DIR = r"E:\Games\Diablo II Resurrected\Data\global\excel"
 FALLBACK_EXCEL_DIR = r"C:\Program Files (x86)\Diablo II Resurrected\data\global\excel"
+ITEMS_ASSETS_DIR = os.path.join(WEB_DIR, "assets", "items")
+SPRITE_MAPPINGS_FILE = os.path.join(WEB_DIR, "item_images.json")
+
+def get_sprite_mappings():
+    if os.path.isfile(SPRITE_MAPPINGS_FILE):
+        try:
+            with open(SPRITE_MAPPINGS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"codes": {}, "uniques": {}, "sets": {}}
 
 # Find d2sitems executable or dotnet project
 D2S_EXE_CANDIDATES = [
@@ -196,6 +207,11 @@ class SaveDataManager:
             loaded_items = []
             item_id_counter = 1
 
+            sprite_mappings = get_sprite_mappings()
+            code_map = sprite_mappings.get("codes", {})
+            unique_map = sprite_mappings.get("uniques", {})
+            set_map = sprite_mappings.get("sets", {})
+
             for profile_label, s_dir in save_dirs:
                 json_files = glob.glob(os.path.join(s_dir, "*.json"))
                 for jf in json_files:
@@ -260,6 +276,29 @@ class SaveDataManager:
                         # Extract clean display name
                         raw_name = it_norm.get("name") or it_norm.get("baseName") or "Unknown Item"
                         it_norm["displayName"] = raw_name
+
+                        # Sprite file resolution
+                        q = (it_norm.get("quality") or "").lower()
+                        code = (it_norm.get("itemCode") or "").strip()
+                        inv_file = None
+                        if q == "unique":
+                            uid = str(it_norm.get("uniqueId")) if it_norm.get("uniqueId") is not None else None
+                            name_clean = raw_name.split("(")[0].strip().lower()
+                            cand = unique_map.get(uid) or unique_map.get(name_clean) or unique_map.get(raw_name.lower())
+                            if cand and os.path.isfile(os.path.join(ITEMS_ASSETS_DIR, cand)):
+                                inv_file = cand
+                        elif q == "set":
+                            name_clean = raw_name.split("(")[0].strip().lower()
+                            cand = set_map.get(name_clean) or set_map.get(raw_name.lower())
+                            if cand and os.path.isfile(os.path.join(ITEMS_ASSETS_DIR, cand)):
+                                inv_file = cand
+
+                        if not inv_file:
+                            cand = code_map.get(code)
+                            if cand and os.path.isfile(os.path.join(ITEMS_ASSETS_DIR, cand)):
+                                inv_file = cand
+
+                        it_norm["invFile"] = inv_file or (code + ".png" if code else "unknown.png")
 
                         # Perfection
                         perf = it_norm.get("perfectionScore") if it_norm.get("perfectionScore") is not None else it_norm.get("perfection")

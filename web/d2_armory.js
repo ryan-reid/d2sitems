@@ -25,6 +25,42 @@
 
   window._d2rState = d2rState;
 
+  // Sprite Mappings Cache
+  let itemImageMappings = { codes: {}, uniques: {}, sets: {} };
+  fetch('item_images.json')
+    .then(r => r.json())
+    .then(data => { if (data) itemImageMappings = data; })
+    .catch(() => {});
+
+  function getItemSpriteUrl(item) {
+    if (item.invFile) {
+      return `assets/items/${item.invFile}`;
+    }
+    const q = (item.quality || '').toLowerCase();
+    const rawName = (item.name || item.displayName || '').split('(')[0].trim().toLowerCase();
+    const uid = item.uniqueId !== undefined && item.uniqueId !== null ? String(item.uniqueId) : null;
+    const code = (item.itemCode || '').trim();
+
+    let file = null;
+    if (q === 'unique') {
+      file = (uid && itemImageMappings.uniques && itemImageMappings.uniques[uid]) || (itemImageMappings.uniques && itemImageMappings.uniques[rawName]);
+    } else if (q === 'set') {
+      file = itemImageMappings.sets && itemImageMappings.sets[rawName];
+    }
+
+    if (!file && code && itemImageMappings.codes) {
+      file = itemImageMappings.codes[code];
+    }
+
+    if (file) {
+      return `assets/items/${file}`;
+    }
+    if (code) {
+      return `assets/items/inv${code.toLowerCase()}.png`;
+    }
+    return null;
+  }
+
   // -------------------------------------------------------------------------
   // Quality & Color Mapping
   // -------------------------------------------------------------------------
@@ -323,7 +359,7 @@
     const content = document.createElement('div');
     content.className = 'd2r-item-content';
 
-    // Item badge / name label
+    // Item badge / name label (fallback / loading state)
     const nameLabel = document.createElement('div');
     nameLabel.className = 'd2r-item-badge-name';
     nameLabel.style.color = qColor;
@@ -339,6 +375,30 @@
       nameLabel.textContent = dName;
     }
     content.appendChild(nameLabel);
+
+    // Authentic Item Sprite Image
+    const spriteUrl = getItemSpriteUrl(item);
+    if (spriteUrl) {
+      const iconWrap = document.createElement('div');
+      iconWrap.className = 'd2r-item-icon-wrap';
+
+      const img = document.createElement('img');
+      img.className = 'd2r-item-icon';
+      img.src = spriteUrl;
+      img.alt = dName;
+      img.loading = 'lazy';
+
+      img.onload = () => {
+        nameLabel.style.display = 'none';
+      };
+      img.onerror = () => {
+        iconWrap.style.display = 'none';
+        nameLabel.style.display = 'block';
+      };
+
+      iconWrap.appendChild(img);
+      content.appendChild(iconWrap);
+    }
 
     // Perfection score badge
     if (item.perfectionScore !== undefined && item.perfectionScore !== null && w >= 2 && h >= 2) {
