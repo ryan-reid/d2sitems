@@ -283,7 +283,10 @@
           <h2>Characters & Shared Stashes</h2>
           <p class="section-desc">Overview of all detected heroes, mules, and stash files.</p>
         </div>
-        <div id="characters-summary-stats" class="summary-stats"></div>
+        <div style="display:flex; align-items:center; gap:16px;">
+          <button id="btn-open-create-mule" class="btn btn-primary" onclick="openCreateMuleModal()">+ Create New Mule</button>
+          <div id="characters-summary-stats" class="summary-stats"></div>
+        </div>
       </div>
 
       <div id="characters-grid" class="characters-grid"></div>
@@ -294,9 +297,10 @@
       <div class="armory-header">
         <div class="armory-title-row">
           <h2>Hero Armory & Inventory</h2>
-          <div class="armory-char-selector">
+          <div class="armory-char-selector" style="display:flex; align-items:center; gap:8px;">
             <label for="armory-char-select">SELECT CHARACTER:</label>
             <select id="armory-char-select" class="form-select"></select>
+            <button class="btn btn-secondary btn-sm" onclick="openQuestsModalForCurrentArmoryChar()">📜 Quests &amp; WPs</button>
           </div>
         </div>
       </div>
@@ -447,6 +451,102 @@
     </div>
   </div>
 
-  <script src="app.js?v=4"></script>
+  <!-- Create Mule Modal -->
+  <div id="create-mule-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3>Create New Character / Mule</h3>
+        <button class="modal-close" onclick="closeCreateMuleModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="section-desc" style="margin-top:-6px; font-size:12px;">Generates a new clean Level 1 character initialized with default BKDiablo mod starting items.</p>
+        <div class="filter-group">
+          <label for="mule-name-input" class="filter-label">Character Name:</label>
+          <input type="text" id="mule-name-input" class="search-input" placeholder="e.g. MuleGems" maxlength="15" />
+        </div>
+        <div class="filter-group">
+          <label for="mule-class-select" class="filter-label">Class:</label>
+          <select id="mule-class-select" class="filter-select">
+            <option value="Amazon">Amazon</option>
+            <option value="Assassin">Assassin</option>
+            <option value="Barbarian">Barbarian</option>
+            <option value="Druid">Druid</option>
+            <option value="Necromancer">Necromancer</option>
+            <option value="Paladin">Paladin</option>
+            <option value="Sorceress">Sorceress</option>
+            <option value="Warlock">Warlock (BKDiablo Mod)</option>
+          </select>
+        </div>
+        <div class="filter-group" style="margin-top: 4px;">
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px; color:var(--text-main);">
+            <input type="checkbox" id="mule-hardcore-check" /> Hardcore Character
+          </label>
+        </div>
+        <div id="mule-create-status" style="font-size:12px; margin-top:4px; padding:6px; border-radius:4px; display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeCreateMuleModal()">Cancel</button>
+        <button id="btn-submit-mule" class="btn btn-primary" onclick="submitCreateMule()">Create Character</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Quests & Waypoints Modal -->
+  <div id="quests-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="quests-modal-title">Quests & Waypoints</h3>
+        <button class="modal-close" onclick="closeQuestsModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="section-desc" style="margin-top:-6px; font-size:12px;">Mark quests and waypoints completed for this character. Automated backups are always made before applying changes.</p>
+        
+        <input type="hidden" id="quests-char-name" value="" />
+        
+        <div class="filter-group">
+          <label for="quests-diff-select" class="filter-label">Target Difficulty:</label>
+          <select id="quests-diff-select" class="filter-select">
+            <option value="all">All Difficulties (Normal, NM, Hell)</option>
+            <option value="normal">Normal Only</option>
+            <option value="nightmare">Nightmare Only</option>
+            <option value="hell">Hell Only</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <label for="quests-act-select" class="filter-label">Act Selection:</label>
+          <select id="quests-act-select" class="filter-select">
+            <option value="all">All Acts (Acts I - V)</option>
+            <option value="1">Act I Only</option>
+            <option value="2">Act II Only</option>
+            <option value="3">Act III Only</option>
+            <option value="4">Act IV Only</option>
+            <option value="5">Act V Only</option>
+          </select>
+        </div>
+
+        <div class="filter-group" style="margin-top: 6px; display: flex; flex-direction: column; gap: 8px;">
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px; color:var(--text-main);">
+            <input type="checkbox" id="quests-waypoints-check" checked /> Unlock All Waypoints
+          </label>
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px; color:var(--text-main);">
+            <input type="checkbox" id="quests-rewards-check" checked /> Grant Quest Rewards (+Skills, +Stats, +Life)
+          </label>
+          <label id="quests-force-live-container" style="display:none; align-items:center; gap:8px; cursor:pointer; font-size:13px; color:#ff6b6b;">
+            <input type="checkbox" id="quests-force-live-check" /> ⚠️ Confirm override for live main character
+          </label>
+        </div>
+
+        <div id="quests-status" style="font-size:12px; margin-top:8px; padding:6px; border-radius:4px; display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeQuestsModal()">Cancel</button>
+        <button id="btn-submit-quests" class="btn btn-primary" onclick="submitCompleteQuests()">Complete & Unlock</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js?v=9"></script>
+
 </body>
 </html>

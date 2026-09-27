@@ -893,7 +893,111 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(result)
             return
 
+        if path == "/api/mules/create":
+            name = data.get("name", "").strip()
+            char_class = data.get("class", "").strip()
+            hardcore = bool(data.get("hardcore", False))
+            active_p = DATA_MANAGER.get_active_profile()
+            save_dir = active_p.get("save_dir")
+            excel_dir = active_p.get("excel_dir")
+
+            if save_dir == "all":
+                non_all = [p for p in DATA_MANAGER.profiles if p.get("save_dir") != "all"]
+                if non_all:
+                    save_dir = non_all[0].get("save_dir")
+                    excel_dir = non_all[0].get("excel_dir") or excel_dir
+
+            if not name or not char_class:
+                self.send_json({"success": False, "error": "Both character name and class are required."})
+                return
+
+            runner_type, runner_path = find_d2s_runner()
+            if not runner_path:
+                self.send_json({"success": False, "error": "d2sitems runner not found."})
+                return
+
+            cmd = [runner_path, "create-mule", "--name", name, "--class", char_class, "--save-dir", save_dir]
+            if hardcore:
+                cmd.append("--hardcore")
+            if excel_dir and os.path.isdir(excel_dir):
+                cmd.extend(["--excel", excel_dir])
+
+            proc = subprocess.run(cmd, cwd=SCRIPT_DIR, capture_output=True, text=True)
+            if proc.returncode == 0:
+                DATA_MANAGER.run_scan()
+                self.send_json({"success": True, "message": proc.stdout.strip()})
+            else:
+                self.send_json({"success": False, "error": proc.stdout.strip() or proc.stderr.strip()})
+            return
+
+        if path == "/api/character/quests/complete":
+            char_name = data.get("character", "").strip()
+            difficulty = data.get("difficulty", "all").strip().lower()
+            act = data.get("act")
+            unlock_waypoints = bool(data.get("unlock_waypoints", True))
+            grant_rewards = bool(data.get("grant_rewards", True))
+            force_live = bool(data.get("force_live", False))
+
+            if not char_name:
+                self.send_json({"success": False, "error": "Character name is required."})
+                return
+
+            active_p = DATA_MANAGER.get_active_profile()
+            save_dir = active_p.get("save_dir")
+            excel_dir = active_p.get("excel_dir")
+
+            if save_dir == "all":
+                found_save_dir = None
+                for prof in DATA_MANAGER.profiles:
+                    if prof.get("save_dir") and prof["save_dir"] != "all":
+                        candidate = os.path.join(prof["save_dir"], char_name + ".d2s" if not char_name.endswith(".d2s") else char_name)
+                        if os.path.isfile(candidate):
+                            found_save_dir = prof["save_dir"]
+                            excel_dir = prof.get("excel_dir") or excel_dir
+                            break
+                if found_save_dir:
+                    save_dir = found_save_dir
+                else:
+                    non_all = [p for p in DATA_MANAGER.profiles if p.get("save_dir") != "all"]
+                    if non_all:
+                        save_dir = non_all[0].get("save_dir")
+                        excel_dir = non_all[0].get("excel_dir") or excel_dir
+
+            runner_type, runner_path = find_d2s_runner()
+            if not runner_path:
+                self.send_json({"success": False, "error": "d2sitems runner not found."})
+                return
+
+            cmd = [runner_path, "complete-quests", "--char", char_name, "--diff", difficulty, "--save-dir", save_dir]
+            if act is not None and str(act).isdigit():
+                cmd.extend(["--act", str(act)])
+            if unlock_waypoints:
+                cmd.append("--waypoints")
+            else:
+                cmd.append("--no-waypoints")
+            if grant_rewards:
+                cmd.append("--rewards")
+            else:
+                cmd.append("--no-rewards")
+            if force_live:
+                cmd.append("--force-live")
+            if excel_dir and os.path.isdir(excel_dir):
+                cmd.extend(["--excel", excel_dir])
+
+            proc = subprocess.run(cmd, cwd=SCRIPT_DIR, capture_output=True, text=True)
+            out = proc.stdout.strip() or proc.stderr.strip()
+            if proc.returncode == 0:
+                DATA_MANAGER.run_scan()
+                self.send_json({"success": True, "message": out})
+            elif proc.returncode == 2:
+                # Safety guard refusal
+                self.send_json({"success": False, "error": out, "is_protected": True})
+            else:
+                self.send_json({"success": False, "error": out})
+            return
+
         self.send_error(404)
+
 
     def end_headers(self):
         self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")

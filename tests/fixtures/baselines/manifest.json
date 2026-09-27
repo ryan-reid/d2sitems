@@ -1,0 +1,74 @@
+{
+  "source_dir": "C:\\Users\\Ryan\\Saved Games\\Diablo II Resurrected\\Mods\\BKDiablo",
+  "class_count": 8,
+  "files": {
+    "Amazon_L1.golden.ctl": {
+      "size": 900,
+      "md5": "02ec65eec559eec90cf3897479e2570c"
+    },
+    "Amazon_L1.golden.d2s": {
+      "size": 1123,
+      "md5": "b03209c6820a1c7554eed41364b546a1"
+    },
+    "Assassin_L1.golden.ctl": {
+      "size": 900,
+      "md5": "f601f987021c63b6dac6c049395d5045"
+    },
+    "Assassin_L1.golden.d2s": {
+      "size": 1123,
+      "md5": "0c77a34eefd0e3513a57756c77c29e3d"
+    },
+    "Barbarian_L1.golden.ctl": {
+      "size": 900,
+      "md5": "f601f987021c63b6dac6c049395d5045"
+    },
+    "Barbarian_L1.golden.d2s": {
+      "size": 1123,
+      "md5": "b6de775b99d7e01b2c3705a19a5b986c"
+    },
+    "Druid_L1.golden.ctl": {
+      "size": 900,
+      "md5": "3be27a55cc1a278060fc836d81f7dc2d"
+    },
+    "Druid_L1.golden.d2s": {
+      "size": 1123,
+      "md5": "ad9a391df689004735e5caa20638df1e"
+    },
+    "ModernSharedStashSoftCoreV2.golden.d2i": {
+      "size": 25325,
+      "md5": "463cdab0c784959d2ac7955a4ee3d769"
+    },
+    "Necromancer_L1.golden.ctl": {
+      "size": 900,
+      "md5": "7a951e3d3b5cfac190e82cd5ad92fabb"
+    },
+    "Necromancer_L1.golden.d2s": {
+      "size": 1123,
+      "md5": "8b480651ffcd767c7443162e22959207"
+    },
+    "Paladin_L1.golden.ctl": {
+      "size": 900,
+      "md5": "f601f987021c63b6dac6c049395d5045"
+    },
+    "Paladin_L1.golden.d2s": {
+      "size": 1123,
+      "md5": "1c82baef9c4fb7c7a9fb2225b4d50c44"
+    },
+    "Sorceress_L1.golden.ctl": {
+      "size": 900,
+      "md5": "a4cfb02837df94965dab1290eb0ebc17"
+    },
+    "Sorceress_L1.golden.d2s": {
+      "size": 1123,
+      "md5": "26805f65c2cb648c42535652ab76153e"
+    },
+    "Warlock_L1.golden.ctl": {
+      "size": 900,
+      "md5": "24d7c58225f39d448e440fcfad58c0a8"
+    },
+    "Warlock_L1.golden.d2s": {
+      "size": 1123,
+      "md5": "3c0ce14755d4df3be59fb7228d55a039"
+    }
+  }
+}

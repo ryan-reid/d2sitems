@@ -30,8 +30,26 @@ for (int i = 0; i < args.Length; i++)
 }
 args = filteredArgs.ToArray();
 
+// Check for create-mule mode
+if (args.Length >= 1 && (args[0] == "create-mule" || args[0] == "--create-mule"))
+{
+    D2SItems.MuleGenerator.Run(args, defaultSaveDir, excelDir);
+    return;
+}
+
+// Check for complete-quests mode
+if (args.Length >= 1 && (args[0] == "complete-quests" || args[0] == "--complete-quests"))
+{
+    int exitCode = D2SItems.QuestManager.RunCli(args, defaultSaveDir, excelDir);
+    Environment.Exit(exitCode);
+    return;
+}
+
+
+
 // Check for --monitor mode
 if (args.Length >= 2 && args[0] == "--monitor")
+
 {
     var monitorCharName = args[1];
     var monitorFile = Path.Combine(defaultSaveDir, $"{monitorCharName}.d2s");

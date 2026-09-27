@@ -1005,6 +1005,7 @@ function renderCharactersView() {
       <div class="char-card-actions">
         <button class="btn btn-secondary btn-sm" onclick="filterBySource('${escapeHtml(c.name)}')">View ${c.item_count} Items</button>
         <button class="btn btn-primary btn-sm" onclick="openArmoryForChar('${escapeHtml(c.name)}')">Armory Sheet</button>
+        <button class="btn btn-secondary btn-sm" onclick="openQuestsModal('${escapeHtml(c.name)}')">📜 Quests &amp; WPs</button>
       </div>
     `;
     dom.charactersGrid.appendChild(card);
@@ -1453,5 +1454,258 @@ document.querySelectorAll('[data-verifier-issue]').forEach(btn => {
   });
 });
 
+// Create Mule Modal Logic
+function openCreateMuleModal() {
+  const modal = document.getElementById('create-mule-modal');
+  const nameInput = document.getElementById('mule-name-input');
+  const statusEl = document.getElementById('mule-create-status');
+  if (modal) {
+    modal.style.display = 'flex';
+    if (nameInput) {
+      nameInput.value = '';
+      nameInput.focus();
+    }
+    if (statusEl) {
+      statusEl.style.display = 'none';
+      statusEl.textContent = '';
+    }
+  }
+}
+
+function closeCreateMuleModal() {
+  const modal = document.getElementById('create-mule-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function submitCreateMule() {
+  const nameInput = document.getElementById('mule-name-input');
+  const classSelect = document.getElementById('mule-class-select');
+  const hcCheck = document.getElementById('mule-hardcore-check');
+  const statusEl = document.getElementById('mule-create-status');
+  const submitBtn = document.getElementById('btn-submit-mule');
+
+  const name = nameInput ? nameInput.value.trim() : '';
+  const charClass = classSelect ? classSelect.value : 'Amazon';
+  const hardcore = hcCheck ? hcCheck.checked : false;
+
+  if (!name) {
+    if (statusEl) {
+      statusEl.style.display = 'block';
+      statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
+      statusEl.style.color = '#f87171';
+      statusEl.textContent = 'Please enter a character name.';
+    }
+    return;
+  }
+
+  if (submitBtn) submitBtn.disabled = true;
+  if (statusEl) {
+    statusEl.style.display = 'block';
+    statusEl.style.background = 'rgba(59, 130, 246, 0.2)';
+    statusEl.style.color = '#60a5fa';
+    statusEl.textContent = 'Generating character...';
+  }
+
+  try {
+    const res = await fetch('/api/mules/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, class: charClass, hardcore })
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      if (statusEl) {
+        statusEl.style.background = 'rgba(34, 197, 94, 0.2)';
+        statusEl.style.color = '#4ade80';
+        statusEl.textContent = `Character '${name}' created successfully!`;
+      }
+      showToast(`Character '${name}' created!`, 'success');
+      setTimeout(() => {
+        closeCreateMuleModal();
+        if (submitBtn) submitBtn.disabled = false;
+        loadSaves();
+      }, 1000);
+    } else {
+      if (statusEl) {
+        statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
+        statusEl.style.color = '#f87171';
+        statusEl.textContent = data.error || 'Failed to create character.';
+      }
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  } catch (err) {
+    if (statusEl) {
+      statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
+      statusEl.style.color = '#f87171';
+      statusEl.textContent = 'Network or server error: ' + err.message;
+    }
+    if (submitBtn) submitBtn.disabled = false;
+  }
+}
+
+window.openCreateMuleModal = openCreateMuleModal;
+window.closeCreateMuleModal = closeCreateMuleModal;
+window.submitCreateMule = submitCreateMule;
+
+// Attach click listener directly
+const createMuleBtn = document.getElementById('btn-open-create-mule');
+if (createMuleBtn) {
+  createMuleBtn.addEventListener('click', openCreateMuleModal);
+}
+
+const muleModalEl = document.getElementById('create-mule-modal');
+if (muleModalEl) {
+  muleModalEl.addEventListener('click', (e) => {
+    if (e.target === muleModalEl) closeCreateMuleModal();
+  });
+}
+
+
+// Quests & Waypoints Modal Logic
+const PROTECTED_CHARS = ["assassin", "barbarian", "druid", "jewelry", "jewlery", "necromancer", "paladin", "sorceress", "warlock", "zon"];
+
+function openQuestsModal(charName) {
+  const modal = document.getElementById('quests-modal');
+  const titleEl = document.getElementById('quests-modal-title');
+  const charInput = document.getElementById('quests-char-name');
+  const statusEl = document.getElementById('quests-status');
+  const forceContainer = document.getElementById('quests-force-live-container');
+  const forceCheck = document.getElementById('quests-force-live-check');
+
+  if (!modal) return;
+  modal.style.display = 'flex';
+
+  if (charInput) charInput.value = charName;
+  if (titleEl) titleEl.textContent = `Quests & Waypoints: ${charName}`;
+  if (statusEl) {
+    statusEl.style.display = 'none';
+    statusEl.textContent = '';
+  }
+
+  const isProtected = PROTECTED_CHARS.includes((charName || '').toLowerCase());
+  if (forceContainer) {
+    forceContainer.style.display = isProtected ? 'flex' : 'none';
+  }
+  if (forceCheck) {
+    forceCheck.checked = false;
+  }
+}
+
+function openQuestsModalForCurrentArmoryChar() {
+  const charSelect = document.getElementById('armory-char-select');
+  const charName = charSelect ? charSelect.value : '';
+  if (charName) {
+    openQuestsModal(charName);
+  } else {
+    showToast('Please select a character first', 'warning');
+  }
+}
+
+function closeQuestsModal() {
+  const modal = document.getElementById('quests-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function submitCompleteQuests() {
+  const charName = (document.getElementById('quests-char-name')?.value || '').trim();
+  const diffSelect = document.getElementById('quests-diff-select');
+  const actSelect = document.getElementById('quests-act-select');
+  const wpCheck = document.getElementById('quests-waypoints-check');
+  const rewCheck = document.getElementById('quests-rewards-check');
+  const forceCheck = document.getElementById('quests-force-live-check');
+  const statusEl = document.getElementById('quests-status');
+  const submitBtn = document.getElementById('btn-submit-quests');
+
+  if (!charName) {
+    showToast('Character name is missing', 'error');
+    return;
+  }
+
+  const difficulty = diffSelect ? diffSelect.value : 'all';
+  const actVal = actSelect ? actSelect.value : 'all';
+  const act = actVal === 'all' ? null : parseInt(actVal, 10);
+  const unlockWaypoints = wpCheck ? wpCheck.checked : true;
+  const grantRewards = rewCheck ? rewCheck.checked : true;
+  const forceLive = forceCheck ? forceCheck.checked : false;
+
+  const isProtected = PROTECTED_CHARS.includes(charName.toLowerCase());
+  if (isProtected && !forceLive) {
+    if (statusEl) {
+      statusEl.style.display = 'block';
+      statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
+      statusEl.style.color = '#f87171';
+      statusEl.textContent = 'This is a protected live character. Check the confirmation checkbox to authorize modification.';
+    }
+    return;
+  }
+
+  if (submitBtn) submitBtn.disabled = true;
+  if (statusEl) {
+    statusEl.style.display = 'block';
+    statusEl.style.background = 'rgba(59, 130, 246, 0.2)';
+    statusEl.style.color = '#93c5fd';
+    statusEl.textContent = 'Applying quest completions and updating waypoints...';
+  }
+
+  try {
+    const res = await fetch('/api/character/quests/complete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        character: charName,
+        difficulty,
+        act,
+        unlock_waypoints: unlockWaypoints,
+        grant_rewards: grantRewards,
+        force_live: forceLive
+      })
+    });
+
+    const data = await res.json();
+    if (data.success) {
+      if (statusEl) {
+        statusEl.style.background = 'rgba(34, 197, 94, 0.2)';
+        statusEl.style.color = '#4ade80';
+        statusEl.textContent = data.message || 'Quests updated successfully!';
+      }
+      showToast(`Quests updated for ${charName}!`, 'success');
+      setTimeout(() => {
+        closeQuestsModal();
+        if (submitBtn) submitBtn.disabled = false;
+        loadSaves();
+      }, 1000);
+    } else {
+      if (statusEl) {
+        statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
+        statusEl.style.color = '#f87171';
+        statusEl.textContent = data.error || 'Failed to update quests.';
+      }
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  } catch (err) {
+    if (statusEl) {
+      statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
+      statusEl.style.color = '#f87171';
+      statusEl.textContent = 'Network or server error: ' + err.message;
+    }
+    if (submitBtn) submitBtn.disabled = false;
+  }
+}
+
+window.openQuestsModal = openQuestsModal;
+window.openQuestsModalForCurrentArmoryChar = openQuestsModalForCurrentArmoryChar;
+window.closeQuestsModal = closeQuestsModal;
+window.submitCompleteQuests = submitCompleteQuests;
+
+const questsModalEl = document.getElementById('quests-modal');
+if (questsModalEl) {
+  questsModalEl.addEventListener('click', (e) => {
+    if (e.target === questsModalEl) closeQuestsModal();
+  });
+}
+
 // Initialize on page load
 loadProfiles();
+
+
