@@ -1,0 +1,793 @@
+/* ==========================================================================
+   DIABLO II: RESURRECTED - AUTHENTIC IN-GAME PANELS & ARMORY STYLESHEET
+   Based on D2R Layout JSONs and Authentic In-Game Dimensions
+   ========================================================================== */
+
+@import url('d2_fonts.css');
+
+:root {
+  --d2-cell-size: 32px;
+  --d2-font-title: 'Exocet Blizzard MixedCaps', 'Cinzel', serif;
+  --d2-font-text: 'Formal436 BT', 'Cinzel', serif;
+
+  /* Authentic In-Game Diablo Colors */
+  --d2-color-gold: #c7b377;
+  --d2-color-dark-gold: #8d7543;
+  --d2-color-unique: #c7b377;
+  --d2-color-set: #00e600;
+  --d2-color-rare: #ffff66;
+  --d2-color-magic: #647eff;
+  --d2-color-crafted: #ff8000;
+  --d2-color-runeword: #ffd700;
+  --d2-color-normal: #ffffff;
+  --d2-color-superior: #e6e6e6;
+  --d2-color-ethereal: #8a9ba8;
+  --d2-color-socketed: #8a9ba8;
+  --d2-color-blue-affix: #647eff;
+  --d2-color-red-warn: #ff4757;
+  --d2-color-text-dim: #888277;
+}
+
+/* --------------------------------------------------------------------------
+   Top Armory Toolbar & Controls
+   -------------------------------------------------------------------------- */
+.d2r-armory-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  background: linear-gradient(180deg, rgba(26, 23, 19, 0.95) 0%, rgba(16, 14, 11, 0.95) 100%);
+  border: 1px solid var(--d2-color-dark-gold);
+  border-radius: 6px;
+  padding: 12px 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.7);
+}
+
+.d2r-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.d2r-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.d2r-char-select-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.d2r-char-select-wrap label {
+  font-family: var(--d2-font-title);
+  color: var(--d2-color-gold);
+  font-size: 13px;
+  letter-spacing: 0.5px;
+}
+
+.d2r-view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--d2-color-dark-gold);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.d2r-view-toggle button {
+  background: #181512;
+  color: #9c9281;
+  border: none;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.d2r-view-toggle button.active {
+  background: var(--d2-color-dark-gold);
+  color: #ffffff;
+}
+
+/* --------------------------------------------------------------------------
+   Dual-Panel In-Game Layout Container
+   -------------------------------------------------------------------------- */
+.d2r-panels-container {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+  padding: 10px 0 30px;
+}
+
+/* Base In-Game Panel Frame */
+.d2r-panel {
+  background: radial-gradient(circle at 50% 15%, #181512 0%, #0d0c0a 100%);
+  border: 2px solid var(--d2-color-dark-gold);
+  border-radius: 6px;
+  box-shadow: 
+    0 10px 30px rgba(0, 0, 0, 0.95),
+    inset 0 0 25px rgba(0, 0, 0, 0.9),
+    inset 0 1px 1px rgba(255, 230, 160, 0.25);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 20px 20px;
+}
+
+/* Corner Ornaments */
+.d2r-panel::before,
+.d2r-panel::after {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #b89855;
+  pointer-events: none;
+}
+.d2r-panel::before {
+  top: 4px;
+  left: 4px;
+  border-right: none;
+  border-bottom: none;
+}
+.d2r-panel::after {
+  bottom: 4px;
+  right: 4px;
+  border-left: none;
+  border-top: none;
+}
+
+/* Panel Header Plaque */
+.d2r-panel-header {
+  width: 100%;
+  text-align: center;
+  position: relative;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(141, 117, 67, 0.4);
+}
+
+.d2r-panel-title {
+  font-family: var(--d2-font-title);
+  font-size: 20px;
+  letter-spacing: 2px;
+  background: linear-gradient(180deg, #fff3d1 0%, #d4b36a 50%, #876227 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.d2r-panel-subtitle {
+  font-size: 12px;
+  color: var(--d2-color-text-dim);
+  margin-top: 2px;
+}
+
+/* --------------------------------------------------------------------------
+   LEFT PANEL: BANK / STASH / HORADRIC CUBE
+   -------------------------------------------------------------------------- */
+.d2r-stash-panel {
+  min-width: 554px;
+}
+
+/* Arched In-Game Stash Tabs */
+.d2r-stash-tab-ribbon {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  width: 100%;
+  border-bottom: 2px solid #5a472a;
+  margin-bottom: 14px;
+  padding-bottom: 0;
+}
+
+.d2r-tab-btn {
+  background: linear-gradient(180deg, #27221b 0%, #151310 100%);
+  color: #8b8374;
+  border: 1px solid #4a3c26;
+  border-bottom: none;
+  border-radius: 5px 5px 0 0;
+  padding: 6px 14px;
+  font-family: var(--d2-font-title);
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+  position: relative;
+  bottom: -2px;
+}
+
+.d2r-tab-btn:hover {
+  background: linear-gradient(180deg, #383024 0%, #1c1813 100%);
+  color: #d1c5b0;
+  border-color: #6d5837;
+}
+
+.d2r-tab-btn.active {
+  background: linear-gradient(180deg, #443725 0%, #1a1713 100%);
+  color: #fce7ba;
+  border-color: var(--d2-color-dark-gold);
+  border-bottom: 2px solid #1a1713;
+  font-weight: bold;
+  box-shadow: 0 -2px 10px rgba(180, 140, 70, 0.25);
+  z-index: 2;
+}
+
+/* Stash Grid Area (16x13) */
+.d2r-stash-grid-viewport {
+  width: 512px;
+  height: 416px;
+  background: url('assets/inv_grid.png') repeat;
+  border: 2px solid #5a472a;
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.95);
+  position: relative;
+  overflow: hidden;
+  border-radius: 2px;
+}
+
+/* Stash Gold Bar */
+.d2r-stash-gold-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  margin-top: 12px;
+  padding: 8px 14px;
+  background: rgba(14, 12, 10, 0.9);
+  border: 1px solid #443725;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.d2r-gold-val {
+  font-family: var(--d2-font-title);
+  color: #ffd700;
+  font-size: 14px;
+}
+
+/* Horadric Cube View */
+.d2r-cube-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 512px;
+  min-height: 416px;
+  background: url('assets/hd-cube.jpg') no-repeat center center;
+  background-size: cover;
+  border: 2px solid #5a472a;
+  border-radius: 4px;
+  padding: 24px 0 16px;
+  position: relative;
+}
+
+.d2r-cube-grid-viewport {
+  width: 192px; /* 6 * 32px */
+  height: 192px; /* 6 * 32px */
+  background: url('assets/inv_grid.png') repeat;
+  border: 2px solid #6b5535;
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.95);
+  position: relative;
+  margin-bottom: 24px;
+  border-radius: 2px;
+}
+
+.d2r-transmute-btn {
+  background: linear-gradient(180deg, #7c2616 0%, #441107 100%);
+  border: 2px solid #c87a3e;
+  border-radius: 4px;
+  color: #ffd8a8;
+  font-family: var(--d2-font-title);
+  font-size: 14px;
+  letter-spacing: 1px;
+  padding: 10px 32px;
+  cursor: pointer;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.8), inset 0 0 8px rgba(255, 120, 50, 0.3);
+  transition: all 0.2s;
+  text-transform: uppercase;
+}
+
+.d2r-transmute-btn:hover {
+  background: linear-gradient(180deg, #99321e 0%, #5a170a 100%);
+  color: #ffffff;
+  border-color: #ffa559;
+  box-shadow: 0 6px 20px rgba(220, 80, 20, 0.4), inset 0 0 12px rgba(255, 150, 80, 0.5);
+  transform: translateY(-1px);
+}
+
+/* --------------------------------------------------------------------------
+   RIGHT PANEL: HERO PAPERDOLL & INVENTORY
+   -------------------------------------------------------------------------- */
+.d2r-inventory-panel {
+  min-width: 394px;
+  max-width: 440px;
+}
+
+/* Character Attributes Header Bar */
+.d2r-hero-summary-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  background: rgba(14, 12, 10, 0.85);
+  border: 1px solid #443725;
+  border-radius: 4px;
+  padding: 6px 12px;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+
+.d2r-hero-name {
+  font-family: var(--d2-font-title);
+  color: var(--d2-color-gold);
+  font-size: 14px;
+}
+
+.d2r-hero-class {
+  color: var(--d2-color-text-dim);
+}
+
+.d2r-attr-row {
+  display: flex;
+  gap: 10px;
+  font-size: 11px;
+}
+.d2r-attr-item span:first-child {
+  color: var(--d2-color-text-dim);
+  margin-right: 2px;
+}
+.d2r-attr-item span:last-child {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* Paperdoll Silhouette Container */
+.d2r-paperdoll-frame {
+  width: 320px;
+  height: 236px;
+  background: url('assets/hd-invchar-noinv.png') no-repeat center top;
+  background-size: 320px 236px;
+  position: relative;
+  margin: 0 auto 16px;
+  border-radius: 2px;
+}
+
+/* Individual Paperdoll Equipment Slots */
+.d2r-paperdoll-slot {
+  position: absolute;
+  box-sizing: border-box;
+  background-color: rgba(12, 10, 8, 0.5);
+  border: 1px solid rgba(80, 65, 45, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.d2r-paperdoll-slot:hover {
+  border-color: var(--d2-color-gold);
+  box-shadow: 0 0 8px rgba(199, 179, 119, 0.4);
+}
+
+/* Empty Slot Silhouette Watermarks */
+.d2r-paperdoll-slot.empty-head {
+  background: url('assets/inv_helm_glove__0__1.png') no-repeat center center rgba(12, 10, 8, 0.5);
+  background-size: contain;
+}
+.d2r-paperdoll-slot.empty-neck {
+  background: url('assets/inv_ring_amulet__0__0.png') no-repeat center center rgba(12, 10, 8, 0.5);
+  background-size: contain;
+}
+.d2r-paperdoll-slot.empty-torso {
+  background: url('assets/inv_armor.png') no-repeat center center rgba(12, 10, 8, 0.5);
+  background-size: contain;
+}
+.d2r-paperdoll-slot.empty-rhand {
+  background: url('assets/inv_weapons.png') no-repeat center center rgba(12, 10, 8, 0.5);
+  background-size: contain;
+}
+.d2r-paperdoll-slot.empty-lhand {
+  background: url('assets/inv_weapons.png') no-repeat center center rgba(12, 10, 8, 0.5);
+  background-size: contain;
+}
+.d2r-paperdoll-slot.empty-gloves {
+  background: url('assets/inv_helm_glove__0__0.png') no-repeat center center rgba(12, 10, 8, 0.5);
+  background-size: contain;
+}
+.d2r-paperdoll-slot.empty-belt {
+  background: url('assets/inv_belt.png') no-repeat center center rgba(12, 10, 8, 0.5);
+  background-size: contain;
+}
+.d2r-paperdoll-slot.empty-boots {
+  background: url('assets/inv_boots.png') no-repeat center center rgba(12, 10, 8, 0.5);
+  background-size: contain;
+}
+.d2r-paperdoll-slot.empty-ring {
+  background: url('assets/inv_ring_amulet__0__1.png') no-repeat center center rgba(12, 10, 8, 0.5);
+  background-size: contain;
+}
+
+/* Exact Slot Coordinates matching D2R hd-invchar-noinv */
+.d2r-paperdoll-slot.slot-head   { top: 12px;  left: 128px; width: 64px; height: 64px; }
+.d2r-paperdoll-slot.slot-neck   { top: 8px;   left: 200px; width: 32px; height: 32px; }
+.d2r-paperdoll-slot.slot-torso  { top: 83px;  left: 128px; width: 64px; height: 96px; }
+.d2r-paperdoll-slot.slot-rhand  { top: 24px;  left: 16px;  width: 64px; height: 128px; }
+.d2r-paperdoll-slot.slot-lhand  { top: 24px;  left: 240px; width: 64px; height: 128px; }
+.d2r-paperdoll-slot.slot-gloves { top: 162px; left: 14px;  width: 60px; height: 60px; }
+.d2r-paperdoll-slot.slot-belt   { top: 193px; left: 130px; width: 60px; height: 30px; }
+.d2r-paperdoll-slot.slot-boots  { top: 162px; left: 246px; width: 60px; height: 60px; }
+.d2r-paperdoll-slot.slot-rring  { top: 193px; left: 87px;  width: 30px; height: 30px; }
+.d2r-paperdoll-slot.slot-lring  { top: 193px; left: 202px; width: 30px; height: 30px; }
+
+/* Weapon Swap Tab Controls */
+.d2r-weapon-swap-tabs {
+  position: absolute;
+  top: 3px;
+  display: flex;
+  gap: 2px;
+  z-index: 5;
+}
+.d2r-weapon-swap-tabs.left-tabs { left: 16px; }
+.d2r-weapon-swap-tabs.right-tabs { left: 240px; }
+
+.d2r-swap-btn {
+  background: #191612;
+  border: 1px solid #4a3c26;
+  color: #7b7365;
+  font-family: var(--d2-font-title);
+  font-size: 10px;
+  padding: 1px 6px;
+  cursor: pointer;
+}
+.d2r-swap-btn.active {
+  background: #3e3221;
+  border-color: var(--d2-color-gold);
+  color: #ffffff;
+  font-weight: bold;
+}
+
+/* Character Inventory Grid (11x8) */
+.d2r-inv-grid-viewport {
+  width: 352px; /* 11 * 32px */
+  height: 256px; /* 8 * 32px */
+  background: url('assets/inv_grid.png') repeat;
+  border: 2px solid #5a472a;
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.95);
+  position: relative;
+  overflow: hidden;
+  margin: 0 auto;
+  border-radius: 2px;
+}
+
+/* Inventory Gold Purse Bar */
+.d2r-inv-gold-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 352px;
+  margin: 10px auto 0;
+  padding: 6px 12px;
+  background: rgba(14, 12, 10, 0.9);
+  border: 1px solid #443725;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.d2r-gold-button {
+  background: linear-gradient(180deg, #3d3425 0%, #1c1813 100%);
+  border: 1px solid #6b5535;
+  border-radius: 3px;
+  color: #f0dec0;
+  font-family: var(--d2-font-title);
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+/* --------------------------------------------------------------------------
+   ITEM RENDERING IN GRIDS & SLOTS
+   -------------------------------------------------------------------------- */
+.d2r-item-element {
+  position: absolute;
+  box-sizing: border-box;
+  background-color: rgba(16, 14, 12, 0.9);
+  border-radius: 2px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  overflow: hidden;
+  transition: transform 0.1s, box-shadow 0.1s;
+  z-index: 3;
+}
+
+.d2r-item-element:hover {
+  transform: scale(1.02);
+  z-index: 10;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.25);
+}
+
+/* Quality Border & Glow Classes */
+.d2r-item-element.q-unique {
+  border: 1px solid var(--d2-color-unique);
+  box-shadow: inset 0 0 8px rgba(199, 179, 119, 0.35);
+}
+.d2r-item-element.q-set {
+  border: 1px solid var(--d2-color-set);
+  box-shadow: inset 0 0 8px rgba(0, 230, 0, 0.35);
+}
+.d2r-item-element.q-rare {
+  border: 1px solid var(--d2-color-rare);
+  box-shadow: inset 0 0 8px rgba(255, 255, 102, 0.35);
+}
+.d2r-item-element.q-magic {
+  border: 1px solid var(--d2-color-magic);
+  box-shadow: inset 0 0 8px rgba(100, 126, 255, 0.35);
+}
+.d2r-item-element.q-crafted {
+  border: 1px solid var(--d2-color-crafted);
+  box-shadow: inset 0 0 8px rgba(255, 128, 0, 0.35);
+}
+.d2r-item-element.q-runeword {
+  border: 1px solid var(--d2-color-runeword);
+  box-shadow: inset 0 0 10px rgba(255, 215, 0, 0.45);
+}
+.d2r-item-element.q-normal {
+  border: 1px solid #777266;
+}
+.d2r-item-element.q-socketed {
+  border: 1px solid var(--d2-color-socketed);
+  box-shadow: inset 0 0 6px rgba(138, 155, 168, 0.25);
+}
+
+/* Ethereal Sheen */
+.d2r-item-element.is-ethereal {
+  opacity: 0.82;
+  filter: drop-shadow(0 0 4px rgba(138, 155, 168, 0.6));
+}
+
+/* Item Visual Elements */
+.d2r-item-content {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 2px;
+  position: relative;
+}
+
+.d2r-item-icon-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-grow: 1;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.d2r-item-icon {
+  max-width: 90%;
+  max-height: 90%;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.8));
+}
+
+.d2r-item-badge-name {
+  font-family: var(--d2-font-text);
+  font-size: 10px;
+  line-height: 1.1;
+  text-align: center;
+  max-width: 95%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.d2r-item-perf-badge {
+  position: absolute;
+  bottom: 1px;
+  right: 2px;
+  font-size: 9px;
+  font-weight: bold;
+  color: #ffd700;
+  text-shadow: 0 1px 2px #000;
+  pointer-events: none;
+}
+
+/* Gem Sockets Graphic Overlay */
+.d2r-sockets-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  align-items: center;
+  padding: 4px 2px;
+}
+
+.d2r-socket-row {
+  display: flex;
+  justify-content: space-around;
+  width: 100%;
+}
+
+.d2r-socket-node {
+  width: 14px;
+  height: 14px;
+  background: url('assets/gemsocket.png') no-repeat center center;
+  background-size: contain;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.9));
+}
+
+/* --------------------------------------------------------------------------
+   AUTHENTIC IN-GAME FLOATING TOOLTIP
+   -------------------------------------------------------------------------- */
+.d2r-floating-tooltip {
+  position: fixed;
+  z-index: 10000;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 15%, #181512 0%, #0b0a08 100%);
+  border: 2px solid var(--d2-color-dark-gold);
+  border-radius: 4px;
+  box-shadow: 
+    0 12px 35px rgba(0, 0, 0, 0.98),
+    inset 0 0 20px rgba(0, 0, 0, 0.95),
+    inset 0 1px 1px rgba(255, 230, 160, 0.3);
+  padding: 14px 18px;
+  max-width: 380px;
+  font-family: var(--d2-font-text);
+  color: #d8d3c5;
+  text-align: center;
+  line-height: 1.35;
+  transform: translate(-50%, -100%);
+  margin-top: -12px;
+  transition: opacity 0.1s ease-out;
+}
+
+.d2r-tooltip-title {
+  font-family: var(--d2-font-title);
+  font-size: 16px;
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
+}
+
+.d2r-tooltip-base {
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.d2r-tooltip-runes {
+  color: var(--d2-color-runeword);
+  font-family: var(--d2-font-title);
+  font-size: 13px;
+  margin-bottom: 2px;
+}
+
+.d2r-tooltip-divider {
+  width: 80%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #8d7543, transparent);
+  margin: 6px auto;
+}
+
+.d2r-tooltip-stats-primary {
+  font-size: 13px;
+  color: #ffffff;
+  margin-bottom: 6px;
+}
+
+.d2r-tooltip-reqs {
+  font-size: 12px;
+  color: #d8d3c5;
+  margin-bottom: 6px;
+}
+
+.d2r-tooltip-reqs.unmet {
+  color: var(--d2-color-red-warn);
+}
+
+.d2r-tooltip-affix {
+  color: var(--d2-color-blue-affix);
+  font-size: 13px;
+  margin: 1px 0;
+}
+
+.d2r-tooltip-affix.set-bonus {
+  color: var(--d2-color-set);
+}
+
+.d2r-tooltip-sockets {
+  color: var(--d2-color-blue-affix);
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.d2r-tooltip-ethereal {
+  color: var(--d2-color-blue-affix);
+  font-size: 13px;
+  margin-top: 2px;
+}
+
+.d2r-tooltip-perfection {
+  font-size: 11px;
+  color: #ffd700;
+  margin-top: 8px;
+  border-top: 1px dashed rgba(141, 117, 67, 0.4);
+  padding-top: 4px;
+}
+
+/* --------------------------------------------------------------------------
+   AUTHENTIC ACTION CONTEXT MENU
+   -------------------------------------------------------------------------- */
+.d2r-action-menu {
+  position: fixed;
+  z-index: 10001;
+  background: radial-gradient(circle at 50% 20%, #201c16 0%, #100e0b 100%);
+  border: 1px solid var(--d2-color-dark-gold);
+  border-radius: 4px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.95);
+  padding: 6px 0;
+  min-width: 210px;
+  font-family: var(--d2-font-title);
+  font-size: 12px;
+}
+
+.d2r-action-menu-header {
+  padding: 6px 14px;
+  font-size: 11px;
+  color: var(--d2-color-gold);
+  border-bottom: 1px solid #3d3425;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.d2r-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  color: #d8d3c5;
+  cursor: pointer;
+  transition: all 0.1s;
+  text-decoration: none;
+}
+
+.d2r-menu-item:hover {
+  background: rgba(141, 117, 67, 0.35);
+  color: #ffffff;
+}
+
+.d2r-menu-divider {
+  height: 1px;
+  background: #3d3425;
+  margin: 4px 0;
+}
+
+/* Drag-and-drop feedback */
+.d2r-drag-target {
+  outline: 2px dashed #ffd700;
+  outline-offset: -2px;
+}
+
+.d2r-drag-over {
+  background-color: rgba(255, 215, 0, 0.15) !important;
+}

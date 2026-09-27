@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Diablo II Resurrected - Save & Item Explorer</title>
   <link rel="stylesheet" href="style.css?v=3">
+  <link rel="stylesheet" href="d2_panels.css?v=1">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -29,7 +30,7 @@
           <span class="tab-icon">🛡️</span> Characters & Stash
         </button>
         <button class="nav-tab" data-tab="armory-view">
-          <span class="tab-icon">👤</span> Armory Sheet
+          <span class="tab-icon">⚔️</span> In-Game Armory
         </button>
         <button class="nav-tab" data-tab="grail-view">
           <span class="tab-icon">🏆</span> Holy Grail
@@ -295,19 +296,25 @@
 
     <!-- VIEW 3: ARMORY / PAPERDOLL SHEET -->
     <section id="armory-view" class="view-panel">
-      <div class="armory-header">
-        <div class="armory-title-row">
-          <h2>Hero Armory & Inventory</h2>
-          <div class="armory-char-selector" style="display:flex; align-items:center; gap:8px;">
-            <label for="armory-char-select">SELECT CHARACTER:</label>
-            <select id="armory-char-select" class="form-select"></select>
-            <button class="btn btn-secondary btn-sm" onclick="openQuestsModalForCurrentArmoryChar()">📜 Quests &amp; WPs</button>
+      <div class="d2r-armory-toolbar">
+        <div class="d2r-toolbar-left">
+          <div class="d2r-char-select-wrap">
+            <label for="armory-char-select">HERO:</label>
+            <select id="armory-char-select" class="form-select" style="min-width: 230px;"></select>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="openQuestsModalForCurrentArmoryChar()">📜 Quests &amp; WPs</button>
+          <button class="btn btn-secondary btn-sm" onclick="openPackMuleModalForCurrentArmoryChar()">📦 Pack Mule from Stash</button>
+        </div>
+        <div class="d2r-toolbar-right">
+          <div class="d2r-view-toggle">
+            <button id="view-toggle-panels" class="active" onclick="setArmoryViewMode('panels')">⚔️ In-Game Panels</button>
+            <button id="view-toggle-cards" onclick="setArmoryViewMode('cards')">📋 Card List</button>
           </div>
         </div>
       </div>
 
-      <div id="armory-content" class="armory-content">
-        <!-- Paperdoll & Attributes layout generated in JS -->
+      <div id="armory-content" class="armory-content-wrap">
+        <!-- Dual In-Game Panels or Card list generated in JS -->
       </div>
     </section>
 
@@ -657,7 +664,12 @@
     </div>
   </div>
 
-  <script src="app.js?v=10"></script>
+  <!-- Authentic D2R Floating Tooltip & Action Menu -->
+  <div id="d2r-floating-tooltip" class="d2r-floating-tooltip" style="display:none;"></div>
+  <div id="d2r-action-menu" class="d2r-action-menu" style="display:none;"></div>
+
+  <script src="d2_armory.js?v=1"></script>
+  <script src="app.js?v=11"></script>
 
 </body>
 </html>

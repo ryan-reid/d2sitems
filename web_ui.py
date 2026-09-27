@@ -579,6 +579,47 @@ class SaveDataManager:
             "total_items": len(char_items)
         }
 
+    def get_shared_stash_detail(self):
+        """Group all items in shared stash into tabs."""
+        stash_saves = [s for s in self.saves if s.get("is_stash")]
+        if not stash_saves:
+            return None
+        save_entry = stash_saves[0]
+        stash_items = [it for it in self.items if it.get("isStash")]
+        tabs_meta = save_entry.get("tabs", [])
+
+        # Group items by tabIndex
+        tabs = []
+        for i, meta in enumerate(tabs_meta):
+            tab_items = [it for it in stash_items if it.get("tabIndex") == i]
+            tabs.append({
+                "index": i,
+                "name": meta.get("name", f"Shared Stash Tab {i + 1}"),
+                "gold": meta.get("gold", 0),
+                "itemCount": len(tab_items),
+                "items": tab_items
+            })
+
+        # Extra tabs if any items are indexed beyond metadata
+        found_indices = set(range(len(tabs_meta)))
+        extra_indices = sorted(set(it.get("tabIndex", 0) for it in stash_items if it.get("tabIndex", 0) not in found_indices))
+        for i in extra_indices:
+            tab_items = [it for it in stash_items if it.get("tabIndex") == i]
+            tabs.append({
+                "index": i,
+                "name": f"Shared Stash Tab {i + 1}",
+                "gold": 0,
+                "itemCount": len(tab_items),
+                "items": tab_items
+            })
+
+        return {
+            "save": save_entry,
+            "tabs": tabs,
+            "total_gold": save_entry.get("total_gold", 0),
+            "total_items": len(stash_items)
+        }
+
     def get_grail_report(self):
         """Generate Holy Grail checklist and statistics."""
         active_p = self.get_active_profile()
@@ -852,6 +893,14 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json(detail)
             else:
                 self.send_error(404, "Character not found")
+            return
+
+        if path == "/api/shared-stash":
+            stash_detail = DATA_MANAGER.get_shared_stash_detail()
+            if stash_detail:
+                self.send_json(stash_detail)
+            else:
+                self.send_error(404, "Shared stash not found")
             return
 
         if path == "/api/grail":

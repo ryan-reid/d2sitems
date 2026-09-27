@@ -1055,6 +1055,7 @@ function renderCharactersView() {
 
       <div class="char-card-actions">
         <button class="btn btn-primary btn-sm" onclick="filterBySource('${escapeHtml(s.file)}')">Explore ${s.item_count} Stash Items</button>
+        <button class="btn btn-secondary btn-sm" onclick="openArmoryForStash()">⚔️ In-Game Stash</button>
       </div>
     `;
     dom.charactersGrid.appendChild(card);
@@ -1104,87 +1105,45 @@ dom.armoryCharSelect.addEventListener('change', async (e) => {
 
 async function renderArmoryForChar(charName) {
   try {
-    const res = await fetch(`/api/character/${encodeURIComponent(charName)}`);
-    if (!res.ok) throw new Error('Character not found');
-    const data = await res.json();
-    const char = data.character;
-    const equipped = data.equipped || {};
-    const stats = char.stats || {};
+    if (window._d2rState) {
+      window._d2rState.activeCharName = charName;
+    }
 
-    const createSlotHtml = (slotKey, slotLabel, slotClass) => {
-      const it = equipped[slotKey];
-      if (it) {
-        const qColorClass = getQualityColorClass(it.quality, it.isRuneword);
-        return `
-          <div class="gear-slot filled ${slotClass}" onclick="openArmorySlotItem('${slotKey}')">
-            <span class="gear-slot-label">${slotLabel}</span>
-            <span class="gear-slot-name ${qColorClass}">${escapeHtml(it.displayName)}</span>
-          </div>
-        `;
-      } else {
-        return `
-          <div class="gear-slot ${slotClass}">
-            <span class="gear-slot-label">${slotLabel}</span>
-            <span style="font-size: 11px; color: var(--text-dim);">Empty</span>
-          </div>
-        `;
-      }
-    };
+    const [charRes, stashRes, dimsRes] = await Promise.all([
+      fetch(`/api/character/${encodeURIComponent(charName)}`),
+      fetch('/api/shared-stash'),
+      fetch('/api/container-dimensions')
+    ]);
+
+    if (!charRes.ok) throw new Error('Character not found');
+    const data = await charRes.json();
+    const stashData = stashRes.ok ? await stashRes.json() : null;
+    const dims = dimsRes.ok ? await dimsRes.json() : null;
 
     window._currentArmoryData = data;
 
-    dom.armoryContent.innerHTML = `
-      <!-- Paperdoll & Attributes Column -->
-      <div class="paperdoll-container">
-        <div style="display: flex; justify-content: space-between; align-items: baseline;">
-          <h3 style="font-family: var(--font-heading); color: var(--color-accent); font-size: 18px;">
-            ${escapeHtml(char.name)}
-          </h3>
-          <span style="color: var(--text-muted); font-size: 13px;">Level ${char.level} ${escapeHtml(char.class)}</span>
-        </div>
-
-        <div class="char-attributes-grid">
-          <div class="attr-box"><span class="attr-name">STR</span><span class="attr-val">${stats.strength || '-'}</span></div>
-          <div class="attr-box"><span class="attr-name">DEX</span><span class="attr-val">${stats.dexterity || '-'}</span></div>
-          <div class="attr-box"><span class="attr-name">VIT</span><span class="attr-val">${stats.vitality || '-'}</span></div>
-          <div class="attr-box"><span class="attr-name">ENG</span><span class="attr-val">${stats.energy || '-'}</span></div>
-        </div>
-
-        <div class="paperdoll-layout">
-          ${createSlotHtml('Head', 'Head', 'slot-head')}
-          ${createSlotHtml('Neck', 'Amulet', 'slot-neck')}
-          ${createSlotHtml('Torso', 'Armor', 'slot-torso')}
-          ${createSlotHtml('RightHand', 'Main Hand', 'slot-rhand')}
-          ${createSlotHtml('LeftHand', 'Off Hand', 'slot-lhand')}
-          ${createSlotHtml('Gloves', 'Gloves', 'slot-gloves')}
-          ${createSlotHtml('RightRing', 'Right Ring', 'slot-rring')}
-          ${createSlotHtml('LeftRing', 'Left Ring', 'slot-lring')}
-          ${createSlotHtml('Belt', 'Belt', 'slot-belt')}
-          ${createSlotHtml('Boots', 'Boots', 'slot-boots')}
-        </div>
-      </div>
-
-      <!-- Inventory & Stash Panels -->
-      <div class="armory-inventory-panel">
-        <div class="inventory-tabs">
-          <button class="inv-tab-btn active" data-inv-tab="inventory" onclick="switchInvTab('inventory', this)">Inventory (${(data.inventory || []).length})</button>
-          <button class="inv-tab-btn" data-inv-tab="stash" onclick="switchInvTab('stash', this)">Personal Stash (${(data.stash || []).length})</button>
-          <button class="inv-tab-btn" data-inv-tab="cube" onclick="switchInvTab('cube', this)">Cube (${(data.cube || []).length})</button>
-          <button class="inv-tab-btn" data-inv-tab="merc" onclick="switchInvTab('merc', this)">Mercenary (${(data.mercenary || []).length})</button>
-        </div>
-
-        <div id="armory-tab-content" class="items-grid" style="grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));">
-          <!-- Populated by switchInvTab -->
-        </div>
-      </div>
-    `;
-
-    switchInvTab('inventory');
-
+    if (window.renderD2RInGameArmory) {
+      window.renderD2RInGameArmory(data, stashData, dims);
+    }
   } catch (err) {
-    dom.armoryContent.innerHTML = `<div class="empty-state"><h3>Error loading armory: ${err.message}</h3></div>`;
+    dom.armoryContent.innerHTML = `<div class="empty-state"><h3>Error loading armory: ${escapeHtml(err.message)}</h3></div>`;
   }
 }
+
+window.openPackMuleModalForCurrentArmoryChar = function() {
+  const charName = dom.armoryCharSelect ? dom.armoryCharSelect.value : null;
+  if (charName && window.openPackMuleModal) {
+    window.openPackMuleModal(charName);
+  }
+};
+
+window.openItemDetailModalById = function(itemId) {
+  const allItems = state.items || [];
+  const item = allItems.find(it => it.id === itemId);
+  if (item) {
+    openItemDetailModal(item);
+  }
+};
 
 window.openArmorySlotItem = function(slotKey) {
   if (window._currentArmoryData && window._currentArmoryData.equipped[slotKey]) {
