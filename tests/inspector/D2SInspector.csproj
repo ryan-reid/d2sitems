@@ -11,5 +11,7 @@
     <Compile Include="..\..\MuleGenerator.cs" Link="MuleGenerator.cs" />
     <Compile Include="..\..\SaveBackup.cs" Link="SaveBackup.cs" />
     <Compile Include="..\..\QuestManager.cs" Link="QuestManager.cs" />
+    <Compile Include="..\..\InventoryGridModel.cs" Link="InventoryGridModel.cs" />
+    <Compile Include="..\..\ItemTransferManager.cs" Link="ItemTransferManager.cs" />
   </ItemGroup>
 </Project>

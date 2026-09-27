@@ -250,6 +250,242 @@ finally
         Directory.Delete(questTestDir, true);
 }
 
+// Test 5: Item Transfer Engine & 2D Collision Verification (Phase 3)
+Console.WriteLine("\n[5/5] Testing Item Transfer Engine & 2D Collision Model...");
+var transferTestDir = Path.Combine(Path.GetTempPath(), "d2sitems_transfer_test_" + Guid.NewGuid().ToString("N"));
+Directory.CreateDirectory(transferTestDir);
+
+try
+{
+    // 5.1 Verify Container Dimensions and Item Footprints loaded from mod files
+    var dims = D2SItems.ContainerDimensions.LoadFromExcel(excelDir);
+    var itemDims = D2SItems.ItemDimensionsLookup.LoadFromExcel(excelDir);
+
+    var invAmazon = dims.GetInventorySize("Amazon");
+    var invWarlock = dims.GetInventorySize("Warlock");
+    var stashSize = dims.StashSize;
+    var cubeSize = dims.CubeSize;
+
+    bool dimsOk = invAmazon == (11, 8) && invWarlock == (11, 8) && stashSize == (16, 13) && cubeSize == (6, 6);
+    var cm1Size = itemDims.GetSize("cm1");
+    var cm2Size = itemDims.GetSize("cm2");
+    var cm3Size = itemDims.GetSize("cm3");
+    var boxSize = itemDims.GetSize("box");
+    var rinSize = itemDims.GetSize("rin");
+    bool footOk = cm1Size == (1, 1) && cm2Size == (1, 2) && cm3Size == (1, 3) && boxSize == (2, 2) && rinSize == (1, 1);
+
+    if (dimsOk && footOk)
+    {
+        Console.WriteLine($"  [PASS] Mod dimensions verified: Inv={invAmazon.Width}x{invAmazon.Height}, Stash={stashSize.Width}x{stashSize.Height}, Cube={cubeSize.Width}x{cubeSize.Height}; cm3={cm3Size.Width}x{cm3Size.Height}");
+        passed++;
+    }
+    else
+    {
+        Console.WriteLine($"  [FAIL] Dimension verification failed: Inv={invAmazon}, Stash={stashSize}, Cube={cubeSize}, cm3={cm3Size}");
+        failed++;
+    }
+
+    // 5.2 2D Grid Collision Detection & Placement search
+    var testGrid = new D2SItems.ContainerGrid2D(11, 8);
+    testGrid.MarkOccupied(0, 0, 2, 2); // Place 2x2 at (0, 0)
+    bool c1 = !testGrid.CanPlace(0, 0, 1, 1); // overlap -> false
+    bool c2 = !testGrid.CanPlace(1, 1, 1, 1); // overlap -> false
+    bool c3 = testGrid.CanPlace(2, 0, 1, 1);  // adjacent free -> true
+    bool c4 = !testGrid.CanPlace(10, 7, 2, 2); // out of bounds -> false
+    var slot = testGrid.FindFirstAvailableSlot(2, 2);
+    bool c5 = slot.HasValue && slot.Value == (2, 0);
+
+    if (c1 && c2 && c3 && c4 && c5)
+    {
+        Console.WriteLine("  [PASS] 2D collision detection and placement math verified");
+        passed++;
+    }
+    else
+    {
+        Console.WriteLine($"  [FAIL] 2D collision math failed: c1={c1}, c2={c2}, c3={c3}, c4={c4}, slot={slot}");
+        failed++;
+    }
+
+    // Prepare fixture copies in temp test dir
+    var testStashFile = Path.Combine(transferTestDir, "ModernSharedStashSoftCoreV2.d2i");
+    File.Copy(Path.Combine(baselinesDir, "ModernSharedStashSoftCoreV2.golden.d2i"), testStashFile);
+
+    string tHero = "TestTransferHero";
+    D2SItems.MuleGenerator.Run(
+        new[] { "create-mule", "--name", tHero, "--class", "Barbarian", "--save-dir", transferTestDir },
+        transferTestDir,
+        excelDir
+    );
+    var testCharFile = Path.Combine(transferTestDir, $"{tHero}.d2s");
+
+    // 5.3 Transfer item from Shared Stash Tab 0 -> Character Inventory
+    var stashBefore = D2StashSave.Read(File.ReadAllBytes(testStashFile), externalData);
+    var charBefore = D2Save.Read(File.ReadAllBytes(testCharFile), externalData);
+    int stashCount0 = stashBefore[0].Items.Count;
+    int charInvCount0 = charBefore.Items.Count(i => i.Position.Mode == ItemMode.Stored && i.Position.StorePage == StorePage.Inventory);
+
+    var sampleItem = stashBefore[0].Items[0];
+    var sampleSeed = sampleItem.ItemSeed;
+    var sampleCode = sampleItem.ItemCodeString.Trim();
+
+    var transferRes = D2SItems.ItemTransferManager.TransferItem(new D2SItems.ItemTransferRequest
+    {
+        SourceFile = testStashFile,
+        SourceContainer = D2SItems.ContainerType.SharedStash,
+        SourceTab = 0,
+        ItemSeed = sampleSeed,
+        TargetFile = testCharFile,
+        TargetContainer = D2SItems.ContainerType.Inventory,
+        ExcelDir = excelDir
+    });
+
+    if (!transferRes.Success)
+    {
+        Console.WriteLine($"  [FAIL] Single item transfer failed: {transferRes.Message}");
+        failed++;
+    }
+    else
+    {
+        // Reload files from disk and verify
+        var stashAfter = D2StashSave.Read(File.ReadAllBytes(testStashFile), externalData);
+        var charAfter = D2Save.Read(File.ReadAllBytes(testCharFile), externalData);
+
+        int stashCount1 = stashAfter[0].Items.Count;
+        int charInvCount1 = charAfter.Items.Count(i => i.Position.Mode == ItemMode.Stored && i.Position.StorePage == StorePage.Inventory);
+
+        var transferredItem = charAfter.Items.FirstOrDefault(i => i.ItemSeed == sampleSeed);
+        bool itemInChar = transferredItem != null &&
+                          transferredItem.Position.InvX == transferRes.PlacedX &&
+                          transferredItem.Position.InvY == transferRes.PlacedY &&
+                          transferredItem.Position.StorePage == StorePage.Inventory;
+
+        bool itemRemovedFromStash = stashAfter[0].Items.All(i => i.ItemSeed != sampleSeed);
+
+        if (stashCount1 == stashCount0 - 1 && charInvCount1 == charInvCount0 + 1 && itemInChar && itemRemovedFromStash)
+        {
+            Console.WriteLine($"  [PASS] Stash -> Inv transfer verified ({sampleCode} placed at {transferRes.PlacedX},{transferRes.PlacedY})");
+            passed++;
+        }
+        else
+        {
+            Console.WriteLine($"  [FAIL] Transfer verification failed: stashCount={stashCount1} (was {stashCount0}), invCount={charInvCount1} (was {charInvCount0})");
+            failed++;
+        }
+    }
+
+    // 5.4 Transfer item back from Character Inventory -> Shared Stash Tab 0
+    var returnRes = D2SItems.ItemTransferManager.TransferItem(new D2SItems.ItemTransferRequest
+    {
+        SourceFile = testCharFile,
+        SourceContainer = D2SItems.ContainerType.Inventory,
+        ItemSeed = sampleSeed,
+        TargetFile = testStashFile,
+        TargetContainer = D2SItems.ContainerType.SharedStash,
+        TargetTab = 0,
+        ExcelDir = excelDir
+    });
+
+    if (returnRes.Success)
+    {
+        var stashReloaded = D2StashSave.Read(File.ReadAllBytes(testStashFile), externalData);
+        var charReloaded = D2Save.Read(File.ReadAllBytes(testCharFile), externalData);
+        int stashFinal = stashReloaded[0].Items.Count;
+        int charFinal = charReloaded.Items.Count(i => i.Position.Mode == ItemMode.Stored && i.Position.StorePage == StorePage.Inventory);
+
+        if (stashFinal == stashCount0 && charFinal == charInvCount0)
+        {
+            Console.WriteLine("  [PASS] Round-trip transfer (Inv -> Stash) restored exact original item counts");
+            passed++;
+        }
+        else
+        {
+            Console.WriteLine($"  [FAIL] Round-trip count mismatch: stashFinal={stashFinal}, charFinal={charFinal}");
+            failed++;
+        }
+    }
+    else
+    {
+        Console.WriteLine($"  [FAIL] Return transfer failed: {returnRes.Message}");
+        failed++;
+    }
+
+    // 5.5 Out-of-bounds / occupied collision rejection
+    var badTransferRes = D2SItems.ItemTransferManager.TransferItem(new D2SItems.ItemTransferRequest
+    {
+        SourceFile = testStashFile,
+        SourceContainer = D2SItems.ContainerType.SharedStash,
+        SourceTab = 0,
+        ItemSeed = sampleSeed,
+        TargetFile = testCharFile,
+        TargetContainer = D2SItems.ContainerType.Inventory,
+        TargetX = 100, // Invalid coordinate
+        TargetY = 100,
+        ExcelDir = excelDir
+    });
+
+    if (!badTransferRes.Success)
+    {
+        Console.WriteLine("  [PASS] Invalid / colliding coordinate transfer successfully rejected");
+        passed++;
+    }
+    else
+    {
+        Console.WriteLine("  [FAIL] Out of bounds transfer was unexpectedly accepted!");
+        failed++;
+    }
+
+    // 5.6 Live Main Character Safety Guard rejection
+    var liveGuardRes = D2SItems.ItemTransferManager.TransferItem(new D2SItems.ItemTransferRequest
+    {
+        SourceFile = testStashFile,
+        SourceContainer = D2SItems.ContainerType.SharedStash,
+        SourceTab = 0,
+        ItemSeed = sampleSeed,
+        TargetFile = Path.Combine(transferTestDir, "Sorceress.d2s"),
+        TargetContainer = D2SItems.ContainerType.Inventory,
+        ExcelDir = excelDir
+    });
+
+    if (!liveGuardRes.Success && liveGuardRes.IsProtected)
+    {
+        Console.WriteLine("  [PASS] Live character safety guard blocked transfer without --force-live");
+        passed++;
+    }
+    else
+    {
+        Console.WriteLine("  [FAIL] Live character safety guard failed to block transfer!");
+        failed++;
+    }
+
+    // 5.7 Bulk Mule Packing test
+    var bulkRes = D2SItems.ItemTransferManager.FillCharacterFromStash(new D2SItems.BulkTransferRequest
+    {
+        SourceStashFile = testStashFile,
+        SourceTab = 0,
+        TargetCharFile = testCharFile,
+        ItemFilter = "all",
+        MaxItems = 15,
+        ExcelDir = excelDir
+    });
+
+    if (bulkRes.Success && bulkRes.ItemsMoved > 0)
+    {
+        var finalChar = D2Save.Read(File.ReadAllBytes(testCharFile), externalData);
+        Console.WriteLine($"  [PASS] Bulk mule filling packed {bulkRes.ItemsMoved} items into character (Total items: {finalChar.Items.Count})");
+        passed++;
+    }
+    else
+    {
+        Console.WriteLine($"  [FAIL] Bulk mule packing failed: {bulkRes.Message}");
+        failed++;
+    }
+}
+finally
+{
+    if (Directory.Exists(transferTestDir))
+        Directory.Delete(transferTestDir, true);
+}
+
 Console.WriteLine("\n=================================================");
 Console.WriteLine($"Results: {passed} passed, {failed} failed.");
 Console.WriteLine("=================================================");

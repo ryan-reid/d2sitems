@@ -45,6 +45,14 @@ if (args.Length >= 1 && (args[0] == "complete-quests" || args[0] == "--complete-
     return;
 }
 
+// Check for item transfer / fill-mule mode
+if (args.Length >= 1 && (args[0] == "transfer-item" || args[0] == "--transfer-item" || args[0] == "fill-mule" || args[0] == "--fill-mule"))
+{
+    int exitCode = D2SItems.ItemTransferManager.RunCli(args, defaultSaveDir, excelDir);
+    Environment.Exit(exitCode);
+    return;
+}
+
 
 
 // Check for --monitor mode
@@ -125,6 +133,7 @@ var excludedItemNames = config.GetValueOrDefault("exclude_items", "")
 var uniqueStatRanges = BuildUniqueStatRangesLookup(excelDir);
 var setStatRanges = BuildSetStatRangesLookup(excelDir);
 var runewordStatRanges = BuildRunewordStatRangesLookup(excelDir);
+var itemDimensions = D2SItems.ItemDimensionsLookup.LoadFromExcel(excelDir);
 
 // Set up external data cache for D2SSharp to use the configured excel files
 var externalDataCache = new Dictionary<int, IExternalData>();
@@ -651,7 +660,18 @@ void ProcessSharedStash(string saveFile, byte[] saveBytes)
     var gameVersion = fileName.StartsWith("Modern", StringComparison.OrdinalIgnoreCase)
         ? "ReignOfTheWarlock" : "Expansion";
 
-    var allItems = tabItems.SelectMany(t => t.Items).Where(i => !IsExcludedByName(i)).Select(BuildItemJson).ToList();
+    var allItems = new List<Dictionary<string, object?>>();
+    for (int t = 0; t < tabItems.Count; t++)
+    {
+        foreach (var item in tabItems[t].Items)
+        {
+            if (IsExcludedByName(item)) continue;
+            var itJson = BuildItemJson(item);
+            itJson["tabIndex"] = t;
+            itJson["tabName"] = tabItems[t].TabName;
+            allItems.Add(itJson);
+        }
+    }
     var jsonData = new Dictionary<string, object>
     {
         ["file"] = Path.GetFileName(saveFile),
@@ -765,6 +785,7 @@ Dictionary<string, object?> BuildItemJson(Item item)
     var setName = GetSetName(item);
     var statRanges = GetStatRangesForItem(item);
     var score = CalculatePerfectionScore(item, statRanges);
+    var (w, h) = itemDimensions.GetSize(item.ItemCodeString);
     var obj = new Dictionary<string, object?>
     {
         ["name"] = GetItemDisplayName(item),
@@ -777,7 +798,14 @@ Dictionary<string, object?> BuildItemJson(Item item)
         ["set"] = setName,
         ["baseDefenseRange"] = GetBaseDefenseRange(item.ItemCodeString),
         ["defenseRange"] = statRanges != null && GetEffectiveDefenseRange(item, statRanges) is (int dMin, int dMax) ? $"{dMin}-{dMax}" : null,
-        ["location"] = GetLocationString(item)
+        ["location"] = GetLocationString(item),
+        ["itemSeed"] = item.ItemSeed,
+        ["mode"] = item.Position.Mode.ToString(),
+        ["storePage"] = item.Position.StorePage.ToString(),
+        ["invX"] = (int)item.Position.InvX,
+        ["invY"] = (int)item.Position.InvY,
+        ["width"] = w,
+        ["height"] = h
     };
 
     if (score.HasValue)

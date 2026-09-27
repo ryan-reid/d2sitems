@@ -1,6 +1,15 @@
 # .NET build artifacts
 bin/
 obj/
+tests/**/bin/
+tests/**/obj/
+runtimes/
+*.deps.json
+*.runtimeconfig.json
+D2SSharp.dll
+System.Speech.dll
+tests/fixtures/baselines/*.json
+
 *.user
 *.userosscache
 *.sln.docstates

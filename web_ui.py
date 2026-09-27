@@ -859,6 +859,43 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(report)
             return
 
+        if path == "/api/container-dimensions":
+            active_p = DATA_MANAGER.get_active_profile()
+            excel_dir = active_p.get("excel_dir") or DEFAULT_D2R_EXCEL_DIR
+            dims = {
+                "inventory": {"width": 11, "height": 8},
+                "stash": {"width": 16, "height": 13},
+                "cube": {"width": 6, "height": 6},
+                "sharedStash": {"width": 16, "height": 13}
+            }
+            inv_txt = os.path.join(excel_dir, "inventory.txt")
+            if os.path.isfile(inv_txt):
+                try:
+                    with open(inv_txt, "r", encoding="latin1") as f:
+                        header = f.readline().strip().split("\t")
+                        if "class" in header and "gridX" in header and "gridY" in header:
+                            c_i = header.index("class")
+                            gx_i = header.index("gridX")
+                            gy_i = header.index("gridY")
+                            for line in f:
+                                parts = line.strip().split("\t")
+                                if len(parts) > max(c_i, gx_i, gy_i):
+                                    c = parts[c_i].strip()
+                                    gx = int(parts[gx_i].strip()) if parts[gx_i].strip().isdigit() else 0
+                                    gy = int(parts[gy_i].strip()) if parts[gy_i].strip().isdigit() else 0
+                                    if gx > 0 and gy > 0:
+                                        if c in ("Big Bank Page 1", "Big Bank Page2", "Bank Page 1", "Bank Page2"):
+                                            dims["stash"] = {"width": gx, "height": gy}
+                                            dims["sharedStash"] = {"width": gx, "height": gy}
+                                        elif c in ("Transmogrify Box Page 1", "Transmogrify Box2"):
+                                            dims["cube"] = {"width": gx, "height": gy}
+                                        elif c in ("Amazon", "Barbarian", "Paladin", "Sorceress", "Necromancer", "Druid", "Assassin", "Warlock"):
+                                            dims["inventory"] = {"width": gx, "height": gy}
+                except Exception:
+                    pass
+            self.send_json(dims)
+            return
+
         # Static assets
         return super().do_GET()
 
@@ -994,6 +1031,141 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json({"success": False, "error": out, "is_protected": True})
             else:
                 self.send_json({"success": False, "error": out})
+            return
+
+        if path == "/api/item/transfer":
+            active_p = DATA_MANAGER.get_active_profile()
+            save_dir = active_p.get("save_dir")
+            excel_dir = active_p.get("excel_dir") or DEFAULT_D2R_EXCEL_DIR
+
+            source_file = data.get("source_file", "").strip()
+            source_container = data.get("source_container", "sharedstash").strip()
+            source_tab = int(data.get("source_tab", 0))
+            source_x = data.get("source_x")
+            source_y = data.get("source_y")
+            item_seed = data.get("seed")
+            item_code = data.get("code")
+
+            target_file = data.get("target_file", "").strip()
+            target_container = data.get("target_container", "inventory").strip()
+            target_tab = int(data.get("target_tab", 0))
+            target_x = data.get("target_x")
+            target_y = data.get("target_y")
+            force_live = bool(data.get("force_live", False))
+
+            if save_dir == "all":
+                for f_name in (source_file, target_file):
+                    if f_name and not os.path.isabs(f_name):
+                        for prof in DATA_MANAGER.profiles:
+                            if prof.get("save_dir") and prof["save_dir"] != "all":
+                                cand = os.path.join(prof["save_dir"], f_name)
+                                if os.path.isfile(cand):
+                                    save_dir = prof["save_dir"]
+                                    excel_dir = prof.get("excel_dir") or excel_dir
+                                    break
+
+            if not os.path.isabs(source_file) and save_dir and save_dir != "all":
+                source_file = os.path.join(save_dir, source_file)
+            if not os.path.isabs(target_file) and save_dir and save_dir != "all":
+                target_file = os.path.join(save_dir, target_file)
+
+            runner_type, runner_path = find_d2s_runner()
+            if not runner_path:
+                self.send_json({"success": False, "error": "d2sitems runner not found."})
+                return
+
+            cmd = [
+                runner_path, "transfer-item",
+                "--from-file", source_file,
+                "--from-container", source_container,
+                "--from-tab", str(source_tab),
+                "--to-file", target_file,
+                "--to-container", target_container,
+                "--to-tab", str(target_tab),
+                "--excel", excel_dir
+            ]
+            if source_x is not None and source_y is not None:
+                cmd.extend(["--from-x", str(source_x), "--from-y", str(source_y)])
+            if item_seed is not None:
+                cmd.extend(["--seed", str(item_seed)])
+            if item_code:
+                cmd.extend(["--code", str(item_code)])
+            if target_x is not None and target_y is not None:
+                cmd.extend(["--to-x", str(target_x), "--to-y", str(target_y)])
+            if force_live:
+                cmd.append("--force-live")
+
+            proc = subprocess.run(cmd, cwd=SCRIPT_DIR, capture_output=True, text=True)
+            try:
+                res = json.loads(proc.stdout)
+                if res.get("Success"):
+                    DATA_MANAGER.run_scan()
+                self.send_json(res)
+            except Exception:
+                if proc.returncode == 0:
+                    DATA_MANAGER.run_scan()
+                    self.send_json({"success": True, "output": proc.stdout.strip()})
+                else:
+                    self.send_json({"success": False, "error": proc.stdout.strip() or proc.stderr.strip()})
+            return
+
+        if path == "/api/mule/fill":
+            active_p = DATA_MANAGER.get_active_profile()
+            save_dir = active_p.get("save_dir")
+            excel_dir = active_p.get("excel_dir") or DEFAULT_D2R_EXCEL_DIR
+
+            stash_file = data.get("stash_file", "").strip()
+            tab = int(data.get("tab", 0))
+            char_file = data.get("char_file", "").strip()
+            filter_type = data.get("filter", "all").strip()
+            max_items = int(data.get("max_items", 50))
+            force_live = bool(data.get("force_live", False))
+
+            if save_dir == "all":
+                for f_name in (stash_file, char_file):
+                    if f_name and not os.path.isabs(f_name):
+                        for prof in DATA_MANAGER.profiles:
+                            if prof.get("save_dir") and prof["save_dir"] != "all":
+                                cand = os.path.join(prof["save_dir"], f_name)
+                                if os.path.isfile(cand):
+                                    save_dir = prof["save_dir"]
+                                    excel_dir = prof.get("excel_dir") or excel_dir
+                                    break
+
+            if not os.path.isabs(stash_file) and save_dir and save_dir != "all":
+                stash_file = os.path.join(save_dir, stash_file)
+            if not os.path.isabs(char_file) and save_dir and save_dir != "all":
+                char_file = os.path.join(save_dir, char_file)
+
+            runner_type, runner_path = find_d2s_runner()
+            if not runner_path:
+                self.send_json({"success": False, "error": "d2sitems runner not found."})
+                return
+
+            cmd = [
+                runner_path, "fill-mule",
+                "--stash", stash_file,
+                "--tab", str(tab),
+                "--char", char_file,
+                "--filter", filter_type,
+                "--max", str(max_items),
+                "--excel", excel_dir
+            ]
+            if force_live:
+                cmd.append("--force-live")
+
+            proc = subprocess.run(cmd, cwd=SCRIPT_DIR, capture_output=True, text=True)
+            try:
+                res = json.loads(proc.stdout)
+                if res.get("Success"):
+                    DATA_MANAGER.run_scan()
+                self.send_json(res)
+            except Exception:
+                if proc.returncode == 0:
+                    DATA_MANAGER.run_scan()
+                    self.send_json({"success": True, "output": proc.stdout.strip()})
+                else:
+                    self.send_json({"success": False, "error": proc.stdout.strip() or proc.stderr.strip()})
             return
 
         self.send_error(404)

@@ -623,11 +623,18 @@ function openItemDetailModal(it) {
     contentHtml += `</div></div>`;
   }
 
-  // Comparison Section Placeholder (for Unique, Set, Runeword)
   const isEligible = it.quality === 'Unique' || it.quality === 'Set' || it.isRuneword;
   if (isEligible) {
     contentHtml += `<div id="modal-comparison-container" class="comparison-section"><div style="padding: 10px; color: var(--text-dim);">Loading game file comparison...</div></div>`;
   }
+
+  contentHtml += `
+    <div style="margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end;">
+      <button class="btn btn-secondary" onclick="openTransferModalForItemId(${it.id})" style="border-color: var(--color-accent); color: var(--color-accent); font-weight: 600; font-size: 13px;">
+        📦 Transfer Item to Character / Stash
+      </button>
+    </div>
+  `;
 
   dom.itemModalBody.innerHTML = contentHtml;
   dom.itemModal.style.display = 'flex';
@@ -1702,6 +1709,451 @@ const questsModalEl = document.getElementById('quests-modal');
 if (questsModalEl) {
   questsModalEl.addEventListener('click', (e) => {
     if (e.target === questsModalEl) closeQuestsModal();
+  });
+}
+
+// ==========================================
+// ITEM TRANSFER & PACK MULE HANDLERS (PHASE 3)
+// ==========================================
+
+function openTransferModalForItemId(itemId) {
+  const it = state.items.find(i => i.id === itemId);
+  if (!it) {
+    showToast('Item not found in memory', 'error');
+    return;
+  }
+
+  // Populate hidden fields
+  document.getElementById('transfer-source-file').value = it.sourceFile || '';
+  document.getElementById('transfer-source-container').value = it.isStash ? 'sharedstash' : (it.location || 'inventory').toLowerCase();
+  document.getElementById('transfer-source-tab').value = it.tabIndex !== undefined ? it.tabIndex : 0;
+  document.getElementById('transfer-source-x').value = it.invX !== undefined ? it.invX : '';
+  document.getElementById('transfer-source-y').value = it.invY !== undefined ? it.invY : '';
+  document.getElementById('transfer-item-seed').value = it.itemSeed || '';
+  document.getElementById('transfer-item-code').value = it.itemCode || '';
+
+  // Render item preview
+  const qColorClass = getQualityColorClass(it.quality, it.isRuneword);
+  const previewEl = document.getElementById('transfer-item-preview');
+  const w = it.width || 1;
+  const h = it.height || 1;
+  const locStr = it.isStash 
+    ? `Shared Stash (${it.tabName || ('Tab ' + ((it.tabIndex || 0) + 1))}) at slot (${it.invX}, ${it.invY})`
+    : `${it.sourceName}'s ${it.location || 'Inventory'} at slot (${it.invX}, ${it.invY})`;
+
+  previewEl.innerHTML = `
+    <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+      <div>
+        <div class="item-name ${qColorClass}" style="font-size:14px; font-weight:700;">${escapeHtml(it.displayName)}</div>
+        <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">Base: ${escapeHtml(it.baseName || it.itemCode)} | Size: ${w}×${h}</div>
+        <div style="font-size:12px; color:var(--color-accent); margin-top:4px;">📍 Current: ${escapeHtml(locStr)}</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.05); border:1px solid var(--border-color); border-radius:4px; padding:4px 8px; font-size:12px; font-family:monospace;">
+        ${w}×${h} Grid
+      </div>
+    </div>
+  `;
+
+  // Populate destination file select
+  const fileSelect = document.getElementById('transfer-target-file-select');
+  fileSelect.innerHTML = '';
+
+  const chars = state.saves.filter(s => !s.is_stash);
+  const stashes = state.saves.filter(s => s.is_stash);
+
+  if (chars.length > 0) {
+    const charGroup = document.createElement('optgroup');
+    charGroup.label = 'Characters / Mules';
+    chars.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.file;
+      opt.dataset.isStash = 'false';
+      opt.dataset.charName = c.name;
+      opt.textContent = `${c.name} (${c.class} Lvl ${c.level})`;
+      if (c.name.toLowerCase() !== (it.sourceName || '').toLowerCase() && !fileSelect.value) {
+        opt.selected = true;
+      }
+      charGroup.appendChild(opt);
+    });
+    fileSelect.appendChild(charGroup);
+  }
+
+  if (stashes.length > 0) {
+    const stashGroup = document.createElement('optgroup');
+    stashGroup.label = 'Shared Stashes';
+    stashes.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.file;
+      opt.dataset.isStash = 'true';
+      opt.dataset.tabsCount = (s.tabs ? s.tabs.length : 6);
+      opt.textContent = `${s.name} (${s.file})`;
+      if (!fileSelect.value) opt.selected = true;
+      stashGroup.appendChild(opt);
+    });
+    fileSelect.appendChild(stashGroup);
+  }
+
+  onTransferTargetFileChange();
+
+  // Reset status
+  const statusEl = document.getElementById('transfer-status');
+  if (statusEl) statusEl.style.display = 'none';
+
+  const modal = document.getElementById('transfer-item-modal');
+  if (modal) modal.style.display = 'flex';
+}
+
+function closeTransferItemModal() {
+  const modal = document.getElementById('transfer-item-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+function onTransferTargetFileChange() {
+  const fileSelect = document.getElementById('transfer-target-file-select');
+  const contSelect = document.getElementById('transfer-target-container-select');
+  const forceContainer = document.getElementById('transfer-force-live-container');
+  const forceCheck = document.getElementById('transfer-force-live-check');
+  if (forceCheck) forceCheck.checked = false;
+
+  const selOpt = fileSelect.options[fileSelect.selectedIndex];
+  if (!selOpt) return;
+
+  const isStash = selOpt.dataset.isStash === 'true';
+  const charName = selOpt.dataset.charName || '';
+
+  const sourceFile = document.getElementById('transfer-source-file').value;
+  const sourceBase = (sourceFile.replace(/\.d2s$/i, '').split(/[\\/]/).pop() || '').toLowerCase();
+  const targetBase = charName.toLowerCase();
+  const isProtected = PROTECTED_CHARS.includes(sourceBase) || PROTECTED_CHARS.includes(targetBase);
+
+  if (forceContainer) {
+    forceContainer.style.display = isProtected ? 'block' : 'none';
+  }
+
+  contSelect.innerHTML = '';
+  if (isStash) {
+    const tabsCount = parseInt(selOpt.dataset.tabsCount || '6', 10);
+    for (let t = 0; t < tabsCount; t++) {
+      const opt = document.createElement('option');
+      opt.value = `stash-tab:${t}`;
+      opt.textContent = `Shared Stash Tab ${t + 1}`;
+      contSelect.appendChild(opt);
+    }
+  } else {
+    const invOpt = document.createElement('option');
+    invOpt.value = 'inventory';
+    invOpt.textContent = 'Inventory (11×8)';
+    contSelect.appendChild(invOpt);
+
+    const cubeOpt = document.createElement('option');
+    cubeOpt.value = 'cube';
+    cubeOpt.textContent = 'Horadric Cube (6×6)';
+    contSelect.appendChild(cubeOpt);
+
+    const stashOpt = document.createElement('option');
+    stashOpt.value = 'stash';
+    stashOpt.textContent = 'Personal Stash (16×13)';
+    contSelect.appendChild(stashOpt);
+  }
+}
+
+function toggleTransferCoords() {
+  const autoCheck = document.getElementById('transfer-autoplace-check');
+  const customCoords = document.getElementById('transfer-custom-coords');
+  if (customCoords) {
+    customCoords.style.display = autoCheck && autoCheck.checked ? 'none' : 'flex';
+  }
+}
+
+async function submitItemTransfer() {
+  const submitBtn = document.getElementById('btn-submit-transfer');
+  const statusEl = document.getElementById('transfer-status');
+
+  const sourceFile = document.getElementById('transfer-source-file').value;
+  const sourceContainer = document.getElementById('transfer-source-container').value;
+  const sourceTab = parseInt(document.getElementById('transfer-source-tab').value || '0', 10);
+  const sourceX = document.getElementById('transfer-source-x').value;
+  const sourceY = document.getElementById('transfer-source-y').value;
+  const itemSeed = document.getElementById('transfer-item-seed').value;
+  const itemCode = document.getElementById('transfer-item-code').value;
+
+  const fileSelect = document.getElementById('transfer-target-file-select');
+  const contSelect = document.getElementById('transfer-target-container-select');
+  const autoCheck = document.getElementById('transfer-autoplace-check');
+  const forceCheck = document.getElementById('transfer-force-live-check');
+
+  const targetFile = fileSelect.value;
+  const targetVal = contSelect.value;
+  let targetContainer = 'inventory';
+  let targetTab = 0;
+
+  if (targetVal.startsWith('stash-tab:')) {
+    targetContainer = 'sharedstash';
+    targetTab = parseInt(targetVal.split(':')[1], 10);
+  } else {
+    targetContainer = targetVal;
+  }
+
+  let targetX = null;
+  let targetY = null;
+  if (!autoCheck || !autoCheck.checked) {
+    const tx = document.getElementById('transfer-target-x').value;
+    const ty = document.getElementById('transfer-target-y').value;
+    if (tx !== '' && ty !== '') {
+      targetX = parseInt(tx, 10);
+      targetY = parseInt(ty, 10);
+    }
+  }
+
+  const forceLive = forceCheck ? forceCheck.checked : false;
+
+  if (submitBtn) submitBtn.disabled = true;
+  if (statusEl) {
+    statusEl.style.display = 'block';
+    statusEl.style.background = 'rgba(59, 130, 246, 0.2)';
+    statusEl.style.color = '#93c5fd';
+    statusEl.textContent = 'Executing atomic transfer and calculating checksums...';
+  }
+
+  try {
+    const payload = {
+      source_file: sourceFile,
+      source_container: sourceContainer,
+      source_tab: sourceTab,
+      seed: itemSeed ? parseInt(itemSeed, 10) : null,
+      code: itemCode || null,
+      target_file: targetFile,
+      target_container: targetContainer,
+      target_tab: targetTab,
+      force_live: forceLive
+    };
+    if (sourceX !== '' && sourceY !== '') {
+      payload.source_x = parseInt(sourceX, 10);
+      payload.source_y = parseInt(sourceY, 10);
+    }
+    if (targetX !== null && targetY !== null) {
+      payload.target_x = targetX;
+      payload.target_y = targetY;
+    }
+
+    const res = await fetch('/api/item/transfer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+    if (data.Success) {
+      if (statusEl) {
+        statusEl.style.background = 'rgba(34, 197, 94, 0.2)';
+        statusEl.style.color = '#4ade80';
+        statusEl.textContent = data.Message || 'Item transferred successfully!';
+      }
+      showToast('Item transferred successfully!', 'success');
+      setTimeout(async () => {
+        closeTransferItemModal();
+        if (dom.itemModal) dom.itemModal.style.display = 'none';
+        if (submitBtn) submitBtn.disabled = false;
+        await loadSavesAndItems();
+      }, 800);
+    } else {
+      if (statusEl) {
+        statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
+        statusEl.style.color = '#f87171';
+        statusEl.textContent = data.Message || data.error || 'Transfer failed.';
+      }
+      if (data.IsProtected) {
+        const forceContainer = document.getElementById('transfer-force-live-container');
+        if (forceContainer) forceContainer.style.display = 'block';
+      }
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  } catch (err) {
+    if (statusEl) {
+      statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
+      statusEl.style.color = '#f87171';
+      statusEl.textContent = 'Error: ' + err.message;
+    }
+    if (submitBtn) submitBtn.disabled = false;
+  }
+}
+
+function openPackMuleModal() {
+  const stashSelect = document.getElementById('pack-stash-select');
+  const tabSelect = document.getElementById('pack-tab-select');
+  const charSelect = document.getElementById('pack-target-char-select');
+
+  stashSelect.innerHTML = '';
+  tabSelect.innerHTML = '';
+  charSelect.innerHTML = '';
+
+  const stashes = state.saves.filter(s => s.is_stash);
+  const chars = state.saves.filter(s => !s.is_stash);
+
+  stashes.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s.file;
+    opt.textContent = s.name;
+    opt.dataset.tabs = JSON.stringify(s.tabs || []);
+    stashSelect.appendChild(opt);
+  });
+
+  onPackStashChange();
+
+  chars.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.file;
+    opt.dataset.charName = c.name;
+    opt.textContent = `${c.name} (${c.class} Lvl ${c.level})`;
+    charSelect.appendChild(opt);
+  });
+
+  onPackTargetCharChange();
+
+  const statusEl = document.getElementById('pack-status');
+  if (statusEl) statusEl.style.display = 'none';
+
+  const modal = document.getElementById('pack-mule-modal');
+  if (modal) modal.style.display = 'flex';
+}
+
+function closePackMuleModal() {
+  const modal = document.getElementById('pack-mule-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+function onPackStashChange() {
+  const stashSelect = document.getElementById('pack-stash-select');
+  const tabSelect = document.getElementById('pack-tab-select');
+  tabSelect.innerHTML = '';
+
+  const selOpt = stashSelect.options[stashSelect.selectedIndex];
+  if (!selOpt) return;
+
+  let tabs = [];
+  try {
+    tabs = JSON.parse(selOpt.dataset.tabs || '[]');
+  } catch (e) {
+    tabs = [];
+  }
+
+  const count = tabs.length > 0 ? tabs.length : 6;
+  for (let i = 0; i < count; i++) {
+    const opt = document.createElement('option');
+    opt.value = i;
+    const tabName = (tabs[i] && tabs[i].name) ? tabs[i].name : `Tab ${i + 1}`;
+    const itemCount = (tabs[i] && tabs[i].itemCount !== undefined) ? ` (${tabs[i].itemCount} items)` : '';
+    opt.textContent = `${tabName}${itemCount}`;
+    tabSelect.appendChild(opt);
+  }
+}
+
+function onPackTargetCharChange() {
+  const charSelect = document.getElementById('pack-target-char-select');
+  const forceContainer = document.getElementById('pack-force-live-container');
+  const forceCheck = document.getElementById('pack-force-live-check');
+  if (forceCheck) forceCheck.checked = false;
+
+  const selOpt = charSelect.options[charSelect.selectedIndex];
+  const charName = selOpt ? (selOpt.dataset.charName || '') : '';
+  const isProtected = PROTECTED_CHARS.includes(charName.toLowerCase());
+
+  if (forceContainer) {
+    forceContainer.style.display = isProtected ? 'block' : 'none';
+  }
+}
+
+async function submitPackMule() {
+  const submitBtn = document.getElementById('btn-submit-pack');
+  const statusEl = document.getElementById('pack-status');
+
+  const stashFile = document.getElementById('pack-stash-select').value;
+  const tab = parseInt(document.getElementById('pack-tab-select').value || '0', 10);
+  const charFile = document.getElementById('pack-target-char-select').value;
+  const filter = document.getElementById('pack-filter-select').value;
+  const maxItems = parseInt(document.getElementById('pack-max-items').value || '30', 10);
+  const forceCheck = document.getElementById('pack-force-live-check');
+  const forceLive = forceCheck ? forceCheck.checked : false;
+
+  if (submitBtn) submitBtn.disabled = true;
+  if (statusEl) {
+    statusEl.style.display = 'block';
+    statusEl.style.background = 'rgba(59, 130, 246, 0.2)';
+    statusEl.style.color = '#93c5fd';
+    statusEl.textContent = 'Packing items into mule containers...';
+  }
+
+  try {
+    const res = await fetch('/api/mule/fill', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        stash_file: stashFile,
+        tab,
+        char_file: charFile,
+        filter,
+        max_items: maxItems,
+        force_live: forceLive
+      })
+    });
+
+    const data = await res.json();
+    if (data.Success) {
+      if (statusEl) {
+        statusEl.style.background = 'rgba(34, 197, 94, 0.2)';
+        statusEl.style.color = '#4ade80';
+        statusEl.textContent = data.Message || 'Mule packed successfully!';
+      }
+      showToast(`Packed ${data.ItemsMoved} items into mule!`, 'success');
+      setTimeout(async () => {
+        closePackMuleModal();
+        if (submitBtn) submitBtn.disabled = false;
+        await loadSavesAndItems();
+      }, 1000);
+    } else {
+      if (statusEl) {
+        statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
+        statusEl.style.color = '#f87171';
+        statusEl.textContent = data.Message || data.error || 'Packing failed.';
+      }
+      if (data.IsProtected) {
+        const forceContainer = document.getElementById('pack-force-live-container');
+        if (forceContainer) forceContainer.style.display = 'block';
+      }
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  } catch (err) {
+    if (statusEl) {
+      statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
+      statusEl.style.color = '#f87171';
+      statusEl.textContent = 'Error: ' + err.message;
+    }
+    if (submitBtn) submitBtn.disabled = false;
+  }
+}
+
+window.openTransferModalForItemId = openTransferModalForItemId;
+window.closeTransferItemModal = closeTransferItemModal;
+window.onTransferTargetFileChange = onTransferTargetFileChange;
+window.toggleTransferCoords = toggleTransferCoords;
+window.submitItemTransfer = submitItemTransfer;
+window.openPackMuleModal = openPackMuleModal;
+window.closePackMuleModal = closePackMuleModal;
+window.onPackStashChange = onPackStashChange;
+window.onPackTargetCharChange = onPackTargetCharChange;
+window.submitPackMule = submitPackMule;
+
+const transferModalEl = document.getElementById('transfer-item-modal');
+if (transferModalEl) {
+  transferModalEl.addEventListener('click', (e) => {
+    if (e.target === transferModalEl) closeTransferItemModal();
+  });
+}
+
+const packMuleModalEl = document.getElementById('pack-mule-modal');
+if (packMuleModalEl) {
+  packMuleModalEl.addEventListener('click', (e) => {
+    if (e.target === packMuleModalEl) closePackMuleModal();
   });
 }
 
