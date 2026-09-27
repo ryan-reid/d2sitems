@@ -17,8 +17,9 @@
       cube: { width: 6, height: 6 },
       sharedStash: { width: 16, height: 13 }
     },
-    viewMode: 'panels', // 'panels' | 'cards'
-    weaponSwap: 1,      // 1: Primary (RightHand/LeftHand), 2: Secondary (AlternateRightHand/AlternateLeftHand)
+    viewMode: 'panels',     // 'panels' | 'cards'
+    graphicsMode: 'hd',     // 'hd' (Resurrected HD) | 'classic' (Legacy Classic)
+    weaponSwap: 1,          // 1: Primary (RightHand/LeftHand), 2: Secondary (AlternateRightHand/AlternateLeftHand)
     activeStashTab: 'shared_0', // 'shared_0'..'shared_5', 'personal', 'cube'
     draggedItem: null
   };
@@ -33,6 +34,15 @@
     .catch(() => {});
 
   function getItemSpriteUrl(item) {
+    if (d2rState.graphicsMode === 'classic') {
+      if (item.invFileClassic) {
+        return `assets/items/${item.invFileClassic}`;
+      }
+      const code = (item.itemCode || '').trim();
+      const classicFile = (itemImageMappings.classic_codes && itemImageMappings.classic_codes[code]) || `inv${code.toLowerCase()}.png`;
+      return `assets/items/${classicFile}`;
+    }
+
     if (item.invFile) {
       return `assets/items/${item.invFile}`;
     }
@@ -781,6 +791,38 @@
     const navTab = document.querySelector('.nav-tab[data-tab="armory-view"]');
     if (navTab) navTab.click();
   };
+
+  window.toggleD2RGraphicsMode = function () {
+    d2rState.graphicsMode = d2rState.graphicsMode === 'hd' ? 'classic' : 'hd';
+    const btn = document.getElementById('d2r-graphics-toggle-btn');
+    if (btn) {
+      if (d2rState.graphicsMode === 'hd') {
+        btn.textContent = '✨ Resurrected HD (G)';
+        btn.className = 'btn btn-sm btn-primary';
+      } else {
+        btn.textContent = '🕹️ Legacy Classic (G)';
+        btn.className = 'btn btn-sm btn-secondary';
+      }
+    }
+    if (d2rState.charData) {
+      populatePaperdollSlots(d2rState.charData.equipped || {}, d2rState.weaponSwap);
+      populateGridWithItems(document.getElementById('d2r-inventory-grid'), d2rState.charData.inventory || [], 'inventory');
+    }
+    renderActiveStashViewport();
+  };
+
+  // Keyboard shortcut 'G' (authentic D2R graphics toggle)
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'g' || e.key === 'G') {
+      if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA' || document.activeElement.tagName === 'SELECT')) {
+        return;
+      }
+      const armoryView = document.getElementById('armory-view');
+      if (armoryView && armoryView.classList.contains('active')) {
+        window.toggleD2RGraphicsMode();
+      }
+    }
+  });
 
   // -------------------------------------------------------------------------
   // Drag & Drop Handlers

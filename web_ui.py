@@ -211,6 +211,9 @@ class SaveDataManager:
             code_map = sprite_mappings.get("codes", {})
             unique_map = sprite_mappings.get("uniques", {})
             set_map = sprite_mappings.get("sets", {})
+            classic_code_map = sprite_mappings.get("classic_codes", {})
+            classic_unique_map = sprite_mappings.get("classic_uniques", {})
+            classic_set_map = sprite_mappings.get("classic_sets", {})
 
             for profile_label, s_dir in save_dirs:
                 json_files = glob.glob(os.path.join(s_dir, "*.json"))
@@ -299,6 +302,27 @@ class SaveDataManager:
                                 inv_file = cand
 
                         it_norm["invFile"] = inv_file or (code + ".png" if code else "unknown.png")
+
+                        # Classic sprite resolution (for Legacy graphics toggle)
+                        inv_classic = None
+                        if q == "unique":
+                            uid = str(it_norm.get("uniqueId")) if it_norm.get("uniqueId") is not None else None
+                            name_clean = raw_name.split("(")[0].strip().lower()
+                            cand = classic_unique_map.get(uid) or classic_unique_map.get(name_clean) or classic_unique_map.get(raw_name.lower())
+                            if cand and os.path.isfile(os.path.join(ITEMS_ASSETS_DIR, cand)):
+                                inv_classic = cand
+                        elif q == "set":
+                            name_clean = raw_name.split("(")[0].strip().lower()
+                            cand = classic_set_map.get(name_clean) or classic_set_map.get(raw_name.lower())
+                            if cand and os.path.isfile(os.path.join(ITEMS_ASSETS_DIR, cand)):
+                                inv_classic = cand
+
+                        if not inv_classic:
+                            cand = classic_code_map.get(code)
+                            if cand and os.path.isfile(os.path.join(ITEMS_ASSETS_DIR, cand)):
+                                inv_classic = cand
+
+                        it_norm["invFileClassic"] = inv_classic or it_norm["invFile"]
 
                         # Perfection
                         perf = it_norm.get("perfectionScore") if it_norm.get("perfectionScore") is not None else it_norm.get("perfection")
