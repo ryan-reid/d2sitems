@@ -3,60 +3,108 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Diablo II Resurrected - Save & Item Explorer</title>
-  <link rel="stylesheet" href="style.css?v=3">
-  <link rel="stylesheet" href="d2_panels.css?v=1">
+  <title>BKDiablo / BT-BK - Armory &amp; Vault</title>
+  <link rel="stylesheet" href="style.css?v=4">
+  <link rel="stylesheet" href="d2_panels.css?v=2">
+  <link rel="stylesheet" href="editor.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700;800;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body>
-  <!-- Top Navigation Bar -->
-  <header class="navbar">
-    <div class="nav-left">
-      <div class="logo">
-        <span class="logo-icon">⚔️</span>
-        <div class="logo-text">
-          <span class="logo-title">D2S ITEMS EXPLORER</span>
-          <span class="logo-subtitle">DIABLO II: RESURRECTED</span>
-        </div>
+  <!-- SVG Icon Sprite matching BT-BK Wiki -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-sigil" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3 5 5 1-3.5 4 1 6-5.5-3-5.5 3 1-6L4 8l5-1z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></symbol>
+    <symbol id="i-sword" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3h7v7l-9 9-3-3z"/><path d="M9 16l-5 5"/><path d="M3 17l4 4"/></symbol>
+    <symbol id="i-armor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 3l7 3v6c0 5-3 7-7 9-4-2-7-4-7-9V6z"/><path d="M12 3v18"/></symbol>
+    <symbol id="i-helm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M5 11a7 7 0 0114 0v6a2 2 0 01-2 2h-2v-4h-2v4h-2v-4H9v4H7a2 2 0 01-2-2z"/></symbol>
+    <symbol id="i-rune" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3h8v4l-4 4 4 4v6H8v-6l4-4-4-4z"/></symbol>
+    <symbol id="i-cube" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 2l9 5v10l-9 5-9-5V7z"/><path d="M3 7l9 5 9-5M12 12v10"/></symbol>
+    <symbol id="i-skull" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 3a8 8 0 00-8 8c0 3 1.5 4.5 3 5.5V20h10v-3.5c1.5-1 3-2.5 3-5.5a8 8 0 00-8-8z"/><circle cx="9" cy="11" r="1.5"/><circle cx="15" cy="11" r="1.5"/></symbol>
+    <symbol id="i-class" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M5 21v-1a7 7 0 0114 0v1"/></symbol>
+    <symbol id="i-diff" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v12a3 3 0 003 3h6"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="6" r="3"/></symbol>
+    <symbol id="i-drop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c4 5 6 8 6 11a6 6 0 11-12 0c0-3 2-6 6-11z"/></symbol>
+  </svg>
+
+  <!-- BT-BK Wiki Masthead Navigation Bar -->
+  <header class="masthead">
+    <div class="masthead-inner">
+      <div class="brand">
+        <span class="brand-sigil"><svg aria-hidden="true"><use href="#i-sigil"/></svg></span>
+        <span>
+          <span class="brand-name">BKDiablo</span><br>
+          <span class="brand-sub">Ascension Armory</span>
+        </span>
       </div>
 
-      <nav class="nav-tabs">
+      <nav class="mast-nav" aria-label="Primary navigation">
         <button class="nav-tab active" data-tab="search-view">
-          <span class="tab-icon">🔍</span> Item Search
+          <svg class="tab-svg" aria-hidden="true"><use href="#i-search"/></svg> Item Search
         </button>
         <button class="nav-tab" data-tab="characters-view">
-          <span class="tab-icon">🛡️</span> Characters & Stash
+          <svg class="tab-svg" aria-hidden="true"><use href="#i-armor"/></svg> Characters &amp; Stash
         </button>
         <button class="nav-tab" data-tab="armory-view">
-          <span class="tab-icon">⚔️</span> In-Game Armory
+          <svg class="tab-svg" aria-hidden="true"><use href="#i-sword"/></svg> In-Game Armory
         </button>
         <button class="nav-tab" data-tab="grail-view">
-          <span class="tab-icon">🏆</span> Holy Grail
+          <svg class="tab-svg" aria-hidden="true"><use href="#i-skull"/></svg> Holy Grail
         </button>
         <button class="nav-tab" data-tab="verifier-view">
-          <span class="tab-icon">⚖️</span> Item Verifier
+          <svg class="tab-svg" aria-hidden="true"><use href="#i-diff"/></svg> Item Verifier
         </button>
       </nav>
-    </div>
 
-    <div class="nav-right">
-      <div class="profile-selector-wrap">
-        <label for="profile-select" class="profile-label">PROFILE:</label>
-        <select id="profile-select" class="profile-dropdown"></select>
+      <div class="mast-controls">
+        <div id="wasm-badge" class="wasm-badge" style="display:none;" title="Running 100% Client-Side WebAssembly">
+          <span class="badge-dot"></span> WASM Mode
+        </div>
+
+        <div class="profile-selector-wrap" id="profile-selector-wrap">
+          <label for="profile-select" class="profile-label">PROFILE:</label>
+          <select id="profile-select" class="filter-select profile-dropdown"></select>
+        </div>
+
+        <button id="rescan-btn" class="filter-button btn-rescan" title="Scan and re-parse save files">
+          <span id="rescan-icon">🔄</span>
+          <span id="rescan-label">Rescan</span>
+        </button>
+
+        <button id="add-profile-btn" class="filter-button" title="Add custom save folder">
+          <span>+ Folder</span>
+        </button>
+
+        <!-- Client-Side WASM Folder & File Pickers -->
+        <button id="wasm-pick-folder-btn" class="filter-button btn-accent" title="Load D2R Saved Games folder directly in browser">
+          <span>📁 Load Folder</span>
+        </button>
+        <button id="wasm-export-btn" class="filter-button btn-accent" style="display:none;" title="Download all modified saves">
+          <span>💾 Export</span>
+        </button>
+
+        <button id="wasm-originals-btn" class="filter-button" style="display:none;" title="Download the original imported bytes for this browser session">Export originals</button>
+
+        <input type="file" id="wasm-folder-picker" webkitdirectory directory multiple style="display:none;" />
+        <input type="file" id="wasm-files-picker" multiple accept=".d2s,.d2i,.ctl" style="display:none;" />
       </div>
-
-      <button id="rescan-btn" class="btn btn-primary" title="Scan and re-parse save files">
-        <span class="btn-icon" id="rescan-icon">🔄</span>
-        <span id="rescan-label">Rescan Saves</span>
-      </button>
-
-      <button id="add-profile-btn" class="btn btn-secondary" title="Add custom save folder">
-        <span>+ Folder</span>
-      </button>
     </div>
   </header>
+
+  <div id="save-mode-notice" class="mode-notice" role="status"></div>
+
+  <!-- BT-BK Item Quality Colour Key -->
+  <div class="legend" role="note" aria-label="Item quality colour key">
+    <span style="color:var(--q-unique)"><i></i>Unique</span>
+    <span style="color:var(--q-set)"><i></i>Set</span>
+    <span style="color:var(--q-runeword)"><i></i>Runeword</span>
+    <span style="color:var(--q-magic)"><i></i>Magic</span>
+    <span style="color:var(--q-rare)"><i></i>Rare</span>
+    <span style="color:var(--q-crafted)"><i></i>Crafted</span>
+    <span style="color:var(--q-rune)"><i></i>Rune</span>
+  </div>
+
+  <div class="site-shell">
 
   <!-- Notification Toast Container -->
   <div id="toast-container" class="toast-container"></div>
@@ -68,7 +116,8 @@
     <section id="search-view" class="view-panel active">
       <div class="search-layout">
         <!-- Sidebar Filters -->
-        <aside class="filter-sidebar">
+        <details class="filter-sidebar" open>
+          <summary>Filters</summary>
           <div class="sidebar-header">
             <h3>Filters</h3>
             <button id="reset-filters-btn" class="btn-link">Reset All</button>
@@ -168,7 +217,7 @@
             <div class="segmented-control" id="out-of-date-control">
               <button class="seg-btn active" data-out-of-date="all">All Items</button>
               <button class="seg-btn seg-btn-warning" data-out-of-date="yes">⚠️ Out of Date</button>
-              <button class="seg-btn" data-out-of-date="no">Up to Date</button>
+              <button class="seg-btn" data-out-of-date="no">Verified</button>
             </div>
           </div>
 
@@ -211,20 +260,20 @@
               <span class="quick-tag" data-stat="crushing blow">Crushing</span>
             </div>
           </div>
-        </aside>
+        </details>
 
         <!-- Search Results View -->
         <div class="search-content">
           <!-- Main Search Bar Header -->
           <div class="search-controls">
             <div class="search-input-wrap">
-              <span class="search-icon">🔍</span>
-              <input type="text" id="search-input" class="search-input" placeholder="Search by item name, base, runeword, stats, sockets (e.g. 'Crown', 'Infinity', 'Torch', 'Resist 30')..." autofocus>
+              <span class="search-icon"><svg aria-hidden="true" style="width:16px;height:16px;color:var(--faint);"><use href="#i-search"/></svg></span>
+              <input type="text" id="search-input" class="search-input" placeholder="Search by item name, base, runeword, stats, sockets (e.g. 'Crown', 'Infinity', 'Torch', 'Resist 30')...">
               <button id="search-clear-btn" class="search-clear-btn" title="Clear search">✕</button>
             </div>
 
             <div class="search-meta">
-              <span id="results-count-badge" class="results-badge">0 items</span>
+              <span id="results-count-badge" class="count"><b>0</b> items</span>
 
               <div class="sort-wrap">
                 <label for="sort-select">Sort:</label>
@@ -239,7 +288,8 @@
               </div>
 
               <div class="view-mode-toggle">
-                <button id="mode-grid-btn" class="view-btn active" title="Grid View">🔲</button>
+                <button id="mode-grid-btn" class="view-btn active" title="Wiki Compact Grid">🔲</button>
+                <button id="mode-detail-btn" class="view-btn" title="Detailed Grid with Stats">📑</button>
                 <button id="mode-table-btn" class="view-btn" title="Compact Table View">📋</button>
               </div>
             </div>
@@ -307,10 +357,6 @@
         </div>
         <div class="d2r-toolbar-right">
           <button id="d2r-graphics-toggle-btn" class="btn btn-sm btn-primary" onclick="toggleD2RGraphicsMode()" title="Toggle between Resurrected HD and Legacy Classic graphics (Shortcut: G)">✨ Resurrected HD (G)</button>
-          <div class="d2r-view-toggle">
-            <button id="view-toggle-panels" class="active" onclick="setArmoryViewMode('panels')">⚔️ In-Game Panels</button>
-            <button id="view-toggle-cards" onclick="setArmoryViewMode('cards')">📋 Card List</button>
-          </div>
         </div>
       </div>
 
@@ -372,7 +418,7 @@
           <div class="verifier-stat-sub">Uniques, Sets &amp; Runewords</div>
         </div>
         <div class="verifier-stat-card stat-card-success">
-          <div class="verifier-stat-title">Up to Date</div>
+          <div class="verifier-stat-title">Verified</div>
           <div id="verifier-total-up-to-date" class="verifier-stat-val">0</div>
           <div class="verifier-stat-sub">Match current game files</div>
         </div>
@@ -416,6 +462,11 @@
       </div>
     </section>
   </main>
+
+  <footer class="site-footer">
+    <p>BKDiablo / BT-BK Armory &amp; Vault &middot; generated from mod data &middot; BKDiablo definitions &middot; <span id="footer-item-counter">Ready</span></p>
+  </footer>
+</div> <!-- .site-shell -->
 
   <!-- Modal for Custom Profile Folder Addition -->
   <div id="profile-modal" class="modal-overlay" style="display: none;">
@@ -665,12 +716,96 @@
     </div>
   </div>
 
+  <!-- Edit Stack Quantity Modal -->
+  <div id="edit-stack-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="edit-stack-modal-title">Edit Stack Quantity</h3>
+        <button class="modal-close" onclick="closeEditStackModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="edit-stack-item-preview" style="display: flex; align-items: center; gap: 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 6px; padding: 12px; margin-bottom: 14px;">
+          <div id="edit-stack-preview-icon" style="width: 52px; height: 52px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.5); border: 1px solid var(--border-subtle); border-radius: 4px;"></div>
+          <div>
+            <div id="edit-stack-preview-name" style="font-weight: 700; font-size: 15px; color: var(--gold);">Item Name</div>
+            <div id="edit-stack-preview-sub" style="font-size: 12px; color: var(--text-dim);">Code: <code id="edit-stack-preview-code">std</code> &bull; Current Stack: <span id="edit-stack-preview-curr" style="color: #fff; font-weight: 600;">0</span></div>
+          </div>
+        </div>
+
+        <input type="hidden" id="edit-stack-item-code" value="" />
+        <input type="hidden" id="edit-stack-item-seed" value="" />
+        <input type="hidden" id="edit-stack-tab-idx" value="5" />
+        <input type="hidden" id="edit-stack-source-file" value="" />
+
+        <div class="filter-group">
+          <label for="edit-stack-qty-input" class="filter-label">New Stack Quantity (0 &ndash; 255):</label>
+          <div style="display: flex; gap: 8px; align-items: center; margin-top: 6px;">
+            <input type="number" id="edit-stack-qty-input" class="d2r-stack-qty-input" min="0" max="255" value="1" />
+            <button type="button" class="btn btn-secondary" onclick="adjustEditStackQty(-10)">-10</button>
+            <button type="button" class="btn btn-secondary" onclick="adjustEditStackQty(-1)">-1</button>
+            <button type="button" class="btn btn-secondary" onclick="adjustEditStackQty(1)">+1</button>
+            <button type="button" class="btn btn-secondary" onclick="adjustEditStackQty(5)">+5</button>
+            <button type="button" class="btn btn-secondary" onclick="adjustEditStackQty(10)">+10</button>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap;">
+          <button type="button" class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="addEditStackRelative(5)">+5 to Current</button>
+          <button type="button" class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="addEditStackRelative(10)">+10 to Current</button>
+          <button type="button" class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="setEditStackPreset(10)">Set 10</button>
+          <button type="button" class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="setEditStackPreset(25)">Set 25</button>
+          <button type="button" class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="setEditStackPreset(50)">Set 50</button>
+          <button type="button" class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="setEditStackPreset(99)">Set 99</button>
+          <button type="button" class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px; color: #ff6b6b;" onclick="setEditStackPreset(0)">0 (Clear)</button>
+        </div>
+
+        <div id="edit-stack-status" style="font-size: 12px; margin-top: 10px; padding: 6px; border-radius: 4px; display: none;"></div>
+
+        <p class="section-desc" style="margin-top: 10px; font-size: 11px; color: var(--text-dim);">
+          Directly modifies <code>ModernSharedStashSoftCoreV2.d2i</code>. A timestamped safety backup is automatically generated before modifying.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeEditStackModal()">Cancel</button>
+        <button id="btn-submit-edit-stack" class="btn btn-primary" onclick="submitEditStackQuantity()">Save Stack Count</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Authentic D2R Floating Tooltip & Action Menu -->
   <div id="d2r-floating-tooltip" class="d2r-floating-tooltip" style="display:none;"></div>
   <div id="d2r-action-menu" class="d2r-action-menu" style="display:none;"></div>
 
+  <!-- Drag and Drop Overlay for 100% Client-Side WebAssembly Mode -->
+  <div id="d2-dropzone-overlay" class="d2-dropzone-overlay">
+    <div class="d2-dropzone-card">
+      <button class="dropzone-close-btn" id="dropzone-close-btn" title="Close Overlay">&times;</button>
+      <div class="drop-icon">📜</div>
+      <h2>Diablo II: Resurrected Armory</h2>
+      <p class="drop-subtitle">Browser session &bull; Export to apply changes in game</p>
+      
+      <div class="drop-instruction-box">
+        <p>Drag and drop your <strong>.d2s</strong> (characters) and <strong>.d2i</strong> (shared stash) files here</p>
+        <p class="drop-or">— or —</p>
+        <button id="dropzone-folder-btn" class="btn btn-primary" style="padding: 10px 20px; font-size: 14px;">
+          📂 Select Saved Games Folder
+        </button>
+        <button id="dropzone-files-btn" class="btn btn-secondary" style="padding: 10px 20px; font-size: 14px; margin-left: 8px;">
+          📄 Select Files
+        </button>
+        <p class="drop-path-hint">Default path: <code>C:\Users\&lt;You&gt;\Saved Games\Diablo II Resurrected</code></p>
+      </div>
+
+      <p style="font-size: 12px; color: #71717a;">All parsing, perfection scoring, item transfers, and mule creation occur completely offline inside your browser sandbox.</p>
+    </div>
+  </div>
+
+  <script src="item_art.js"></script>
+  <script src="d2_wasm_engine.js?v=1"></script>
+  <script src="d2_bank_layout.js?v=1"></script>
   <script src="d2_armory.js?v=1"></script>
-  <script src="app.js?v=11"></script>
+  <script src="app.js?v=12"></script>
+  <script src="editor.js"></script>
 
 </body>
 </html>

@@ -10,8 +10,13 @@
     <PackageReference Include="D2SSharp" Version="0.0.21" />
     <Compile Include="..\..\MuleGenerator.cs" Link="MuleGenerator.cs" />
     <Compile Include="..\..\SaveBackup.cs" Link="SaveBackup.cs" />
+    <Compile Include="..\..\GameDataTables.cs" Link="GameDataTables.cs" />
+    <Compile Include="..\..\PropertyRangeCatalog.cs" Link="PropertyRangeCatalog.cs" />
+    <Compile Include="..\..\SaveFileTransaction.cs" Link="SaveFileTransaction.cs" />
     <Compile Include="..\..\QuestManager.cs" Link="QuestManager.cs" />
     <Compile Include="..\..\InventoryGridModel.cs" Link="InventoryGridModel.cs" />
     <Compile Include="..\..\ItemTransferManager.cs" Link="ItemTransferManager.cs" />
+    <Compile Include="..\..\StackEditorManager.cs" Link="StackEditorManager.cs" />
+    <Compile Include="..\..\SaveInspectorEngine.cs" Link="SaveInspectorEngine.cs" />
   </ItemGroup>
 </Project>

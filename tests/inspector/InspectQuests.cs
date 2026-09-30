@@ -15,36 +15,22 @@ public static class InspectQuests
         var externalData = new TxtFileExternalData(excelDir, version: 105);
         var testAzFile = Path.Combine(saveDir, "TestAmazon.d2s");
         var testAzBytes = File.ReadAllBytes(testAzFile);
+        var saveDir2 = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Saved Games", "Diablo II Resurrected", "Mods", "BKDiablo");
+        foreach (var hero in new[] { "Sorceress.d2s", "Assassin.d2s" }) {
+            var f = Path.Combine(saveDir2, hero);
+            if (File.Exists(f)) {
+                var s = D2Save.Read(File.ReadAllBytes(f), externalData);
+                var md = s.Character.MercData;
+                Console.WriteLine($"\n--- {hero} MercData: HasMerc={md.HasMerc}, Dead={md.IsDead}, HirelingId={md.HirelingId}, NameIndex={md.NameIndex}, Exp={md.Experience}, Items={s.MercItems?.Items.Count} ---");
+            }
+        }
         var testAzSave = D2Save.Read(testAzBytes, externalData);
-        Console.WriteLine("\n--- TestAmazon Quests & Waypoints (Live File) ---");
-        Console.WriteLine($"TownDifficulty: {BitConverter.ToString(testAzSave.Character.TownDifficulty)}");
-        Console.WriteLine($"Normal DenOfEvil: 0x{(ushort)testAzSave.Quests.Normal.ActI.DenOfEvil:X4} ({testAzSave.Quests.Normal.ActI.DenOfEvil})");
-        Console.WriteLine($"Normal Andariel:  0x{(ushort)testAzSave.Quests.Normal.ActI.SistersToTheSlaughter:X4}");
-        Console.WriteLine($"Normal Act I Compl: 0x{(ushort)testAzSave.Quests.Normal.ActI.Completion:X4}");
-        Console.WriteLine($"Normal Baal:      0x{(ushort)testAzSave.Quests.Normal.ActV.EveOfDestruction:X4}");
         Console.WriteLine($"Normal Act V Compl: 0x{(ushort)testAzSave.Quests.Normal.ActV.Completion:X4}");
         Console.WriteLine($"Normal Act I WP:  0x{(ushort)testAzSave.Waypoints.Normal.ActI:X4}");
         Console.WriteLine($"Normal Act V WP:  0x{(ushort)testAzSave.Waypoints.Normal.ActV:X4}");
         Console.WriteLine($"SkillPoints stat: {testAzSave.Stats.GetStat(D2SSharp.Enums.StatId.SkillPoints)}");
         Console.WriteLine($"StatPoints stat:  {testAzSave.Stats.GetStat(D2SSharp.Enums.StatId.StatPoints)}");
         Console.WriteLine($"Nightmare DenOfEvil: 0x{(ushort)testAzSave.Quests.Nightmare.ActI.DenOfEvil:X4}");
-
-        var statIdType = typeof(D2Save).Assembly.GetType("D2SSharp.Enums.StatId");
-        if (statIdType != null)
-        {
-            Console.WriteLine("\n--- StatId values ---");
-            foreach (var name in Enum.GetNames(statIdType))
-            {
-                if (name.Contains("Skill", StringComparison.OrdinalIgnoreCase) ||
-                    name.Contains("Stat", StringComparison.OrdinalIgnoreCase) ||
-                    name.Contains("Point", StringComparison.OrdinalIgnoreCase) ||
-                    name.Contains("Life", StringComparison.OrdinalIgnoreCase) ||
-                    name.Contains("Resist", StringComparison.OrdinalIgnoreCase))
-                {
-                    Console.WriteLine($"  {name} = {Convert.ToInt64(Enum.Parse(statIdType, name))}");
-                }
-            }
-        }
     }
 
     private static string GetRoman(int i) => i switch { 1 => "I", 2 => "II", 3 => "III", 4 => "IV", 5 => "V", _ => "" };
@@ -74,3 +60,4 @@ public static class InspectQuests
         }
     }
 }
+

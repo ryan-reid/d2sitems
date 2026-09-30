@@ -4,6 +4,8 @@
 
 // Application State
 const state = {
+  isWasmMode: false,
+  allWasmItems: [],
   activeTab: 'search-view',
   profiles: [],
   activeProfileId: null,
@@ -32,6 +34,7 @@ const state = {
   verifierFilter: 'all', // 'all', 'below', 'above', 'missing'
   verifierSearch: ''
 };
+window.state = state;
 
 // DOM Elements
 const dom = {
@@ -45,6 +48,7 @@ const dom = {
   resultsCountBadge: document.getElementById('results-count-badge'),
   sortSelect: document.getElementById('sort-select'),
   modeGridBtn: document.getElementById('mode-grid-btn'),
+  modeDetailBtn: document.getElementById('mode-detail-btn'),
   modeTableBtn: document.getElementById('mode-table-btn'),
   itemsGrid: document.getElementById('items-grid'),
   itemsTableWrap: document.getElementById('items-table-wrap'),
@@ -134,36 +138,58 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
-function getQualityClass(quality, isRuneword) {
-  if (isRuneword) return 'quality-runeword';
+function getQualityKey(quality, isRuneword) {
+  if (isRuneword) return 'runeword';
   switch ((quality || '').toLowerCase()) {
-    case 'unique': return 'quality-unique';
-    case 'set': return 'quality-set';
-    case 'rare': return 'quality-rare';
+    case 'unique': return 'unique';
+    case 'set': return 'set';
+    case 'rare': return 'rare';
     case 'craft':
-    case 'crafted': return 'quality-crafted';
-    case 'magic': return 'quality-magic';
+    case 'crafted': return 'crafted';
+    case 'magic': return 'magic';
     case 'superior':
     case 'inferior':
-    case 'normal': return 'quality-normal';
-    default: return 'quality-normal';
+    case 'normal': return 'normal';
+    default: return 'normal';
   }
 }
 
+function getQualityClass(quality, isRuneword) {
+  const k = getQualityKey(quality, isRuneword);
+  return `q-${k} quality-${k}`;
+}
+
 function getQualityColorClass(quality, isRuneword) {
-  if (isRuneword) return 'color-runeword';
-  switch ((quality || '').toLowerCase()) {
-    case 'unique': return 'color-unique';
-    case 'set': return 'color-set';
-    case 'rare': return 'color-rare';
-    case 'craft':
-    case 'crafted': return 'color-crafted';
-    case 'magic': return 'color-magic';
-    case 'superior':
-    case 'inferior':
-    case 'normal': return 'color-normal';
-    default: return 'color-normal';
+  const k = getQualityKey(quality, isRuneword);
+  return `color-${k}`;
+}
+
+function formatItemTitle(name) {
+  if (!name) return '';
+  // Strip redundant trailing parenthesized base name, e.g. "The Rising Sun (Amulet)" -> "The Rising Sun"
+  let cleaned = name.replace(/\s*\([^)]+\)$/, '').trim();
+  if (!cleaned) cleaned = name;
+  
+  // If string is ALL CAPS and longer than 3 characters, convert to clean Title Case
+  if (cleaned.length > 3 && cleaned === cleaned.toUpperCase() && cleaned.toLowerCase() !== cleaned.toUpperCase()) {
+    cleaned = cleaned.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+    // Fix apostrophes like Nosferatu'S -> Nosferatu's
+    cleaned = cleaned.replace(/'[A-Z]/g, m => m.toLowerCase());
   }
+  return cleaned;
+}
+
+function getItemTypeIconHref(item) {
+  const type = ((item.type || '') + ' ' + (item.baseName || '')).toLowerCase();
+  if (type.includes('helm') || type.includes('circlet') || type.includes('coronet') || type.includes('tiara') || type.includes('diadem') || type.includes('mask') || type.includes('cap') || type.includes('crown')) return '#i-helm';
+  if (type.includes('armor') || type.includes('plate') || type.includes('mail') || type.includes('robe') || type.includes('coat') || type.includes('cuirass')) return '#i-armor';
+  if (type.includes('shield') || type.includes('targe') || type.includes('rondache') || type.includes('ward')) return '#i-armor';
+  if (type.includes('rune')) return '#i-rune';
+  if (type.includes('charm') || type.includes('cube')) return '#i-cube';
+  if (type.includes('ring')) return '#i-ring';
+  if (type.includes('gem') || type.includes('jewel')) return '#i-gem';
+  if (type.includes('skull') || type.includes('bone') || type.includes('head')) return '#i-skull';
+  return '#i-sword';
 }
 
 // Navigation Tabs
@@ -189,11 +215,17 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
   });
 });
 
-// Load Profiles from Server
+// Load Profiles from Server (with seamless WASM Mode fallback)
 async function loadProfiles() {
   try {
-    const res = await fetch('/api/profiles');
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 1800);
+    const res = await fetch('/api/profiles', { signal: controller.signal });
+    clearTimeout(timeoutId);
+
+    if (!res.ok) throw new Error('API returned status ' + res.status);
     const data = await res.json();
+    state.isWasmMode = false;
     state.profiles = data.profiles || [];
     state.activeProfileId = data.active_id;
 
@@ -208,8 +240,197 @@ async function loadProfiles() {
 
     await loadSavesAndItems();
   } catch (err) {
-    showToast('Failed to load profiles: ' + err.message, 'error');
+    console.log('[App] Local backend not reachable. Activating 100% Client-Side WebAssembly Mode...');
+    await enableWasmMode();
   }
+}
+
+// Enable 100% Client-Side WebAssembly Mode
+async function enableWasmMode() {
+  state.isWasmMode = true;
+  window.updateSaveModeNotice?.();
+  window.state = state;
+
+  const wasmBadge = document.getElementById('wasm-badge');
+  if (wasmBadge) wasmBadge.style.display = 'inline-flex';
+
+  const exportBtn = document.getElementById('wasm-export-btn');
+  if (exportBtn) exportBtn.style.display = 'inline-flex';
+  document.getElementById('wasm-originals-btn').style.display = 'inline-flex';
+
+  const addProfileBtn = document.getElementById('add-profile-btn');
+  if (addProfileBtn) addProfileBtn.style.display = 'none';
+
+  if (dom.profileSelect) {
+    dom.profileSelect.innerHTML = '<option value="wasm">Browser Local Storage</option>';
+  }
+
+  showToast('Running in 100% Client-Side WebAssembly Mode (Offline / Zero-Backend)', 'info');
+
+  // Check IndexedDB for existing cached saves
+  if (window.D2Wasm) {
+    const cached = await window.D2Wasm.loadAllFilesFromDB();
+    if (cached && cached.length > 0) {
+      for (const entry of cached) {
+        window.D2Wasm.loadedFiles.set(entry.name, entry.bytes);
+      }
+      await refreshWasmDataset();
+      return;
+    }
+  }
+
+  // Show dropzone overlay if no saves loaded yet
+  const overlay = document.getElementById('d2-dropzone-overlay');
+  if (overlay) overlay.classList.add('active');
+}
+
+// Rebuild and refresh dataset from WebAssembly engine
+async function refreshWasmDataset() {
+  if (!window.D2Wasm) return;
+  dom.rescanIcon.classList.add('spin');
+  dom.rescanLabel.textContent = 'Processing...';
+
+  try {
+    const dataset = await window.D2Wasm.buildDataset();
+    state.saves = dataset.saves;
+    state.allWasmItems = dataset.items;
+    state.items = dataset.items;
+
+    updateCharacterFilterDropdown();
+    await executeSearch();
+
+    if (state.activeTab === 'characters-view') {
+      renderCharactersView();
+    } else if (state.activeTab === 'armory-view') {
+      loadArmoryView();
+    } else if (state.activeTab === 'grail-view') {
+      loadGrailView();
+    }
+  } catch (err) {
+    showToast('Error processing saves in WebAssembly: ' + err.message, 'error');
+  } finally {
+    dom.rescanIcon.classList.remove('spin');
+    dom.rescanLabel.textContent = 'Rescan Saves';
+  }
+}
+window.refreshWasmDataset = refreshWasmDataset;
+
+// Handle user file ingestion (Drag & Drop or File/Folder Picker)
+async function handleUserFiles(fileList) {
+  if (!fileList || fileList.length === 0) return;
+
+  if (!state.isWasmMode) {
+    await enableWasmMode();
+  }
+
+  showToast(`Loading ${fileList.length} file(s) into WebAssembly...`, 'info');
+  const overlay = document.getElementById('d2-dropzone-overlay');
+  if (overlay) overlay.classList.remove('active');
+
+  const filesToIngest = [];
+  for (let i = 0; i < fileList.length; i++) {
+    const f = fileList[i];
+    const name = f.name;
+    const lower = name.toLowerCase();
+    if (lower.endsWith('.d2s') || lower.endsWith('.d2i') || lower.endsWith('.ctl')) {
+      const bytes = await D2WasmEngine.readFileAsBytes(f);
+      filesToIngest.push({ name, bytes });
+    }
+  }
+
+  if (filesToIngest.length === 0) {
+    showToast('No valid .d2s or .d2i files found in selection.', 'warning');
+    return;
+  }
+
+  await window.D2Wasm.ingestFiles(filesToIngest);
+  await refreshWasmDataset();
+  showToast(`Successfully parsed and loaded ${filesToIngest.length} files with WebAssembly!`, 'success');
+}
+window.handleUserFiles = handleUserFiles;
+
+// Setup WASM Event Listeners (Folder pickers, dropzone, exports)
+function setupWasmEvents() {
+  const folderPicker = document.getElementById('wasm-folder-picker');
+  const filesPicker = document.getElementById('wasm-files-picker');
+  const pickFolderBtn = document.getElementById('wasm-pick-folder-btn');
+  const dropzoneFolderBtn = document.getElementById('dropzone-folder-btn');
+  const dropzoneFilesBtn = document.getElementById('dropzone-files-btn');
+  const dropzoneCloseBtn = document.getElementById('dropzone-close-btn');
+  const exportBtn = document.getElementById('wasm-export-btn');
+  const overlay = document.getElementById('d2-dropzone-overlay');
+
+  if (pickFolderBtn && folderPicker) {
+    pickFolderBtn.addEventListener('click', () => folderPicker.click());
+  }
+  if (dropzoneFolderBtn && folderPicker) {
+    dropzoneFolderBtn.addEventListener('click', () => folderPicker.click());
+  }
+  if (dropzoneFilesBtn && filesPicker) {
+    dropzoneFilesBtn.addEventListener('click', () => filesPicker.click());
+  }
+  if (dropzoneCloseBtn && overlay) {
+    dropzoneCloseBtn.addEventListener('click', () => overlay.classList.remove('active'));
+  }
+  if (exportBtn) {
+    exportBtn.addEventListener('click', () => {
+      if (window.D2Wasm) {
+        window.D2Wasm.downloadAllSaves();
+        showToast('Initiated download of all saves in memory.', 'info');
+      }
+    });
+  }
+
+  document.getElementById('wasm-originals-btn')?.addEventListener('click', async () => {
+    try {
+      await window.D2Wasm.downloadOriginals();
+      showToast('Original imported saves exported. Current browser edits are unchanged.', 'info');
+    } catch (error) { showToast(error.message, 'error'); }
+  });
+
+  if (folderPicker) {
+    folderPicker.addEventListener('change', async (e) => {
+      await handleUserFiles(e.target.files);
+      folderPicker.value = '';
+    });
+  }
+  if (filesPicker) {
+    filesPicker.addEventListener('change', async (e) => {
+      await handleUserFiles(e.target.files);
+      filesPicker.value = '';
+    });
+  }
+
+  // Global Drag & Drop onto browser window
+  window.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+    if (overlay && !overlay.classList.contains('active')) {
+      overlay.classList.add('active');
+    }
+  });
+
+  window.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.clientX <= 0 || e.clientY <= 0 || e.clientX >= window.innerWidth || e.clientY >= window.innerHeight) {
+      if (overlay && state.saves && state.saves.length > 0) {
+        overlay.classList.remove('active');
+      }
+    }
+  });
+
+  window.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (overlay && state.saves && state.saves.length > 0) {
+      overlay.classList.remove('active');
+    }
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      await handleUserFiles(e.dataTransfer.files);
+    }
+  });
 }
 
 // Switch Profile
@@ -292,6 +513,12 @@ function updateCharacterFilterDropdown() {
 
 // Rescan Button
 dom.rescanBtn.addEventListener('click', async () => {
+  if (state.isWasmMode) {
+    await refreshWasmDataset();
+    showToast('Re-scanned and updated all saves in browser memory.', 'success');
+    return;
+  }
+
   dom.rescanIcon.classList.add('spin');
   dom.rescanLabel.textContent = 'Scanning...';
   dom.rescanBtn.disabled = true;
@@ -322,6 +549,83 @@ function debouncedSearch() {
 }
 
 async function executeSearch() {
+  if (state.isWasmMode) {
+    let filtered = [...(state.allWasmItems || [])];
+    const f = state.filters;
+
+    if (f.quality !== 'all') {
+      const qLower = f.quality.toLowerCase();
+      filtered = filtered.filter(it => (it.quality || '').toLowerCase() === qLower || (qLower === 'runeword' && it.isRuneword));
+    }
+    if (f.source !== 'all') {
+      const srcLower = f.source.toLowerCase();
+      filtered = filtered.filter(it => (it.sourceName || '').toLowerCase() === srcLower || (it.sourceFile || '').toLowerCase() === srcLower);
+    }
+    if (f.type !== 'all') {
+      filtered = filtered.filter(it => (it.type || '').toLowerCase() === f.type.toLowerCase());
+    }
+    if (f.tier !== 'all') {
+      filtered = filtered.filter(it => (it.tier || '').toLowerCase() === f.tier.toLowerCase());
+    }
+    if (f.location !== 'all') {
+      filtered = filtered.filter(it => (it.location || '').toLowerCase().includes(f.location.toLowerCase()));
+    }
+    if (f.sockets !== 'all') {
+      if (f.sockets === 'has') filtered = filtered.filter(it => (it.socketCount || 0) > 0);
+      else if (f.sockets === 'open') filtered = filtered.filter(it => (it.openSockets || 0) > 0);
+      else {
+        const cnt = parseInt(f.sockets, 10);
+        filtered = filtered.filter(it => (it.socketCount || 0) === cnt);
+      }
+    }
+    if (f.ethereal === 'yes') filtered = filtered.filter(it => it.isEthereal);
+    if (f.ethereal === 'no') filtered = filtered.filter(it => !it.isEthereal);
+    if (f.out_of_date === 'out_of_date') filtered = filtered.filter(it => it.isOutOfDate);
+
+    if (f.perfect === 'yes' || f.perfect === '100') {
+      filtered = filtered.filter(it => it.perfectionNum != null && it.perfectionNum >= 100.0);
+    } else if (f.perfect === '90') {
+      filtered = filtered.filter(it => it.perfectionNum != null && it.perfectionNum >= 90.0);
+    }
+    if (f.min_perf > 0) {
+      filtered = filtered.filter(it => it.perfectionNum != null && it.perfectionNum >= f.min_perf);
+    }
+
+    if (f.q) {
+      const qLower = f.q.toLowerCase();
+      filtered = filtered.filter(it => {
+        if ((it.displayName || '').toLowerCase().includes(qLower)) return true;
+        if ((it.baseName || '').toLowerCase().includes(qLower)) return true;
+        if ((it.set || '').toLowerCase().includes(qLower)) return true;
+        for (const s of (it.stats || []).concat(it.runewordStats || [])) {
+          if ((s.description || s.id || '').toLowerCase().includes(qLower)) return true;
+        }
+        return false;
+      });
+    }
+
+    // Sorting
+    if (f.sort === 'perfection_desc') {
+      filtered.sort((a, b) => (b.perfectionNum || 0) - (a.perfectionNum || 0));
+    } else if (f.sort === 'perfection_asc') {
+      filtered.sort((a, b) => (a.perfectionNum || 100) - (b.perfectionNum || 100));
+    } else if (f.sort === 'ilvl_desc') {
+      filtered.sort((a, b) => (b.itemLevel || 0) - (a.itemLevel || 0));
+    } else if (f.sort === 'quality_desc') {
+      const qRank = { unique: 7, set: 6, runeword: 5, crafted: 4, rare: 3, magic: 2, superior: 1, normal: 0 };
+      filtered.sort((a, b) => (qRank[(b.quality || '').toLowerCase()] || 0) - (qRank[(a.quality || '').toLowerCase()] || 0));
+    } else if (f.sort === 'character_asc') {
+      filtered.sort((a, b) => (a.sourceName || '').localeCompare(b.sourceName || ''));
+    } else {
+      filtered.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
+    }
+
+    state.items = filtered;
+    dom.resultsCountBadge.textContent = `${filtered.length} item${filtered.length === 1 ? '' : 's'}`;
+    renderItemsView();
+    return;
+  }
+
   const params = new URLSearchParams();
   if (state.filters.q) params.set('q', state.filters.q);
   if (state.filters.quality !== 'all') params.set('quality', state.filters.quality);
@@ -343,7 +647,7 @@ async function executeSearch() {
     state.items = data.items || [];
     const totalCount = data.total || 0;
 
-    dom.resultsCountBadge.textContent = `${totalCount} item${totalCount === 1 ? '' : 's'}`;
+    dom.resultsCountBadge.innerHTML = `<b>${totalCount}</b> item${totalCount === 1 ? '' : 's'}`;
     renderItemsView();
   } catch (err) {
     showToast('Search query error: ' + err.message, 'error');
@@ -352,6 +656,18 @@ async function executeSearch() {
 
 // Render Items Grid & Table
 function renderItemsView() {
+  if (state.renderedItems !== state.items) { state.renderedItems = state.items; state.visibleItemLimit = 100; }
+  let more = document.getElementById('load-more-items');
+  if (!more) {
+    more = document.createElement('button'); more.id = 'load-more-items'; more.className = 'btn btn-secondary';
+    dom.itemsTableWrap.after(more);
+    more.addEventListener('click', () => { state.visibleItemLimit += 100; renderItemsView(); });
+  }
+  const shown = Math.min(state.visibleItemLimit, state.items.length);
+  dom.resultsCountBadge.textContent = `${shown} of ${state.items.length} items shown`;
+  more.hidden = shown >= state.items.length;
+  more.textContent = `Show next ${Math.min(100, state.items.length - shown)} items`;
+
   if (state.items.length === 0) {
     dom.itemsGrid.style.display = 'none';
     dom.itemsTableWrap.style.display = 'none';
@@ -361,7 +677,7 @@ function renderItemsView() {
 
   dom.emptyState.style.display = 'none';
 
-  if (state.viewMode === 'grid') {
+  if (state.viewMode === 'grid' || state.viewMode === 'detailed') {
     dom.itemsGrid.style.display = 'grid';
     dom.itemsTableWrap.style.display = 'none';
     renderItemsGrid();
@@ -374,7 +690,7 @@ function renderItemsView() {
 
 function renderItemsGrid() {
   dom.itemsGrid.innerHTML = '';
-  state.items.forEach(it => {
+  state.items.slice(0, state.visibleItemLimit).forEach(it => {
     const card = createItemCardElement(it);
     dom.itemsGrid.appendChild(card);
   });
@@ -382,118 +698,139 @@ function renderItemsGrid() {
 
 function createItemCardElement(it, showVerifierDetails = false) {
   const card = document.createElement('div');
+  const qKey = getQualityKey(it.quality, it.isRuneword);
   const qClass = getQualityClass(it.quality, it.isRuneword);
-  const qColorClass = getQualityColorClass(it.quality, it.isRuneword);
   const outOfDateClass = it.isOutOfDate ? 'is-out-of-date' : '';
-  card.className = `item-card ${qClass} ${outOfDateClass}`.trim();
+  const isDetailed = (state.viewMode === 'detailed' || showVerifierDetails) ? 'is-detailed' : '';
+  card.className = `loot item-card ${qClass} ${outOfDateClass} ${isDetailed}`.trim();
+  card.dataset.itemId = it.id;
+  card.tabIndex = 0;
+  card.setAttribute('role', 'button');
+  card.setAttribute('aria-label', `Inspect ${it.displayName || it.name}`);
 
-  // Header & Name
-  const displayName = escapeHtml(it.displayName);
+  // Title and Quality
+  const cleanTitle = escapeHtml(formatItemTitle(it.displayName));
+
+  // Left Icon Box (58x58px matching BT-BK wiki items.html)
+  const typeIconHref = getItemTypeIconHref(it);
+  const qtyOverlay = (it.quantity && it.quantity > 1) ? `<span class="d2r-mod-slot-qty">${it.quantity}</span>` : '';
+  const iconMarkup = it.invFile ? `
+    <img class="wiki-item-icon item-card-icon" src="assets/items/${it.invFile}" alt="${cleanTitle}" loading="lazy" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='grid';" />
+    <span class="fallback-icon-box" style="display:none;"><svg aria-hidden="true"><use href="${typeIconHref}"/></svg></span>
+    ${qtyOverlay}
+  ` : `
+    <span class="fallback-icon-box"><svg aria-hidden="true"><use href="${typeIconHref}"/></svg></span>
+    ${qtyOverlay}
+  `;
+
+  // Base Name & Meta Line matching BT-BK wiki (e.g. "Shako · Helm", "Jah · Ith · Ber · Archon Plate", "Shadow Plate · Set")
   const baseName = escapeHtml(it.baseName || it.type || '');
-  const tier = it.tier ? `<span class="badge">${it.tier}</span>` : '';
-  const type = it.type ? `<span class="badge">${it.type}</span>` : '';
-  
-  // Badges
-  let badgesHtml = `${tier} ${type}`;
-  if (it.isOutOfDate) {
-    badgesHtml += `<span class="badge badge-out-of-date" title="Differs from current game files">⚠️ Out of Date</span>`;
+  let baseDetails = [];
+  if (it.isRuneword && it.runes && it.runes.length > 0) {
+    const runeNames = it.runes.map(r => (typeof r === 'string' ? r : (r.name || r.code || '')).replace(/\s*Rune\b.*$/i, '').trim()).join(' · ');
+    baseDetails.push(runeNames);
   }
-  if (it.isCorrupted) {
-    badgesHtml += `<span class="badge badge-corrupted" title="Item is Corrupted">💥 Corrupted</span>`;
+  if (baseName) baseDetails.push(baseName);
+  if (it.set) baseDetails.push(`<span style="color:var(--q-set); font-weight:600;">${escapeHtml(it.set)}</span>`);
+  const baseLineText = baseDetails.join(' · ');
+
+  // Tags in loot-foot matching BT-BK wiki's exact .loot-foot .tag structure
+  let tagsHtml = '';
+  // 1. Required Level / Item Level
+  const reqLvl = it.requiredLevel;
+  if (reqLvl && reqLvl > 0) {
+    tagsHtml += `<span class="tag lvl">LVL ${reqLvl}</span>`;
   }
-  if (it.isEthereal) badgesHtml += `<span class="badge badge-eth">Ethereal</span>`;
-  if (it.socketCount > 0) {
-    badgesHtml += `<span class="badge badge-socket">${it.socketCount} Sockets</span>`;
-  }
+  // 2. Perfection Score (★ 100% or ★ 92%)
   if (typeof it.perfectionNum === 'number' && !isNaN(it.perfectionNum)) {
     const isPerfect = it.perfectionNum >= 100;
     const isHigh = it.perfectionNum >= 90;
-    const badgeClass = isPerfect ? 'badge-perf-perfect' : (isHigh ? 'badge-perf-high' : 'badge-perf');
-    const label = isPerfect ? '★ 100% Perfect' : `★ ${it.perfectionNum.toFixed(1)}%`;
-    badgesHtml += `<span class="badge ${badgeClass}">${label}</span>`;
+    const perfClass = isPerfect ? 'tag perf perf-100' : (isHigh ? 'tag perf' : 'tag perf');
+    const label = isPerfect ? '★ 100%' : `★ ${it.perfectionNum.toFixed(0)}%`;
+    tagsHtml += `<span class="${perfClass}">${label}</span>`;
   }
-
-  // Base Defense / Damage stats
-  let baseStatsHtml = '';
-  if (it.defense) {
-    baseStatsHtml += `<span>Defense: <strong>${it.defense}</strong>${it.baseDefenseRange ? ` (Base: ${it.baseDefenseRange})` : ''}</span>`;
+  // 3. Stack Quantity
+  if (it.quantity && it.quantity > 1) {
+    tagsHtml += `<span class="tag stack-qty" title="Stack size">x${it.quantity}</span>`;
   }
-  if (it.twoHandedDamage) {
-    baseStatsHtml += `<span>Two-Hand Damage: <strong>${it.twoHandedDamage}</strong></span>`;
-  } else if (it.oneHandedDamage) {
-    baseStatsHtml += `<span>One-Hand Damage: <strong>${it.oneHandedDamage}</strong></span>`;
+  // 4. Sockets
+  if (it.socketCount > 0) {
+    tagsHtml += `<span class="tag sock">${it.socketCount} SOCK</span>`;
   }
-  if (it.durability && it.maxDurability) {
-    baseStatsHtml += `<span>Durability: ${it.durability}/${it.maxDurability}</span>`;
+  // 5. Ethereal
+  if (it.isEthereal) {
+    tagsHtml += `<span class="tag eth">ETH</span>`;
   }
-
-  // Magical Stats List
-  let statsHtml = '';
-  const statList = (it.runewordStats || []).concat(it.stats || []);
-  if (statList.length > 0) {
-    statsHtml = '<div class="item-stats-list">';
-    statList.slice(0, 8).forEach(s => {
-      const desc = escapeHtml(s.description || s.id || '');
-      const isCorruptStat = (s.description || s.id || '').toLowerCase().includes('corrupt');
-      statsHtml += `<div class="item-stat-row ${isCorruptStat ? 'stat-corrupted' : ''}">${desc}</div>`;
-    });
-    if (statList.length > 8) {
-      statsHtml += `<div class="stat-roll-range">+ ${statList.length - 8} more properties...</div>`;
-    }
-    statsHtml += '</div>';
+  // 6. Corrupted
+  if (it.isCorrupted) {
+    tagsHtml += `<span class="tag corrupt">💥 CORRUPT</span>`;
   }
-
-  // Out of date issues details box
-  let outOfDateHtml = '';
-  if (it.isOutOfDate && it.outOfDateIssues && it.outOfDateIssues.length > 0) {
-    outOfDateHtml = '<div class="out-of-date-issues-box">';
-    outOfDateHtml += '<div class="out-of-date-issues-title">⚠️ Patch Mismatches:</div>';
-    it.outOfDateIssues.slice(0, 4).forEach(iss => {
-      let issClass = '';
-      if (iss.includes('Missing')) issClass = 'issue-missing';
-      else if (iss.includes('ABOVE')) issClass = 'issue-above';
-      outOfDateHtml += `<div class="out-of-date-issue-item ${issClass}">• ${escapeHtml(iss)}</div>`;
-    });
-    if (it.outOfDateIssues.length > 4) {
-      outOfDateHtml += `<div class="stat-roll-range" style="color: #ff7675;">+ ${it.outOfDateIssues.length - 4} more mismatches...</div>`;
-    }
-    outOfDateHtml += '</div>';
-  }
-
-  // Socketed runes / gems
-  let socketsHtml = '';
-  if (it.sockets && it.sockets.length > 0) {
-    socketsHtml = '<div class="item-sockets-list">';
-    it.sockets.forEach(sk => {
-      socketsHtml += `<span class="socket-pill">💎 ${escapeHtml(sk.name)}</span>`;
-    });
-    socketsHtml += '</div>';
-  }
-
-  // Footer / Location
+  // 7. Owner & Location
   const ownerIcon = it.isStash ? '📦' : '👤';
   const ownerName = escapeHtml(it.sourceName);
-  const locationName = escapeHtml(it.location || 'Unknown');
-  const spriteImg = it.invFile ? `<div class="item-card-thumb"><img src="assets/items/${it.invFile}" alt="" loading="lazy" onerror="this.parentElement.style.display='none'" /></div>` : '';
+  const locShort = escapeHtml(it.location || '');
+  tagsHtml += `<span class="tag owner" title="${ownerName} (${locShort})">${ownerIcon} ${ownerName}</span>`;
+  // 8. Out of date
+  if (it.isOutOfDate) {
+    tagsHtml += `<span class="tag warning" title="Differs from current patch definitions">⚠️ Out of Date</span>`;
+  }
+
+  // Base Stats and Properties (for Detailed mode or Verifier)
+  let extraContentHtml = '';
+  if (state.viewMode === 'detailed' || showVerifierDetails) {
+    let baseStatsItems = [];
+    if (it.defense) baseStatsItems.push(`<span>Def: <strong>${it.defense}</strong></span>`);
+    if (it.twoHandedDamage) baseStatsItems.push(`<span>2H: <strong>${it.twoHandedDamage}</strong></span>`);
+    else if (it.oneHandedDamage) baseStatsItems.push(`<span>1H: <strong>${it.oneHandedDamage}</strong></span>`);
+    if (it.requiredStrength && it.requiredStrength > 0) baseStatsItems.push(`<span>Str: <strong>${it.requiredStrength}</strong></span>`);
+    if (it.requiredDexterity && it.requiredDexterity > 0) baseStatsItems.push(`<span>Dex: <strong>${it.requiredDexterity}</strong></span>`);
+    const baseStatsHtml = baseStatsItems.length > 0 ? `<div class="loot-base-stats">${baseStatsItems.join('<span class="sep-dot">·</span>')}</div>` : '';
+
+    let statsListHtml = '';
+    const statList = (it.runewordStats || []).concat(it.stats || []);
+    if (statList.length > 0) {
+      statsListHtml = '<ul class="property-list">';
+      const maxDisplay = 6;
+      statList.slice(0, maxDisplay).forEach(s => {
+        const desc = escapeHtml(s.description || s.id || '');
+        const isCorruptStat = (s.description || s.id || '').toLowerCase().includes('corrupt');
+        statsListHtml += `<li class="property-entry ${isCorruptStat ? 'stat-corrupted' : ''}">${desc}</li>`;
+      });
+      if (statList.length > maxDisplay) {
+        statsListHtml += `<li class="property-entry is-more">+ ${statList.length - maxDisplay} more properties…</li>`;
+      }
+      statsListHtml += '</ul>';
+    }
+
+    let outOfDateHtml = '';
+    if (it.isOutOfDate && it.outOfDateIssues && it.outOfDateIssues.length > 0) {
+      outOfDateHtml = `
+        <div class="mismatch-box" style="margin-top:6px; padding:6px 10px; background:rgba(192,86,63,0.08); border:1px solid rgba(192,86,63,0.3); border-radius:var(--radius-sm);">
+          <div style="font-size:0.74rem; font-weight:700; color:var(--removed); text-transform:uppercase;">⚠️ Patch Mismatches:</div>
+          <ul class="property-list" style="margin-top:3px; gap:3px;">
+            ${it.outOfDateIssues.slice(0, 3).map(iss => `<li class="property-entry is-warning" style="font-size:0.8rem;">${escapeHtml(iss)}</li>`).join('')}
+            ${it.outOfDateIssues.length > 3 ? `<li class="property-entry is-more" style="color:var(--removed); font-size:0.75rem;">+ ${it.outOfDateIssues.length - 3} more…</li>` : ''}
+          </ul>
+        </div>
+      `;
+    }
+
+    extraContentHtml = baseStatsHtml + statsListHtml + outOfDateHtml;
+  }
 
   card.innerHTML = `
-    <div class="item-card-header">
-      <div class="item-card-title-group">
-        ${spriteImg}
-        <div class="item-name-block">
-          <span class="item-name ${qColorClass}">${displayName}</span>
-          <span class="item-base-line">${baseName}</span>
-        </div>
-      </div>
-      <div class="item-badges">${badgesHtml}</div>
+    <div class="loot-icon item-card-icon-box">
+      ${iconMarkup}
     </div>
-    ${baseStatsHtml ? `<div class="item-base-stats">${baseStatsHtml}</div>` : ''}
-    ${statsHtml}
-    ${outOfDateHtml}
-    ${socketsHtml}
-    <div class="item-card-footer">
-      <span class="item-owner"><span class="owner-icon">${ownerIcon}</span> ${ownerName}</span>
-      <span class="item-location">${locationName}</span>
+    <div class="loot-body">
+      <div class="loot-main">
+        <span class="loot-name">${cleanTitle}</span>
+        <span class="loot-base">${baseLineText}</span>
+      </div>
+      ${extraContentHtml}
+      <div class="loot-foot">
+        ${tagsHtml}
+      </div>
     </div>
   `;
 
@@ -503,7 +840,7 @@ function createItemCardElement(it, showVerifierDetails = false) {
 
 function renderItemsTable() {
   dom.itemsTableBody.innerHTML = '';
-  state.items.forEach(it => {
+  state.items.slice(0, state.visibleItemLimit).forEach(it => {
     const tr = document.createElement('tr');
     const qColorClass = getQualityColorClass(it.quality, it.isRuneword);
     const displayName = escapeHtml(it.displayName);
@@ -541,121 +878,177 @@ function renderItemsTable() {
 
 // Item Detail Modal
 function openItemDetailModal(it) {
+  const qKey = getQualityKey(it.quality, it.isRuneword);
+  const qClass = getQualityClass(it.quality, it.isRuneword);
   const qColorClass = getQualityColorClass(it.quality, it.isRuneword);
-  const corruptBadge = it.isCorrupted ? '<span class="badge badge-corrupted" style="vertical-align: middle; margin-left: 8px;">💥 Corrupted</span>' : '';
-  dom.itemModalTitle.innerHTML = `<span class="${qColorClass}">${escapeHtml(it.displayName)}</span>${corruptBadge}`;
+  const cleanTitle = escapeHtml(formatItemTitle(it.displayName));
+  const qualityLabel = it.isRuneword ? 'Runeword' : (it.quality || 'Normal');
+  const typeIconHref = getItemTypeIconHref(it);
 
-  let outOfDateBanner = '';
-  if (it.isOutOfDate) {
-    outOfDateBanner = `
-      <div class="comparison-banner-warning">
-        <span style="font-size: 18px;">⚠️</span>
-        <div>
-          <strong>Legacy / Out-of-Date Item Detected</strong>
-          <div style="font-size: 12px; margin-top: 2px;">This item has rolled properties or stat ranges that do not match current game/mod definitions.</div>
-        </div>
-      </div>
-    `;
-  }
+  dom.itemModalTitle.innerHTML = `<span class="${qColorClass}">${cleanTitle}</span>`;
 
-  const modalSprite = it.invFile ? `
-    <div class="modal-sprite-preview">
-      <img src="assets/items/${it.invFile}" alt="" onerror="this.parentElement.style.display='none'" />
+  // Left Side: BT-BK Gothic Tooltip Card
+  const spriteImg = it.invFile ? `
+    <div class="tooltip-art">
+      <img src="assets/items/${it.invFile}" alt="${cleanTitle}" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='grid';" />
+      <span class="fallback-icon-box" style="display:none;"><svg aria-hidden="true"><use href="${typeIconHref}"/></svg></span>
     </div>
-  ` : '';
-
-  let contentHtml = `
-    ${outOfDateBanner}
-    <div style="display: flex; gap: 16px; align-items: center; margin-bottom: 14px;">
-      ${modalSprite}
-      <div>
-        <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 6px;">
-          <strong>Base:</strong> ${escapeHtml(it.baseName || '-')} | 
-          <strong>Quality:</strong> ${it.isRuneword ? 'Runeword' : (it.quality || 'Normal')} | 
-          <strong>Tier:</strong> ${it.tier || '-'} | 
-          <strong>Item Level:</strong> ${it.itemLevel || '-'}
-        </div>
-        <div style="font-size: 13px; color: var(--text-muted);">
-          <strong>Owner:</strong> ${escapeHtml(it.sourceName)} (${escapeHtml(it.sourceFile)}) | 
-          <strong>Location:</strong> ${escapeHtml(it.location || '-')}
-        </div>
-      </div>
+  ` : `
+    <div class="tooltip-art">
+      <span class="fallback-icon-box"><svg aria-hidden="true"><use href="${typeIconHref}"/></svg></span>
     </div>
   `;
 
-  if (typeof it.perfectionNum === 'number' && !isNaN(it.perfectionNum)) {
-    contentHtml += `
-      <div style="background: rgba(196, 154, 69, 0.15); border: 1px solid var(--border-gold); padding: 8px 12px; border-radius: 6px; margin-bottom: 14px;">
-        <div style="display: flex; justify-content: space-between; font-weight: 700; color: var(--color-accent); margin-bottom: 4px;">
-          <span>PERFECTION SCORE</span>
-          <span>${it.perfectionNum.toFixed(2)}%</span>
+  let ttMetaRows = [];
+  if (it.baseName) ttMetaRows.push(`<li class="meta"><strong>Base Item:</strong> ${escapeHtml(it.baseName)}</li>`);
+  if (it.type) ttMetaRows.push(`<li class="meta"><strong>Item Type:</strong> ${escapeHtml(it.type)}</li>`);
+  if (it.tier) ttMetaRows.push(`<li class="meta"><strong>Tier:</strong> ${escapeHtml(it.tier)}</li>`);
+  if (it.defense) ttMetaRows.push(`<li class="meta"><strong>Defense:</strong> ${it.defense}${it.baseDefenseRange ? ` (Base: ${it.baseDefenseRange})` : ''}</li>`);
+  if (it.twoHandedDamage) ttMetaRows.push(`<li class="meta"><strong>Two-Hand Damage:</strong> ${it.twoHandedDamage}</li>`);
+  else if (it.oneHandedDamage) ttMetaRows.push(`<li class="meta"><strong>One-Hand Damage:</strong> ${it.oneHandedDamage}</li>`);
+  if (it.durability && it.maxDurability) ttMetaRows.push(`<li class="meta"><strong>Durability:</strong> ${it.durability}/${it.maxDurability}</li>`);
+  if (it.itemLevel != null) ttMetaRows.push(`<li class="meta"><strong>Item Level:</strong> ${it.itemLevel}</li>`);
+  ttMetaRows.push(`<li class="meta req"><strong>Required Level:</strong> ${it.requiredLevel ?? "Not calculated"}</li>`);
+  if (it.requiredStrength) ttMetaRows.push(`<li class="meta req"><strong>Required Strength:</strong> ${it.requiredStrength}</li>`);
+  if (it.requiredDexterity) ttMetaRows.push(`<li class="meta req"><strong>Required Dexterity:</strong> ${it.requiredDexterity}</li>`);
+  if (it.socketCount > 0) ttMetaRows.push(`<li class="meta"><strong>Sockets:</strong> ${it.socketCount} (${it.openSockets || 0} open)</li>`);
+
+  const isStack = it.isAdvancedStack || (it.quantity != null && it.quantity > 1);
+  const stackQty = it.quantity != null ? it.quantity : 1;
+  if (isStack) {
+    ttMetaRows.push(`<li class="meta" style="color: #ffd700;"><strong>Stack Quantity:</strong> ${stackQty}</li>`);
+  }
+
+  const allStats = (it.runewordStats || []).concat(it.stats || []);
+  let ttStatsRows = allStats.map(s => {
+    const isCorrupt = (s.description || s.id || '').toLowerCase().includes('corrupt');
+    return `<li class="${isCorrupt ? 'req' : ''}">${escapeHtml(s.description || s.id)}</li>`;
+  }).join('');
+
+  const tooltipHtml = `
+    <aside class="tooltip q-${qKey}" aria-label="${cleanTitle} item tooltip">
+      ${spriteImg}
+      <div class="tt-name">${cleanTitle}</div>
+      <div class="tt-base">${escapeHtml(it.baseName || it.type || '')}</div>
+      ${ttMetaRows.length > 0 ? `<div class="tt-rule"></div><ul class="tt-stats">${ttMetaRows.join('')}</ul>` : ''}
+      ${ttStatsRows ? `<div class="tt-rule"></div><ul class="tt-stats">${ttStatsRows}</ul>` : ''}
+    </aside>
+  `;
+
+  // Right Side: Detail Main
+  let detailMainHtml = `
+    <div class="detail-main">
+      <div>
+        <div class="detail-title">
+          <h1>${cleanTitle}</h1>
+          <span class="pill ${qKey}">${qualityLabel}</span>
+          ${isStack ? `<span class="pill stack-qty" style="background: rgba(227, 179, 65, 0.2); border: 1px solid var(--gold); color: #ffd700; font-weight: 700;">📦 Stack: ${stackQty}</span>` : ''}
+          ${it.isEthereal ? '<span class="pill ethereal">Ethereal</span>' : ''}
+          ${it.isCorrupted ? '<span class="pill corrupted">💥 Corrupted</span>' : ''}
+          ${it.socketCount > 0 ? `<span class="pill socket">${it.socketCount} Sockets</span>` : ''}
         </div>
-        <div class="progress-bar-wrap" style="height: 8px; margin: 0;">
-          <div class="progress-bar-fill" style="width: ${it.perfectionNum}%;"></div>
-        </div>
+        <p class="muted">
+          Owned by <strong>${escapeHtml(it.sourceName)}</strong> · Location: <strong>${escapeHtml(it.location || 'Unknown')}</strong>
+        </p>
       </div>
+  `;
+
+  // Perfection score panel
+  if (typeof it.perfectionNum === 'number' && !isNaN(it.perfectionNum)) {
+    const isPerfect = it.perfectionNum >= 100;
+    detailMainHtml += `
+      <section class="panel">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <h2 style="margin:0; font-size:1.05rem;"><svg aria-hidden="true"><use href="#i-sigil"/></svg> Perfection Score</h2>
+          <span class="pill ${isPerfect ? 'perfection-perfect' : 'perfection-high'}">★ ${it.perfectionNum.toFixed(2)}%</span>
+        </div>
+        <div class="progress-bar-wrap" style="height: 8px; margin: 0; background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px; overflow: hidden;">
+          <div class="progress-bar-fill" style="width: ${it.perfectionNum}%; height: 100%; background: linear-gradient(90deg, var(--gold-deep), var(--gold-bright));"></div>
+        </div>
+      </section>
     `;
   }
 
-  // Defense / Damage / Sockets
-  let defenseDamage = [];
-  if (it.defense) defenseDamage.push(`Defense: ${it.defense}${it.baseDefenseRange ? ` (Base: ${it.baseDefenseRange})` : ''}`);
-  if (it.twoHandedDamage) defenseDamage.push(`Two-Hand Damage: ${it.twoHandedDamage}`);
-  if (it.oneHandedDamage) defenseDamage.push(`One-Hand Damage: ${it.oneHandedDamage}`);
-  if (it.durability && it.maxDurability) defenseDamage.push(`Durability: ${it.durability}/${it.maxDurability}`);
-  if (it.socketCount > 0) defenseDamage.push(`Sockets: ${it.socketCount} (${it.openSockets || 0} open)`);
-
-  if (defenseDamage.length > 0) {
-    contentHtml += `<div class="item-base-stats" style="margin-bottom: 14px;">${defenseDamage.join(' | ')}</div>`;
+  // Out of date banner
+  if (it.isOutOfDate) {
+    detailMainHtml += `
+      <section class="panel" style="border-color: var(--removed); background: rgba(192, 86, 63, 0.08);">
+        <h2 style="color: var(--removed); font-size: 1rem; margin: 0 0 6px;">⚠️ Legacy / Out-of-Date Item Detected</h2>
+        <p style="font-size: 0.86rem; color: var(--text); margin: 0 0 10px;">This item's rolled property ranges or affixes differ from current game/mod definitions.</p>
+        ${it.outOfDateIssues && it.outOfDateIssues.length > 0 ? `
+          <ul class="property-list">
+            ${it.outOfDateIssues.map(iss => `<li class="property-entry is-warning">${escapeHtml(iss)}</li>`).join('')}
+          </ul>
+        ` : ''}
+      </section>
+    `;
   }
 
-  // All stats
-  const allStats = (it.runewordStats || []).concat(it.stats || []);
-  if (allStats.length > 0) {
-    contentHtml += `<div style="margin-bottom: 14px;"><strong style="font-size: 12px; text-transform: uppercase; color: var(--text-muted);">Properties:</strong><div class="item-stats-list" style="margin-top: 6px;">`;
-    allStats.forEach(s => {
-      const isCorruptStat = (s.description || s.id || '').toLowerCase().includes('corrupt');
-      contentHtml += `<div class="item-stat-row ${isCorruptStat ? 'stat-corrupted' : ''}" style="font-size: 13px;">• ${escapeHtml(s.description || s.id)}</div>`;
-    });
-    contentHtml += `</div></div>`;
+  // Socketed items & socket bonuses
+  if ((it.sockets && it.sockets.length > 0) || (it.socketBonuses && it.socketBonuses.length > 0)) {
+    detailMainHtml += `
+      <section class="panel">
+        <h2><svg aria-hidden="true"><use href="#i-gem"/></svg> Socket Details</h2>
+        ${it.sockets && it.sockets.length > 0 ? `
+          <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom: 8px;">
+            ${it.sockets.map(sk => `<span class="socket-pill">💎 ${escapeHtml(sk.name)}</span>`).join('')}
+          </div>
+        ` : ''}
+        ${it.socketBonuses && it.socketBonuses.length > 0 ? `
+          <ul class="property-list">
+            ${it.socketBonuses.map(sb => `<li class="property-entry">${escapeHtml(sb)}</li>`).join('')}
+          </ul>
+        ` : ''}
+      </section>
+    `;
   }
 
-  // Socket Bonuses & Socketed Items
-  if (it.socketBonuses && it.socketBonuses.length > 0) {
-    contentHtml += `<div style="margin-bottom: 14px;"><strong style="font-size: 12px; text-transform: uppercase; color: var(--color-accent);">Socket Bonuses:</strong><div class="item-stats-list" style="margin-top: 6px;">`;
-    it.socketBonuses.forEach(sb => {
-      contentHtml += `<div class="item-stat-row">• ${escapeHtml(sb)}</div>`;
-    });
-    contentHtml += `</div></div>`;
-  }
-
-  if (it.sockets && it.sockets.length > 0) {
-    contentHtml += `<div><strong style="font-size: 12px; text-transform: uppercase; color: var(--color-rune);">Socketed Gems & Runes:</strong><div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;">`;
-    it.sockets.forEach(sk => {
-      contentHtml += `<span class="socket-pill">💎 ${escapeHtml(sk.name)}</span>`;
-    });
-    contentHtml += `</div></div>`;
-  }
-
+  // Comparison placeholder for eligible items
   const isEligible = it.quality === 'Unique' || it.quality === 'Set' || it.isRuneword;
   if (isEligible) {
-    contentHtml += `<div id="modal-comparison-container" class="comparison-section"><div style="padding: 10px; color: var(--text-dim);">Loading game file comparison...</div></div>`;
+    detailMainHtml += `<div id="modal-comparison-container" class="comparison-section"><div style="padding: 10px; color: var(--muted); font-size:0.86rem;">Loading game file comparison…</div></div>`;
   }
 
-  contentHtml += `
-    <div style="margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end;">
-      <button class="btn btn-secondary" onclick="openTransferModalForItemId(${it.id})" style="border-color: var(--color-accent); color: var(--color-accent); font-weight: 600; font-size: 13px;">
-        📦 Transfer Item to Character / Stash
-      </button>
+  // Transfer and Edit Stack item action panel
+  const editStackBtnHtml = it.isStash && it.isAdvancedStack ? `
+    <button class="filter-button" onclick="if (window.openEditStackModalByCode) { window.openEditStackModalFromItem(${it.id}); }" style="border-color: var(--gold); color: #ffd700; font-weight: 600; font-size: 0.85rem; margin-right: 8px;">
+      ✏️ Edit Stack (${stackQty})
+    </button>
+  ` : '';
+
+  detailMainHtml += `
+      <section class="panel" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+        <div>
+          <strong style="color:var(--text); font-size:0.92rem;">Item Management</strong>
+          <p class="muted" style="margin:2px 0 0; font-size:0.8rem;">
+            ${isStack ? `Current Stack: <strong style="color:#ffd700;">${stackQty}</strong> &bull; ` : ''}Transfer this item or adjust its stack quantity.
+          </p>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          ${editStackBtnHtml}
+          <button class="filter-button" onclick="openTransferModalForItemId(${it.id})" style="border-color: var(--gold-deep); color: var(--gold); font-weight: 600; font-size: 0.85rem;">
+            📦 Transfer Item →
+          </button>
+        </div>
+      </section>
     </div>
   `;
 
-  dom.itemModalBody.innerHTML = contentHtml;
+  dom.itemModalBody.innerHTML = `
+    <div class="detail item-detail-layout">
+      ${tooltipHtml}
+      ${detailMainHtml}
+    </div>
+  `;
   dom.itemModal.style.display = 'flex';
 
   if (isEligible) {
-    fetch(`/api/item-compare/${it.id}`)
-      .then(res => res.json())
+    (state.isWasmMode ? Promise.resolve({
+      is_out_of_date: it.isOutOfDate, issues: it.outOfDateIssues || [], catalogRevision: it.catalogRevision,
+      stats_comparison: [...(it.runewordStats || []), ...(it.stats || [])].map(s => ({
+        ...s, actualValue: s.value, status: s.outOfRange || (s.expectedMin != null ? 'ok' : 'unknown')
+      }))
+    }) : fetch(`/api/item-compare/${it.id}`).then(res => res.json()))
       .then(comp => {
         const container = document.getElementById('modal-comparison-container');
         if (container) {
@@ -665,14 +1058,14 @@ function openItemDetailModal(it) {
       .catch(err => {
         const container = document.getElementById('modal-comparison-container');
         if (container) {
-          container.innerHTML = `<div style="font-size: 12px; color: var(--text-muted);">Could not load comparison data: ${escapeHtml(err.message)}</div>`;
+          container.innerHTML = `<div style="font-size: 12px; color: var(--muted);">Could not load comparison data: ${escapeHtml(err.message)}</div>`;
         }
       });
   }
 
   // Copy item info handler
   dom.itemModalCopyBtn.onclick = () => {
-    let copyText = `${it.displayName} (${it.baseName || ''})\n`;
+    let copyText = `${cleanTitle} (${it.baseName || ''})\n`;
     copyText += `Location: ${it.sourceName} - ${it.location}\n`;
     if (typeof it.perfectionNum === 'number' && !isNaN(it.perfectionNum)) copyText += `Perfection: ${it.perfectionNum.toFixed(1)}%\n`;
     allStats.forEach(s => copyText += `${s.description || s.id}\n`);
@@ -683,14 +1076,15 @@ function openItemDetailModal(it) {
 }
 
 function renderComparisonSection(comp) {
-  if (!comp || !comp.stats_comparison || comp.stats_comparison.length === 0) return '';
+  if (!comp || !comp.stats_comparison || comp.stats_comparison.length === 0) return '<p class="muted">No supported comparison is available for this item.</p>';
+  if (comp.catalogStale) return '<p class="muted">Definitions or saved data changed. Rescan before comparing this item.</p>';
 
   let html = `
     <div class="comparison-section">
       <div class="comparison-title-row">
-        <h4>Game Definition Comparison</h4>
+        <h4>BKDiablo Definition Comparison</h4>
         <span class="badge ${comp.is_out_of_date ? 'badge-out-of-date' : 'badge-perf'}">
-          ${comp.is_out_of_date ? '⚠️ Patch Mismatches Found' : '✅ Matches Game Files'}
+          ${comp.is_out_of_date ? 'Differences from current definitions' : 'Known ranges checked; verification incomplete'}
         </span>
       </div>
   `;
@@ -708,6 +1102,7 @@ function renderComparisonSection(comp) {
   }
 
   html += `
+      <p class="muted">Known properties only · Definition revision ${escapeHtml((comp.catalogRevision || 'unknown').slice(0, 12))}</p>
       <div class="comparison-table-wrap">
         <table class="comparison-table">
           <thead>
@@ -724,7 +1119,7 @@ function renderComparisonSection(comp) {
   comp.stats_comparison.forEach(s => {
     const isMismatch = s.status !== 'ok';
     const rowClass = isMismatch ? 'row-mismatch' : '';
-    let statusBadge = '<span class="status-tag status-ok">✔ In Range</span>';
+    let statusBadge = s.status === 'unknown' ? '<span class="status-tag">Not verified</span>' : '<span class="status-tag status-ok">✔ In Range</span>'; 
     let valText = s.actualValue !== null && s.actualValue !== undefined ? escapeHtml(String(s.actualValue)) : '<em style="color: #eccc68;">None</em>';
 
     if (s.status === 'below_min') {
@@ -762,20 +1157,36 @@ function renderComparisonSection(comp) {
 dom.itemModalCloseBtn.addEventListener('click', () => dom.itemModal.style.display = 'none');
 dom.itemModalDoneBtn.addEventListener('click', () => dom.itemModal.style.display = 'none');
 
-// View Mode Toggle (Grid vs Table)
-dom.modeGridBtn.addEventListener('click', () => {
-  dom.modeGridBtn.classList.add('active');
-  dom.modeTableBtn.classList.remove('active');
-  state.viewMode = 'grid';
-  renderItemsView();
-});
+// View Mode Toggle (Grid vs Detailed vs Table)
+if (dom.modeGridBtn) {
+  dom.modeGridBtn.addEventListener('click', () => {
+    dom.modeGridBtn.classList.add('active');
+    if (dom.modeDetailBtn) dom.modeDetailBtn.classList.remove('active');
+    if (dom.modeTableBtn) dom.modeTableBtn.classList.remove('active');
+    state.viewMode = 'grid';
+    renderItemsView();
+  });
+}
 
-dom.modeTableBtn.addEventListener('click', () => {
-  dom.modeTableBtn.classList.add('active');
-  dom.modeGridBtn.classList.remove('active');
-  state.viewMode = 'table';
-  renderItemsView();
-});
+if (dom.modeDetailBtn) {
+  dom.modeDetailBtn.addEventListener('click', () => {
+    dom.modeDetailBtn.classList.add('active');
+    if (dom.modeGridBtn) dom.modeGridBtn.classList.remove('active');
+    if (dom.modeTableBtn) dom.modeTableBtn.classList.remove('active');
+    state.viewMode = 'detailed';
+    renderItemsView();
+  });
+}
+
+if (dom.modeTableBtn) {
+  dom.modeTableBtn.addEventListener('click', () => {
+    dom.modeTableBtn.classList.add('active');
+    if (dom.modeGridBtn) dom.modeGridBtn.classList.remove('active');
+    if (dom.modeDetailBtn) dom.modeDetailBtn.classList.remove('active');
+    state.viewMode = 'table';
+    renderItemsView();
+  });
+}
 
 // Search and Filter Events
 dom.searchInput.addEventListener('input', (e) => {
@@ -1123,9 +1534,22 @@ async function renderArmoryForChar(charName) {
       window._d2rState.activeCharName = charName;
     }
 
+    if (state.isWasmMode && window.D2Wasm) {
+      const data = window.D2Wasm.getCharacterDetail(charName, state.saves, state.allWasmItems || state.items);
+      if (!data) throw new Error(`Character '${charName}' not found in loaded saves.`);
+      const stashData = window.D2Wasm.getSharedStashDetail(state.saves, state.allWasmItems || state.items, charName);
+      const dims = { inventory: { width: 11, height: 8 }, stash: { width: 16, height: 13 }, cube: { width: 6, height: 6 } };
+
+      window._currentArmoryData = data;
+      if (window.renderD2RInGameArmory) {
+        window.renderD2RInGameArmory(data, stashData, dims);
+      }
+      return;
+    }
+
     const [charRes, stashRes, dimsRes] = await Promise.all([
       fetch(`/api/character/${encodeURIComponent(charName)}`),
-      fetch('/api/shared-stash'),
+      fetch(`/api/shared-stash?character=${encodeURIComponent(charName)}`),
       fetch('/api/container-dimensions')
     ]);
 
@@ -1152,10 +1576,22 @@ window.openPackMuleModalForCurrentArmoryChar = function() {
 };
 
 window.openItemDetailModalById = function(itemId) {
-  const allItems = state.items || [];
-  const item = allItems.find(it => it.id === itemId);
+  itemId = parseInt(itemId, 10);
+  const allItems = (state && state.items) || [];
+  let item = allItems.find(it => it.id === itemId);
+  if (!item && typeof d2rState !== 'undefined') {
+    item = (d2rState.stashData && d2rState.stashData.tabs && d2rState.stashData.tabs.flatMap(t => t.items || []).find(x => x.id === itemId))
+        || (d2rState.charData && [...(d2rState.charData.inventory || []), ...(d2rState.charData.stash || []), ...(d2rState.charData.cube || [])].find(x => x.id === itemId));
+  }
   if (item) {
     openItemDetailModal(item);
+  } else {
+    fetch(`/api/item/${itemId}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(it => {
+        if (it) openItemDetailModal(it);
+      })
+      .catch(() => {});
   }
 };
 
@@ -1189,6 +1625,12 @@ window.switchInvTab = function(tabName, btnEl) {
 // HOLY GRAIL VIEW
 // ==========================================================================
 async function loadGrailView() {
+  if (state.isWasmMode && window.D2Wasm) {
+    state.grail = window.D2Wasm.getGrailProgress(state.allWasmItems || state.items);
+    renderGrailView();
+    return;
+  }
+
   dom.grailCategories.innerHTML = '<div class="empty-state"><h3>Calculating Holy Grail progress...</h3></div>';
 
   try {
@@ -1328,6 +1770,25 @@ dom.modalSaveBtn.addEventListener('click', async () => {
 // ITEM VERIFIER VIEW
 // ==========================================================================
 async function loadVerifierView() {
+  if (state.isWasmMode) {
+    const all = state.allWasmItems || state.items || [];
+    const outOfDate = all.filter(it => it.isOutOfDate);
+    const belowMin = outOfDate.filter(it => (it.outOfDateIssues || []).some(iss => iss.includes('BELOW'))).length;
+    const aboveMax = outOfDate.filter(it => (it.outOfDateIssues || []).some(iss => iss.includes('ABOVE'))).length;
+    const missing = outOfDate.filter(it => (it.outOfDateIssues || []).some(iss => iss.includes('Missing'))).length;
+
+    state.verifier = {
+      total_checked: all.length,
+      total_out_of_date: outOfDate.length,
+      total_up_to_date: all.filter(it => it.verificationStatus === 'verified').length,
+      percent_out_of_date: all.length > 0 ? Math.round((outOfDate.length / all.length) * 100) : 0,
+      counts_by_issue: { below_min: belowMin, above_max: aboveMax, missing_stats: missing },
+      items: outOfDate
+    };
+    renderVerifierView();
+    return;
+  }
+
   dom.verifierItemsList.innerHTML = '<div class="empty-state"><h3>Verifying items against game files...</h3></div>';
   dom.verifierAllClean.style.display = 'none';
 
@@ -1486,6 +1947,40 @@ async function submitCreateMule() {
     statusEl.textContent = 'Generating character...';
   }
 
+  if (state.isWasmMode && window.D2Wasm) {
+    try {
+      const data = await window.D2Wasm.createMule(name, charClass, hardcore);
+      if (data.success) {
+        if (statusEl) {
+          statusEl.style.background = 'rgba(34, 197, 94, 0.2)';
+          statusEl.style.color = '#4ade80';
+          statusEl.textContent = `Character '${name}' created! Save file downloaded.`;
+        }
+        showToast(`Mule '${name}' created & downloaded!`, 'success');
+        setTimeout(async () => {
+          closeCreateMuleModal();
+          if (submitBtn) submitBtn.disabled = false;
+          await refreshWasmDataset();
+        }, 1000);
+      } else {
+        if (statusEl) {
+          statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
+          statusEl.style.color = '#f87171';
+          statusEl.textContent = data.error || 'Failed to create mule.';
+        }
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    } catch (err) {
+      if (statusEl) {
+        statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
+        statusEl.style.color = '#f87171';
+        statusEl.textContent = 'Error: ' + err.message;
+      }
+      if (submitBtn) submitBtn.disabled = false;
+    }
+    return;
+  }
+
   try {
     const res = await fetch('/api/mules/create', {
       method: 'POST',
@@ -1628,11 +2123,46 @@ async function submitCompleteQuests() {
     statusEl.textContent = 'Applying quest completions and updating waypoints...';
   }
 
+  if (state.isWasmMode && window.D2Wasm) {
+    try {
+      const data = await window.D2Wasm.completeQuests(charName, difficulty, act, unlockWaypoints, grantRewards);
+      if (data.success) {
+        if (statusEl) {
+          statusEl.style.background = 'rgba(34, 197, 94, 0.2)';
+          statusEl.style.color = '#4ade80';
+          statusEl.textContent = (data.message || 'Quests updated!') + ' Save file downloaded.';
+        }
+        showToast(`Quests updated for ${charName}! Save downloaded.`, 'success');
+        setTimeout(async () => {
+          closeQuestsModal();
+          if (submitBtn) submitBtn.disabled = false;
+          await refreshWasmDataset();
+        }, 1000);
+      } else {
+        if (statusEl) {
+          statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
+          statusEl.style.color = '#f87171';
+          statusEl.textContent = data.message || 'Failed to update quests.';
+        }
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    } catch (err) {
+      if (statusEl) {
+        statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
+        statusEl.style.color = '#f87171';
+        statusEl.textContent = 'Error: ' + err.message;
+      }
+      if (submitBtn) submitBtn.disabled = false;
+    }
+    return;
+  }
+
   try {
     const res = await fetch('/api/character/quests/complete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        revision: state.saves.find(save => save.name === charName)?.saveRevision,
         character: charName,
         difficulty,
         act,
@@ -1698,6 +2228,7 @@ function openTransferModalForItemId(itemId) {
 
   // Populate hidden fields
   document.getElementById('transfer-source-file').value = it.sourceFile || '';
+  document.getElementById('transfer-source-file').dataset.revision = it.saveRevision || '';
   document.getElementById('transfer-source-container').value = it.isStash ? 'sharedstash' : (it.location || 'inventory').toLowerCase();
   document.getElementById('transfer-source-tab').value = it.tabIndex !== undefined ? it.tabIndex : 0;
   document.getElementById('transfer-source-x').value = it.invX !== undefined ? it.invX : '';
@@ -1885,11 +2416,13 @@ async function submitItemTransfer() {
     statusEl.style.display = 'block';
     statusEl.style.background = 'rgba(59, 130, 246, 0.2)';
     statusEl.style.color = '#93c5fd';
-    statusEl.textContent = 'Executing atomic transfer and calculating checksums...';
+    statusEl.textContent = 'Transferring item and preserving original saves...';
   }
 
   try {
     const payload = {
+      source_revision: document.getElementById('transfer-source-file').dataset.revision,
+      target_revision: state.saves.find(save => save.file === targetFile)?.saveRevision,
       source_file: sourceFile,
       source_container: sourceContainer,
       source_tab: sourceTab,
@@ -1907,6 +2440,36 @@ async function submitItemTransfer() {
     if (targetX !== null && targetY !== null) {
       payload.target_x = targetX;
       payload.target_y = targetY;
+    }
+
+    if (state.isWasmMode && window.D2Wasm) {
+      const data = await window.D2Wasm.transferItem(payload);
+      if (data.success) {
+        if (statusEl) {
+          statusEl.style.background = 'rgba(34, 197, 94, 0.2)';
+          statusEl.style.color = '#4ade80';
+          statusEl.textContent = (data.message || 'Item transferred!') + ' Save file downloaded.';
+        }
+        showToast('Item transferred! Save file downloaded.', 'success');
+        setTimeout(async () => {
+          closeTransferItemModal();
+          if (dom.itemModal) dom.itemModal.style.display = 'none';
+          if (submitBtn) submitBtn.disabled = false;
+          await refreshWasmDataset();
+        }, 800);
+      } else {
+        if (statusEl) {
+          statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
+          statusEl.style.color = '#f87171';
+          statusEl.textContent = data.message || 'Transfer failed.';
+        }
+        if (data.isProtected) {
+          const forceContainer = document.getElementById('transfer-force-live-container');
+          if (forceContainer) forceContainer.style.display = 'block';
+        }
+        if (submitBtn) submitBtn.disabled = false;
+      }
+      return;
     }
 
     const res = await fetch('/api/item/transfer', {
@@ -2056,11 +2619,60 @@ async function submitPackMule() {
     statusEl.textContent = 'Packing items into mule containers...';
   }
 
+  if (state.isWasmMode && window.D2Wasm) {
+    try {
+      const data = await window.D2Wasm.bulkTransfer({
+        source_revision: state.saves.find(save => save.file === stashFile)?.saveRevision,
+        target_revision: state.saves.find(save => save.file === charFile)?.saveRevision,
+        source_stash_file: stashFile,
+        source_tab: tab,
+        target_char_file: charFile,
+        item_filter: filter,
+        max_items: maxItems,
+        force_live: forceLive
+      });
+      if (data.success) {
+        if (statusEl) {
+          statusEl.style.background = 'rgba(34, 197, 94, 0.2)';
+          statusEl.style.color = '#4ade80';
+          statusEl.textContent = (data.message || 'Mule packed!') + ' Files downloaded.';
+        }
+        showToast(`Packed ${data.itemsMoved} items! Saves downloaded.`, 'success');
+        setTimeout(async () => {
+          closePackMuleModal();
+          if (submitBtn) submitBtn.disabled = false;
+          await refreshWasmDataset();
+        }, 1000);
+      } else {
+        if (statusEl) {
+          statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
+          statusEl.style.color = '#f87171';
+          statusEl.textContent = data.message || 'Packing failed.';
+        }
+        if (data.isProtected) {
+          const forceContainer = document.getElementById('pack-force-live-container');
+          if (forceContainer) forceContainer.style.display = 'block';
+        }
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    } catch (err) {
+      if (statusEl) {
+        statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
+        statusEl.style.color = '#f87171';
+        statusEl.textContent = 'Error: ' + err.message;
+      }
+      if (submitBtn) submitBtn.disabled = false;
+    }
+    return;
+  }
+
   try {
     const res = await fetch('/api/mule/fill', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        source_revision: state.saves.find(save => save.file === stashFile)?.saveRevision,
+        target_revision: state.saves.find(save => save.file === charFile)?.saveRevision,
         stash_file: stashFile,
         tab,
         char_file: charFile,
@@ -2131,6 +2743,11 @@ if (packMuleModalEl) {
 }
 
 // Initialize on page load
+setupWasmEvents();
 loadProfiles();
+
+window.loadSavesAndItems = loadSavesAndItems;
+window.loadProfiles = loadProfiles;
+
 
 

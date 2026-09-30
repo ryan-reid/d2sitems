@@ -35,6 +35,8 @@ public class ItemTransferRequest
 
     public bool ForceLive { get; set; } = false;
     public string ExcelDir { get; set; } = "";
+    public string? SourceRevision { get; set; }
+    public string? TargetRevision { get; set; }
 }
 
 public class TransferResult
@@ -62,6 +64,8 @@ public class BulkTransferRequest
     public int MaxItems { get; set; } = 100;
     public bool ForceLive { get; set; } = false;
     public string ExcelDir { get; set; } = "";
+    public string? SourceRevision { get; set; }
+    public string? TargetRevision { get; set; }
 }
 
 public class BulkTransferResult
@@ -117,22 +121,63 @@ public static class ItemTransferManager
 
         try
         {
-            var dims = ContainerDimensions.LoadFromExcel(request.ExcelDir);
-            var itemDims = ItemDimensionsLookup.LoadFromExcel(request.ExcelDir);
-            var externalData = new TxtFileExternalData(request.ExcelDir, version: 105);
-
             bool isSameFile = string.Equals(
                 Path.GetFullPath(request.SourceFile),
                 Path.GetFullPath(request.TargetFile),
                 StringComparison.OrdinalIgnoreCase);
 
+            byte[] srcRawBytes = File.ReadAllBytes(request.SourceFile);
+            byte[]? dstRawBytes = isSameFile ? null : File.ReadAllBytes(request.TargetFile);
+
+            var (newSrcBytes, newDstBytes, result) = TransferItemBytes(srcRawBytes, dstRawBytes, request, request.ExcelDir);
+            if (!result.Success)
+                return result;
+
+            var updates = new List<SaveFileTransaction.Update>
+            {
+                new(request.SourceFile, srcRawBytes, newSrcBytes!)
+            };
+            if (!isSameFile)
+                updates.Add(new(request.TargetFile, dstRawBytes!, newDstBytes!));
+            var backups = SaveFileTransaction.Commit(updates.ToArray());
+            result.SourceBackup = backups[0];
+            result.TargetBackup = isSameFile ? null : backups[1];
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            return new TransferResult
+            {
+                Success = false,
+                Message = $"Transfer failed with exception: {ex.Message}"
+            };
+        }
+    }
+
+    public static (byte[]? newSourceBytes, byte[]? newTargetBytes, TransferResult result) TransferItemBytes(
+        byte[] sourceRawBytes,
+        byte[]? targetRawBytes,
+        ItemTransferRequest request,
+        string excelDir)
+    {
+        try
+        {
+            SaveFileTransaction.VerifyRevision(sourceRawBytes, request.SourceRevision);
+            SaveFileTransaction.VerifyRevision(targetRawBytes ?? sourceRawBytes, request.TargetRevision);
+            var dims = ContainerDimensions.LoadFromExcel(excelDir);
+            var itemDims = ItemDimensionsLookup.LoadFromExcel(excelDir);
+            var externalData = new TxtFileExternalData(excelDir, version: 105);
+
+            bool isSameFile = targetRawBytes == null;
+
             // Read source
             D2Save? sourceSave = null;
             D2StashSave? sourceStash = null;
             if (request.SourceContainer == ContainerType.SharedStash)
-                sourceStash = D2StashSave.Read(File.ReadAllBytes(request.SourceFile), externalData);
+                sourceStash = D2StashSave.Read(sourceRawBytes, externalData);
             else
-                sourceSave = D2Save.Read(File.ReadAllBytes(request.SourceFile), externalData);
+                sourceSave = D2Save.Read(sourceRawBytes, externalData);
 
             // Read target
             D2Save? targetSave = null;
@@ -145,9 +190,9 @@ public static class ItemTransferManager
             else
             {
                 if (request.TargetContainer == ContainerType.SharedStash)
-                    targetStash = D2StashSave.Read(File.ReadAllBytes(request.TargetFile), externalData);
+                    targetStash = D2StashSave.Read(targetRawBytes!, externalData);
                 else
-                    targetSave = D2Save.Read(File.ReadAllBytes(request.TargetFile), externalData);
+                    targetSave = D2Save.Read(targetRawBytes!, externalData);
             }
 
             // Find source item
@@ -155,7 +200,7 @@ public static class ItemTransferManager
             if (request.SourceContainer == ContainerType.SharedStash)
             {
                 if (sourceStash == null || request.SourceTab < 0 || request.SourceTab >= sourceStash.Count)
-                    return new TransferResult { Success = false, Message = $"Invalid source stash tab: {request.SourceTab}" };
+                    return (null, null, new TransferResult { Success = false, Message = $"Invalid source stash tab: {request.SourceTab}" });
 
                 var tab = sourceStash[request.SourceTab];
                 itemToMove = FindItem(tab.Items, request.SourceX, request.SourceY, request.ItemSeed, request.ItemCode);
@@ -163,7 +208,7 @@ public static class ItemTransferManager
             else
             {
                 if (sourceSave == null)
-                    return new TransferResult { Success = false, Message = "Source character save not loaded." };
+                    return (null, null, new TransferResult { Success = false, Message = "Source character save not loaded." });
 
                 var srcPage = ContainerTypeToStorePage(request.SourceContainer);
                 var candidateItems = sourceSave.Items.Where(i => i.Position.Mode == ItemMode.Stored && i.Position.StorePage == srcPage);
@@ -171,7 +216,56 @@ public static class ItemTransferManager
             }
 
             if (itemToMove == null)
-                return new TransferResult { Success = false, Message = "Item to move was not found in source container." };
+                return (null, null, new TransferResult { Success = false, Message = "Item to move was not found in source container." });
+
+            bool sourceAdvanced = sourceStash != null && sourceStash[request.SourceTab].TabType == StashTabType.AdvancedStash;
+            bool targetAdvanced = targetStash != null && request.TargetTab >= 0 && request.TargetTab < targetStash.Count
+                && targetStash[request.TargetTab].TabType == StashTabType.AdvancedStash;
+            if (sourceStash != null && sourceStash[request.SourceTab].TabType == StashTabType.Chronicle
+                || targetStash != null && request.TargetTab >= 0 && request.TargetTab < targetStash.Count
+                    && targetStash[request.TargetTab].TabType == StashTabType.Chronicle)
+                throw new ArgumentException("Chronicle tabs are not item containers.");
+            if (sourceAdvanced && (itemToMove.AdvancedStashStackSize ?? 0) == 0)
+                throw new ArgumentException("The selected advanced stash stack is empty.");
+            if (targetAdvanced)
+            {
+                if (isSameFile && request.SourceContainer == ContainerType.SharedStash && request.SourceTab == request.TargetTab)
+                    throw new ArgumentException("Item is already in this advanced stash.");
+                var code = itemToMove.ItemCodeString.Trim();
+                bool allowed = GameDataTables.IsAdvancedBankItem(code, excelDir);
+                if (!allowed) throw new ArgumentException($"BKDiablo has no advanced-stash slot for {code}.");
+                var destination = targetStash![request.TargetTab].Items.Where(i => i.ItemCodeString.Trim() == code).ToList();
+                if (destination.Count > 1) throw new ArgumentException("Ambiguous destination stack; reload the stash.");
+                if (!sourceAdvanced && itemToMove.Quantity > 1)
+                    throw new ArgumentException("Native quantity stacks require an explicit split before depositing.");
+                int amount = sourceAdvanced ? itemToMove.AdvancedStashStackSize!.Value : 1;
+                int existing = destination.Count == 1 ? destination[0].AdvancedStashStackSize ?? 0 : 0;
+                if (existing + amount > 255) throw new ArgumentException("Destination stack would exceed 255; withdraw items first.");
+                if (sourceStash != null) sourceStash[request.SourceTab].Items.Remove(itemToMove);
+                else sourceSave!.Items.Remove(itemToMove);
+                if (destination.Count == 1) destination[0].AdvancedStashStackSize = (byte)(existing + amount);
+                else
+                {
+                    itemToMove.AdvancedStashStackSize = (byte)amount;
+                    itemToMove.Position.Mode = ItemMode.Stored;
+                    itemToMove.Position.StorePage = StorePage.Stash;
+                    itemToMove.Position.InvX = 0;
+                    itemToMove.Position.InvY = 0;
+                    targetStash[request.TargetTab].Items.Add(itemToMove);
+                }
+                return (sourceStash != null ? sourceStash.ToBytes(externalData, 105) : sourceSave!.ToBytes(externalData, 105),
+                    isSameFile ? null : targetStash.ToBytes(externalData, 105),
+                    new TransferResult { Success = true, ItemCode = code, Message = $"Deposited {amount} {code}; stack now {existing + amount}." });
+            }
+            Item? sourceStack = null;
+            if (sourceAdvanced)
+            {
+                // Withdrawing to an ordinary grid splits off one complete item.
+                sourceStack = itemToMove;
+                var copy = D2StashSave.Read(sourceRawBytes, externalData);
+                itemToMove = FindItem(copy[request.SourceTab].Items, request.SourceX, request.SourceY, request.ItemSeed, request.ItemCode)!;
+                itemToMove.AdvancedStashStackSize = 0;
+            }
 
             var (itemW, itemH) = itemDims.GetSize(itemToMove.ItemCodeString);
 
@@ -182,14 +276,14 @@ public static class ItemTransferManager
             if (request.TargetContainer == ContainerType.SharedStash)
             {
                 if (targetStash == null || request.TargetTab < 0 || request.TargetTab >= targetStash.Count)
-                    return new TransferResult { Success = false, Message = $"Invalid target stash tab: {request.TargetTab}" };
+                    return (null, null, new TransferResult { Success = false, Message = $"Invalid target stash tab: {request.TargetTab}" });
 
                 targetGrid = ContainerGrid2D.BuildSharedStashGrid(targetStash[request.TargetTab], dims, itemDims, excludeItem);
             }
             else
             {
                 if (targetSave == null)
-                    return new TransferResult { Success = false, Message = "Target character save not loaded." };
+                    return (null, null, new TransferResult { Success = false, Message = "Target character save not loaded." });
 
                 var dstPage = ContainerTypeToStorePage(request.TargetContainer);
                 targetGrid = ContainerGrid2D.BuildCharacterGrid(targetSave, dstPage, dims, itemDims, excludeItem);
@@ -202,11 +296,11 @@ public static class ItemTransferManager
                 finalY = request.TargetY.Value;
                 if (!targetGrid.CanPlace(finalX, finalY, itemW, itemH))
                 {
-                    return new TransferResult
+                    return (null, null, new TransferResult
                     {
                         Success = false,
                         Message = $"Target slot ({finalX}, {finalY}) is occupied or out of bounds for item {itemToMove.ItemCodeString} ({itemW}x{itemH})."
-                    };
+                    });
                 }
             }
             else
@@ -214,26 +308,21 @@ public static class ItemTransferManager
                 var slot = targetGrid.FindFirstAvailableSlot(itemW, itemH);
                 if (!slot.HasValue)
                 {
-                    return new TransferResult
+                    return (null, null, new TransferResult
                     {
                         Success = false,
                         Message = $"Target container has no available space for item {itemToMove.ItemCodeString} ({itemW}x{itemH})."
-                    };
+                    });
                 }
                 finalX = slot.Value.X;
                 finalY = slot.Value.Y;
             }
 
-            // Create timestamped safety backups
-            var srcBackup = SaveBackup.CreateBackup(request.SourceFile);
-            string? dstBackup = null;
-            if (!isSameFile)
-                dstBackup = SaveBackup.CreateBackup(request.TargetFile);
-
             // Remove from source
             if (request.SourceContainer == ContainerType.SharedStash)
             {
-                sourceStash![request.SourceTab].Items.Remove(itemToMove);
+                if (sourceStack != null) sourceStack.AdvancedStashStackSize--;
+                else sourceStash![request.SourceTab].Items.Remove(itemToMove);
             }
             else
             {
@@ -258,47 +347,45 @@ public static class ItemTransferManager
                 targetSave!.Items.Add(itemToMove);
             }
 
-            // Write files atomically
+            // Serialize outputs
+            byte[] outSrcBytes;
+            byte[]? outDstBytes = null;
+
             if (isSameFile)
             {
-                byte[] bytes = request.SourceContainer == ContainerType.SharedStash
+                outSrcBytes = request.SourceContainer == ContainerType.SharedStash
                     ? sourceStash!.ToBytes(externalData, 105)
                     : sourceSave!.ToBytes(externalData, 105);
-                File.WriteAllBytes(request.SourceFile, bytes);
             }
             else
             {
-                byte[] srcBytes = request.SourceContainer == ContainerType.SharedStash
+                outSrcBytes = request.SourceContainer == ContainerType.SharedStash
                     ? sourceStash!.ToBytes(externalData, 105)
                     : sourceSave!.ToBytes(externalData, 105);
-                File.WriteAllBytes(request.SourceFile, srcBytes);
 
-                byte[] dstBytes = request.TargetContainer == ContainerType.SharedStash
+                outDstBytes = request.TargetContainer == ContainerType.SharedStash
                     ? targetStash!.ToBytes(externalData, 105)
                     : targetSave!.ToBytes(externalData, 105);
-                File.WriteAllBytes(request.TargetFile, dstBytes);
             }
 
-            return new TransferResult
+            return (outSrcBytes, outDstBytes, new TransferResult
             {
                 Success = true,
                 Message = $"Successfully transferred {itemToMove.ItemCodeString.Trim()} to ({finalX}, {finalY}) in {request.TargetContainer}.",
-                SourceBackup = srcBackup,
-                TargetBackup = dstBackup,
                 ItemCode = itemToMove.ItemCodeString.Trim(),
                 PlacedX = finalX,
                 PlacedY = finalY,
                 Width = itemW,
                 Height = itemH
-            };
+            });
         }
         catch (Exception ex)
         {
-            return new TransferResult
+            return (null, null, new TransferResult
             {
                 Success = false,
                 Message = $"Transfer failed with exception: {ex.Message}"
-            };
+            });
         }
     }
 
@@ -322,17 +409,54 @@ public static class ItemTransferManager
 
         try
         {
-            var dims = ContainerDimensions.LoadFromExcel(request.ExcelDir);
-            var itemDims = ItemDimensionsLookup.LoadFromExcel(request.ExcelDir);
-            var externalData = new TxtFileExternalData(request.ExcelDir, version: 105);
+            var stashBytes = File.ReadAllBytes(request.SourceStashFile);
+            var charBytes = File.ReadAllBytes(request.TargetCharFile);
 
-            var stash = D2StashSave.Read(File.ReadAllBytes(request.SourceStashFile), externalData);
-            var save = D2Save.Read(File.ReadAllBytes(request.TargetCharFile), externalData);
+            var (newStashBytes, newCharBytes, result) = BulkTransferBytes(stashBytes, charBytes, request, request.ExcelDir);
+            if (!result.Success)
+                return result;
+
+            var backups = SaveFileTransaction.Commit(
+                new(request.SourceStashFile, stashBytes, newStashBytes!),
+                new(request.TargetCharFile, charBytes, newCharBytes!));
+            result.SourceBackup = backups[0];
+            result.TargetBackup = backups[1];
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            return new BulkTransferResult
+            {
+                Success = false,
+                Message = $"Bulk transfer failed with exception: {ex.Message}"
+            };
+        }
+    }
+
+    public static (byte[]? newStashBytes, byte[]? newCharBytes, BulkTransferResult result) BulkTransferBytes(
+        byte[] sourceStashBytes,
+        byte[] targetCharBytes,
+        BulkTransferRequest request,
+        string excelDir)
+    {
+        try
+        {
+            SaveFileTransaction.VerifyRevision(sourceStashBytes, request.SourceRevision);
+            SaveFileTransaction.VerifyRevision(targetCharBytes, request.TargetRevision);
+            var dims = ContainerDimensions.LoadFromExcel(excelDir);
+            var itemDims = ItemDimensionsLookup.LoadFromExcel(excelDir);
+            var externalData = new TxtFileExternalData(excelDir, version: 105);
+
+            var stash = D2StashSave.Read(sourceStashBytes, externalData);
+            var save = D2Save.Read(targetCharBytes, externalData);
 
             if (request.SourceTab < 0 || request.SourceTab >= stash.Count)
-                return new BulkTransferResult { Success = false, Message = $"Invalid stash tab {request.SourceTab}" };
+                return (null, null, new BulkTransferResult { Success = false, Message = $"Invalid stash tab {request.SourceTab}" });
 
             var sourceTab = stash[request.SourceTab];
+            if (sourceTab.TabType != StashTabType.Normal)
+                throw new ArgumentException("Bulk packing requires a normal stash tab; withdraw advanced stacks individually.");
             var candidateItems = new List<Item>();
 
             if (request.ItemSeeds != null && request.ItemSeeds.Count > 0)
@@ -350,7 +474,7 @@ public static class ItemTransferManager
             }
 
             if (candidateItems.Count == 0)
-                return new BulkTransferResult { Success = true, Message = "No matching items found in stash tab to transfer.", ItemsMoved = 0 };
+                return (null, null, new BulkTransferResult { Success = true, Message = "No matching items found in stash tab to transfer.", ItemsMoved = 0 });
 
             // Determine if character has Horadric Cube
             bool hasCube = save.Items.Any(i => i.ItemCodeString.Trim().Equals("box", StringComparison.OrdinalIgnoreCase));
@@ -392,25 +516,20 @@ public static class ItemTransferManager
 
                 if (!placed)
                 {
-                    // Target containers are full
                     break;
                 }
             }
 
             if (movedItems.Count == 0)
             {
-                return new BulkTransferResult
+                return (null, null, new BulkTransferResult
                 {
                     Success = false,
                     Message = "No space available in any target container for the requested items.",
                     ItemsMoved = 0,
                     ItemsRemaining = candidateItems.Count
-                };
+                });
             }
-
-            // Create backups before executing mutation
-            var stashBackup = SaveBackup.CreateBackup(request.SourceStashFile);
-            var charBackup = SaveBackup.CreateBackup(request.TargetCharFile);
 
             var movedCodes = new List<string>();
             foreach (var (item, page, x, y) in movedItems)
@@ -425,29 +544,26 @@ public static class ItemTransferManager
                 movedCodes.Add(item.ItemCodeString.Trim());
             }
 
-            // Save both files
-            File.WriteAllBytes(request.SourceStashFile, stash.ToBytes(externalData, 105));
-            File.WriteAllBytes(request.TargetCharFile, save.ToBytes(externalData, 105));
+            byte[] newStashBytes = stash.ToBytes(externalData, 105);
+            byte[] newCharBytes = save.ToBytes(externalData, 105);
 
             int remaining = candidateItems.Count - movedItems.Count;
-            return new BulkTransferResult
+            return (newStashBytes, newCharBytes, new BulkTransferResult
             {
                 Success = true,
-                Message = $"Successfully packed {movedItems.Count} items into {Path.GetFileNameWithoutExtension(request.TargetCharFile)}. ({remaining} items remained in stash)",
+                Message = $"Successfully packed {movedItems.Count} items. ({remaining} items remained in stash)",
                 ItemsMoved = movedItems.Count,
                 ItemsRemaining = remaining,
-                MovedItemCodes = movedCodes,
-                SourceBackup = stashBackup,
-                TargetBackup = charBackup
-            };
+                MovedItemCodes = movedCodes
+            });
         }
         catch (Exception ex)
         {
-            return new BulkTransferResult
+            return (null, null, new BulkTransferResult
             {
                 Success = false,
                 Message = $"Bulk transfer failed with exception: {ex.Message}"
-            };
+            });
         }
     }
 
@@ -468,17 +584,13 @@ public static class ItemTransferManager
 
     private static Item? FindItem(IEnumerable<Item> items, int? x, int? y, uint? seed, string? code)
     {
-        foreach (var item in items)
-        {
-            if (seed.HasValue && item.ItemSeed == seed.Value)
-                return item;
-            if (x.HasValue && y.HasValue && item.Position.InvX == x.Value && item.Position.InvY == y.Value)
-            {
-                if (string.IsNullOrEmpty(code) || item.ItemCodeString.Trim().Equals(code.Trim(), StringComparison.OrdinalIgnoreCase))
-                    return item;
-            }
-        }
-        return null;
+        var matches = items.Where(item =>
+            (!seed.HasValue || item.ItemSeed == seed.Value)
+            && (!x.HasValue || item.Position.InvX == x.Value)
+            && (!y.HasValue || item.Position.InvY == y.Value)
+            && (string.IsNullOrWhiteSpace(code) || item.ItemCodeString.Trim().Equals(code.Trim(), StringComparison.OrdinalIgnoreCase)))
+            .Take(2).ToList();
+        return (seed.HasValue || (x.HasValue && y.HasValue)) && matches.Count == 1 ? matches[0] : null;
     }
 
     public static int RunCli(string[] args, string defaultSaveDir, string excelDir)
@@ -509,6 +621,8 @@ public static class ItemTransferManager
                     case "--to-tab": req.TargetTab = int.Parse(args[++i]); break;
                     case "--to-x": req.TargetX = int.Parse(args[++i]); break;
                     case "--to-y": req.TargetY = int.Parse(args[++i]); break;
+                    case "--source-revision": req.SourceRevision = args[++i]; break;
+                    case "--target-revision": req.TargetRevision = args[++i]; break;
                     case "--force-live": req.ForceLive = true; break;
                 }
             }
@@ -535,6 +649,8 @@ public static class ItemTransferManager
                     case "--char": req.TargetCharFile = args[++i]; break;
                     case "--filter": req.ItemFilter = args[++i]; break;
                     case "--max": req.MaxItems = int.Parse(args[++i]); break;
+                    case "--source-revision": req.SourceRevision = args[++i]; break;
+                    case "--target-revision": req.TargetRevision = args[++i]; break;
                     case "--force-live": req.ForceLive = true; break;
                 }
             }
@@ -556,8 +672,8 @@ public static class ItemTransferManager
     {
         "sharedstash" or "shared-stash" or "stash-tab" => ContainerType.SharedStash,
         "inventory" or "inv" => ContainerType.Inventory,
-        "stash" or "bank" or "personal-stash" => ContainerType.Stash,
+        "stash" or "bank" or "personal-stash" or "personal_stash" => ContainerType.Stash,
         "cube" or "horadric" or "horadric-cube" => ContainerType.Cube,
-        _ => ContainerType.Inventory
+        _ => throw new ArgumentException($"Unknown container: {s}")
     };
 }

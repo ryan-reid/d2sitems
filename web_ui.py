@@ -5,18 +5,26 @@ Provides a local web interface to explore, search, and inspect Diablo II save fi
 characters, shared stashes, and Holy Grail progression.
 """
 
+import shutil
 import argparse
 import glob
+import hashlib
 import http.server
 import json
+import mimetypes
 import os
 import re
 import socketserver
+import struct
 import subprocess
 import sys
 import threading
 import urllib.parse
 import webbrowser
+
+mimetypes.add_type("application/wasm", ".wasm")
+mimetypes.add_type("application/json", ".json")
+mimetypes.add_type("application/javascript", ".js")
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(SCRIPT_DIR, "web")
@@ -30,6 +38,13 @@ FALLBACK_EXCEL_DIR = r"C:\Program Files (x86)\Diablo II Resurrected\data\global\
 ITEMS_ASSETS_DIR = os.path.join(WEB_DIR, "assets", "items")
 SPRITE_MAPPINGS_FILE = os.path.join(WEB_DIR, "item_images.json")
 
+def catalog_revision(directory):
+    if not directory or not os.path.isdir(directory):
+        return None
+    manifest = "".join(os.path.basename(path).lower() + ":" + hashlib.sha256(open(path, "rb").read()).hexdigest().upper() + "\n"
+                       for path in sorted(glob.glob(os.path.join(directory, "*.txt")), key=lambda path: os.path.basename(path).lower()))
+    return hashlib.sha256(manifest.encode("utf-8")).hexdigest().upper()
+
 def get_sprite_mappings():
     if os.path.isfile(SPRITE_MAPPINGS_FILE):
         try:
@@ -39,6 +54,23 @@ def get_sprite_mappings():
             pass
     return {"codes": {}, "uniques": {}, "sets": {}}
 
+def resolve_item_art(item, catalog, classic=False):
+    quality = (item.get("quality") or "").lower()
+    group = "uniques" if quality == "unique" else "sets" if quality == "set" else "codes"
+    identifier = item.get("uniqueId" if quality == "unique" else "setId")
+    name = (item.get("name") or item.get("displayName") or "").split("(")[0].strip().lower()
+    code = (item.get("itemCode") or "").strip()
+    keys = [code] if group == "codes" else [str(identifier) if identifier is not None else None, name]
+    for kind, key in [(group, key) for key in keys if key] + [("codes", code)]:
+        fallback = catalog.get(kind, {}).get(key)
+        if not fallback:
+            continue
+        identity = kind + ":" + key
+        tier = {"Normal": "normal", "Exceptional": "uber", "Elite": "ultra"}.get(item.get("tier"), "normal")
+        file = (catalog.get("classic_" + kind, {}).get(key) or fallback) if classic else catalog.get("variants", {}).get(identity, {}).get(tier, fallback)
+        return {"file": file, "identity": identity, **catalog.get("provenance", {}).get(identity, {})}
+    return {"file": None, "source": "unmatched"}
+
 # Find d2sitems executable or dotnet project
 D2S_EXE_CANDIDATES = [
     os.path.join(SCRIPT_DIR, "bin", "Release", "net10.0", "win-x64", "publish", "d2sitems.exe"),
@@ -46,8 +78,15 @@ D2S_EXE_CANDIDATES = [
     os.path.join(SCRIPT_DIR, "d2sitems.exe"),
 ]
 
+def runner_command(runner_type, runner_path):
+    return [runner_path] if runner_type == "exe" else ["dotnet", "run", "--project", runner_path, "--no-launch-profile", "--"]
+
 def find_d2s_runner():
     """Returns (runner_type, path/command)."""
+    # A source checkout must execute the current engine, not a stale checked-in binary.
+    csproj = os.path.join(SCRIPT_DIR, "d2sitems.csproj")
+    if os.path.isfile(csproj) and shutil.which("dotnet"):
+        return ("dotnet", csproj)
     for candidate in D2S_EXE_CANDIDATES:
         if os.path.isfile(candidate):
             return ("exe", candidate)
@@ -71,78 +110,41 @@ def load_conf():
                 config[k] = v
     return config
 
+DEFAULT_BKDIABLO_SAVE_DIR = os.path.join(DEFAULT_D2R_SAVE_DIR, "Mods", "BKDiablo")
+DEFAULT_BKDIABLO_EXCEL_DIR = r"E:\Games\Diablo II Resurrected\Mods\BKDiablo\bkdiablo.mpq\data\global\excel"
+
 def detect_profiles():
-    """Detect available save profiles (Vanilla/RotW, mods, etc.)."""
+    """Detect available save profiles specifically for BKDiablo with optional retail fallback."""
     profiles = []
     conf = load_conf()
-    conf_save = conf.get("save_dir", DEFAULT_D2R_SAVE_DIR)
-    conf_excel = conf.get("excel_dir", DEFAULT_D2R_EXCEL_DIR if os.path.isdir(DEFAULT_D2R_EXCEL_DIR) else FALLBACK_EXCEL_DIR)
+    bkd_save = conf.get("save_dir", DEFAULT_BKDIABLO_SAVE_DIR)
+    if not os.path.isdir(bkd_save) and os.path.isdir(DEFAULT_BKDIABLO_SAVE_DIR):
+        bkd_save = DEFAULT_BKDIABLO_SAVE_DIR
+    bkd_excel = conf.get("excel_dir", DEFAULT_BKDIABLO_EXCEL_DIR)
+    if not os.path.isdir(bkd_excel) and os.path.isdir(DEFAULT_BKDIABLO_EXCEL_DIR):
+        bkd_excel = DEFAULT_BKDIABLO_EXCEL_DIR
 
-    # 1. Base D2R Save Directory
-    if os.path.isdir(conf_save):
+    # 1. Primary Profile: BKDiablo
+    if os.path.isdir(bkd_save):
         profiles.append({
-            "id": "default",
-            "name": "Standard / Reign of the Warlock",
-            "save_dir": conf_save,
-            "excel_dir": conf_excel if os.path.isdir(conf_excel) else DEFAULT_D2R_EXCEL_DIR,
+            "id": "bkdiablo",
+            "name": "BKDiablo",
+            "save_dir": bkd_save,
+            "excel_dir": bkd_excel,
             "is_default": True
         })
 
-    # 2. Check Mods directory under D2R Saved Games
-    mods_save_dir = os.path.join(DEFAULT_D2R_SAVE_DIR, "Mods")
-    if os.path.isdir(mods_save_dir):
-        for entry in os.listdir(mods_save_dir):
-            subpath = os.path.join(mods_save_dir, entry)
-            if os.path.isdir(subpath) and not entry.startswith("."):
-                # See if there are save files
-                d2s_count = len(glob.glob(os.path.join(subpath, "*.d2s"))) + len(glob.glob(os.path.join(subpath, "*.d2i")))
-                if d2s_count > 0:
-                    # Try to find corresponding excel directory in game install mods
-                    mod_excel = None
-                    candidate_roots = [
-                        r"E:\Games\Diablo II Resurrected\Mods",
-                        r"C:\Program Files (x86)\Diablo II Resurrected\Mods"
-                    ]
-                    entry_clean = re.sub(r'(Three|Ladder|Slam|[-_].*)$', '', entry, flags=re.I).strip()
-                    search_patterns = [entry]
-                    if entry_clean and entry_clean.lower() != entry.lower():
-                        search_patterns.append(entry_clean)
-
-                    for cr in candidate_roots:
-                        if os.path.isdir(cr):
-                            for sp in search_patterns:
-                                # Check for MPQ data global excel
-                                for mpq_match in glob.glob(os.path.join(cr, f"*{sp}*", "*.mpq", "data", "global", "excel")):
-                                    if os.path.isdir(mpq_match) and "backup" not in mpq_match.lower():
-                                        mod_excel = mpq_match
-                                        break
-                                if mod_excel: break
-                                for direct_match in glob.glob(os.path.join(cr, f"*{sp}*", "data", "global", "excel")):
-                                    if os.path.isdir(direct_match) and "backup" not in direct_match.lower():
-                                        mod_excel = direct_match
-                                        break
-                                if mod_excel: break
-                            if mod_excel: break
-                    if not mod_excel:
-                        mod_excel = conf_excel
-
-                    profiles.append({
-                        "id": f"mod-{entry.lower()}",
-                        "name": f"Mod: {entry}",
-                        "save_dir": subpath,
-                        "excel_dir": mod_excel,
-                        "is_default": False
-                    })
-
-    # Add an "All Saves Combined" profile if multiple exist
-    if len(profiles) > 1:
-        profiles.insert(0, {
-            "id": "all",
-            "name": "All Detected Profiles (Combined)",
-            "save_dir": "all",
-            "excel_dir": conf_excel,
-            "is_default": False
-        })
+    # 2. Optional Fallback: Retail D2R (Unmodded)
+    if os.path.isdir(DEFAULT_D2R_SAVE_DIR) and os.path.normcase(os.path.normpath(DEFAULT_D2R_SAVE_DIR)) != os.path.normcase(os.path.normpath(bkd_save)):
+        vanilla_saves = glob.glob(os.path.join(DEFAULT_D2R_SAVE_DIR, "*.d2s")) + glob.glob(os.path.join(DEFAULT_D2R_SAVE_DIR, "*.d2i"))
+        if vanilla_saves:
+            profiles.append({
+                "id": "retail",
+                "name": "Retail D2R (Unmodded)",
+                "save_dir": DEFAULT_D2R_SAVE_DIR,
+                "excel_dir": DEFAULT_D2R_EXCEL_DIR if os.path.isdir(DEFAULT_D2R_EXCEL_DIR) else FALLBACK_EXCEL_DIR,
+                "is_default": False
+            })
 
     return profiles
 
@@ -155,6 +157,8 @@ class SaveDataManager:
         self.items = []       # list of all loaded items
         self.grail_data = None
         self.last_scanned = None
+        self._hire_lookup = None
+        self._merc_strings = None
         self.reload()
 
     def get_active_profile(self):
@@ -203,6 +207,7 @@ class SaveDataManager:
                 if os.path.isdir(s_dir):
                     save_dirs.append((active_p["name"], s_dir))
 
+            current_revision = catalog_revision(active_p.get("excel_dir"))
             loaded_saves = []
             loaded_items = []
             item_id_counter = 1
@@ -240,6 +245,7 @@ class SaveDataManager:
                         "profile": profile_label,
                         "is_stash": is_stash,
                         "item_count": len(items_in_file),
+                        "saveRevision": data.get("saveRevision"),
                     }
 
                     if is_stash:
@@ -256,6 +262,7 @@ class SaveDataManager:
                         save_entry["core"] = char_info.get("core", "soft")
                         save_entry["gameVersion"] = char_info.get("gameVersion", "")
                         save_entry["stats"] = data.get("stats", {})
+                        save_entry["hasCorpse"] = char_info.get("hasCorpse", False)
 
                     loaded_saves.append(save_entry)
 
@@ -268,6 +275,15 @@ class SaveDataManager:
                         it_norm["profile"] = profile_label
                         it_norm["sourceName"] = source_name
                         it_norm["sourceFile"] = file_name
+                        it_norm["saveRevision"] = data.get("saveRevision")
+                        it_norm["catalogRevision"] = data.get("catalogRevision")
+                        it_norm["catalogStale"] = not current_revision or data.get("catalogRevision") != current_revision
+                        if it_norm["catalogStale"]:
+                            it_norm["verificationStatus"] = "unknown"
+                            it_norm["isOutOfDate"] = False
+                            it_norm["perfection"] = None
+                            it_norm["perfectionScore"] = None
+                            it_norm["outOfDateIssues"] = []
                         it_norm["isStash"] = is_stash
 
                         # Helper flags
@@ -280,49 +296,11 @@ class SaveDataManager:
                         raw_name = it_norm.get("name") or it_norm.get("baseName") or "Unknown Item"
                         it_norm["displayName"] = raw_name
 
-                        # Sprite file resolution
-                        q = (it_norm.get("quality") or "").lower()
-                        code = (it_norm.get("itemCode") or "").strip()
-                        inv_file = None
-                        if q == "unique":
-                            uid = str(it_norm.get("uniqueId")) if it_norm.get("uniqueId") is not None else None
-                            name_clean = raw_name.split("(")[0].strip().lower()
-                            cand = unique_map.get(uid) or unique_map.get(name_clean) or unique_map.get(raw_name.lower())
-                            if cand and os.path.isfile(os.path.join(ITEMS_ASSETS_DIR, cand)):
-                                inv_file = cand
-                        elif q == "set":
-                            name_clean = raw_name.split("(")[0].strip().lower()
-                            cand = set_map.get(name_clean) or set_map.get(raw_name.lower())
-                            if cand and os.path.isfile(os.path.join(ITEMS_ASSETS_DIR, cand)):
-                                inv_file = cand
-
-                        if not inv_file:
-                            cand = code_map.get(code)
-                            if cand and os.path.isfile(os.path.join(ITEMS_ASSETS_DIR, cand)):
-                                inv_file = cand
-
-                        it_norm["invFile"] = inv_file or (code + ".png" if code else "unknown.png")
-
-                        # Classic sprite resolution (for Legacy graphics toggle)
-                        inv_classic = None
-                        if q == "unique":
-                            uid = str(it_norm.get("uniqueId")) if it_norm.get("uniqueId") is not None else None
-                            name_clean = raw_name.split("(")[0].strip().lower()
-                            cand = classic_unique_map.get(uid) or classic_unique_map.get(name_clean) or classic_unique_map.get(raw_name.lower())
-                            if cand and os.path.isfile(os.path.join(ITEMS_ASSETS_DIR, cand)):
-                                inv_classic = cand
-                        elif q == "set":
-                            name_clean = raw_name.split("(")[0].strip().lower()
-                            cand = classic_set_map.get(name_clean) or classic_set_map.get(raw_name.lower())
-                            if cand and os.path.isfile(os.path.join(ITEMS_ASSETS_DIR, cand)):
-                                inv_classic = cand
-
-                        if not inv_classic:
-                            cand = classic_code_map.get(code)
-                            if cand and os.path.isfile(os.path.join(ITEMS_ASSETS_DIR, cand)):
-                                inv_classic = cand
-
-                        it_norm["invFileClassic"] = inv_classic or it_norm["invFile"]
+                        art = resolve_item_art(it_norm, sprite_mappings)
+                        it_norm["invFile"] = art["file"]
+                        it_norm["invFileClassic"] = resolve_item_art(it_norm, sprite_mappings, True)["file"]
+                        it_norm["artworkSource"] = art.get("source")
+                        it_norm["artworkFallback"] = art.get("fallback", False)
 
                         # Perfection
                         perf = it_norm.get("perfectionScore") if it_norm.get("perfectionScore") is not None else it_norm.get("perfection")
@@ -344,8 +322,8 @@ class SaveDataManager:
                                 it_norm["flags"] = []
                             if "Perfect" not in it_norm["flags"]:
                                 it_norm["flags"].append("Perfect")
-                        it_norm["isOutOfDate"] = bool(it.get("isOutOfDate", False))
-                        it_norm["outOfDateIssues"] = it.get("outOfDateIssues") or []
+                        it_norm["isOutOfDate"] = not it_norm["catalogStale"] and bool(it.get("isOutOfDate", False))
+                        it_norm["outOfDateIssues"] = [] if it_norm["catalogStale"] else (it.get("outOfDateIssues") or [])
 
                         loaded_items.append(it_norm)
 
@@ -369,6 +347,7 @@ class SaveDataManager:
             dirs_to_scan.append((active_p.get("excel_dir"), active_p.get("save_dir")))
 
         logs = []
+        success = True
         for excel_dir, save_dir in dirs_to_scan:
             cmd = []
             if runner_type == "exe":
@@ -382,12 +361,14 @@ class SaveDataManager:
 
             try:
                 proc = subprocess.run(cmd, cwd=SCRIPT_DIR, capture_output=True, text=True, timeout=60)
+                success = success and proc.returncode == 0
                 logs.append(f"Scanning {save_dir} with excel {excel_dir}...\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}")
             except Exception as e:
+                success = False
                 logs.append(f"Error running scan on {save_dir}: {str(e)}")
 
         self.reload()
-        return {"success": True, "log": "\n---\n".join(logs), "saves_count": len(self.saves), "items_count": len(self.items)}
+        return {"success": success, "log": "\n---\n".join(logs), "saves_count": len(self.saves), "items_count": len(self.items)}
 
     def search_items(self, query_params):
         """Filter items in memory with rich criteria."""
@@ -412,7 +393,7 @@ class SaveDataManager:
             # Out of date filter
             if out_of_date == "yes" and not it.get("isOutOfDate"):
                 continue
-            if out_of_date == "no" and it.get("isOutOfDate"):
+            if out_of_date == "no" and it.get("verificationStatus") != "verified":
                 continue
 
             # Corrupted filter
@@ -577,6 +558,110 @@ class SaveDataManager:
 
         return filtered
 
+    def _load_mercenary_lookups(self):
+        self._hire_lookup = {}
+        self._merc_strings = {}
+
+        candidate_strings = [
+            r"E:\Games\Mods\BKDiablo\Repo\bkdiablo.mpq\data\local\lng\strings\mercenaries.json",
+            r"E:\Games\Diablo II Resurrected\Mods\BKDiablo\bkdiablo.mpq\data\local\lng\strings\mercenaries.json",
+            r"E:\Games\Diablo II Resurrected\Data\local\lng\strings\mercenaries.json",
+        ]
+        for sp in candidate_strings:
+            if os.path.isfile(sp):
+                try:
+                    with open(sp, "r", encoding="utf-8-sig") as f:
+                        for it in json.load(f):
+                            k = it.get("Key")
+                            v = it.get("enUS")
+                            if k and v:
+                                self._merc_strings[k] = v
+                    break
+                except Exception:
+                    pass
+
+        candidate_hireling = [
+            r"E:\Games\Mods\BKDiablo\Repo\bkdiablo.mpq\data\global\excel\hireling.txt",
+            r"E:\Games\Diablo II Resurrected\Mods\BKDiablo\bkdiablo.mpq\data\global\excel\hireling.txt",
+            r"E:\Games\Diablo II Resurrected\Data\global\excel\hireling.txt",
+        ]
+        for hp in candidate_hireling:
+            if os.path.isfile(hp):
+                try:
+                    with open(hp, "r", encoding="utf-8", errors="ignore") as f:
+                        lines = [l.strip().split("\t") for l in f if l.strip()]
+                    if lines:
+                        headers = lines[0]
+                        for row in lines[1:]:
+                            d = dict(zip(headers, row))
+                            if d.get("Version") == "100" and "Id" in d:
+                                try:
+                                    self._hire_lookup[int(d["Id"])] = d
+                                except ValueError:
+                                    pass
+                    break
+                except Exception:
+                    pass
+
+    def get_mercenary_meta(self, target_char):
+        """Extract authentic mercenary metadata (name, type, level, dead/alive) from .d2s file."""
+        if not target_char:
+            return None
+        save_path = target_char.get("path")
+        if not save_path or not os.path.isfile(save_path):
+            return None
+        d2s_path = os.path.splitext(save_path)[0] + ".d2s"
+        if not os.path.isfile(d2s_path):
+            return None
+
+        try:
+            with open(d2s_path, "rb") as f:
+                data = f.read(256)
+            if len(data) < 175:
+                return None
+            flags, seed, name_id, hire_id, exp = struct.unpack("<IIHHI", data[159:175])
+            if hire_id == 0 and name_id == 0 and exp == 0:
+                return None
+
+            if not self._hire_lookup:
+                self._load_mercenary_lookups()
+
+            hd = self._hire_lookup.get(hire_id, {})
+            name_first = hd.get("NameFirst", "")
+            if name_first.startswith("merca2"):
+                base_idx = int(name_first[6:]) if len(name_first) > 6 else 1
+                name_key = f"merca2{base_idx + name_id:02d}"
+            elif name_first.startswith("MercX"):
+                base_idx = int(name_first[5:]) if len(name_first) > 5 else 101
+                name_key = f"MercX{base_idx + name_id}"
+            elif name_first.startswith("merc0"):
+                base_idx = int(name_first[5:]) if len(name_first) > 5 else 1
+                name_key = f"merc{base_idx + name_id:02d}"
+            elif name_first.startswith("merc3"):
+                base_idx = int(name_first[5:]) if len(name_first) > 5 else 1
+                name_key = f"merc3{base_idx + name_id:02d}"
+            else:
+                name_key = name_first
+
+            name = self._merc_strings.get(name_key, "Mercenary")
+            hire_type = hd.get("Hireling", "Mercenary")
+            sub_type = hd.get("*SubType", "")
+            char_level = target_char.get("level", 90)
+
+            return {
+                "name": name,
+                "type": hire_type,
+                "subType": sub_type,
+                "level": char_level,
+                "isDead": bool(flags & 0x10000),
+                "experience": exp,
+                "seed": seed,
+                "hirelingId": hire_id,
+                "nameId": name_id
+            }
+        except Exception:
+            return None
+
     def get_character_detail(self, char_name):
         """Find character and group their items into paperdoll slots & inventory."""
         target_char = None
@@ -588,7 +673,7 @@ class SaveDataManager:
         if not target_char:
             return None
 
-        char_items = [it for it in self.items if it["sourceName"].lower() == char_name.lower()]
+        char_items = [it for it in self.items if it["sourceName"].lower() == char_name.lower() and it.get("sourceFile") == target_char.get("file")]
 
         # Categorize by location
         equipped_slots = {
@@ -615,8 +700,29 @@ class SaveDataManager:
 
         for it in char_items:
             loc = it.get("location", "")
-            if loc in equipped_slots:
-                equipped_slots[loc] = it
+            is_merc = it.get("isMercenary") or "Merc" in loc or "Hireling" in loc
+            if is_merc:
+                mercenary.append(it)
+                continue
+
+            # Belt potions (Mode=InBelt) go to potion belt, never equipped slot
+            if it.get("mode") == "InBelt" or loc == "InBelt":
+                belt_slots.append(it)
+                continue
+
+            # Normalize slot names if coming from raw D2S location values
+            mapped_loc = loc
+            if loc == "RightArm":
+                mapped_loc = "RightHand"
+            elif loc == "LeftArm":
+                mapped_loc = "LeftHand"
+            elif loc == "Feet":
+                mapped_loc = "Boots"
+
+            if mapped_loc in equipped_slots:
+                # Active equipment takes precedence over corpse equipment
+                if equipped_slots[mapped_loc] is None or not it.get("isCorpse"):
+                    equipped_slots[mapped_loc] = it
             elif loc == "Inventory":
                 inventory.append(it)
             elif loc == "Stash":
@@ -625,10 +731,14 @@ class SaveDataManager:
                 cube.append(it)
             elif loc == "Belt":
                 belt_slots.append(it)
-            elif "Merc" in loc or "Hireling" in loc:
-                mercenary.append(it)
             else:
                 other.append(it)
+
+        # Update target_char corpse flag if corpse items were found
+        has_corpse = target_char.get("hasCorpse", False) or any(it.get("isCorpse") for it in char_items)
+        target_char["hasCorpse"] = has_corpse
+
+        merc_info = self.get_mercenary_meta(target_char)
 
         return {
             "character": target_char,
@@ -638,26 +748,41 @@ class SaveDataManager:
             "cube": cube,
             "belt": belt_slots,
             "mercenary": mercenary,
+            "mercenary_info": merc_info,
             "other": other,
+            "hasCorpse": has_corpse,
             "total_items": len(char_items)
         }
 
-    def get_shared_stash_detail(self):
+    def get_shared_stash_detail(self, character=None):
         """Group all items in shared stash into tabs."""
         stash_saves = [s for s in self.saves if s.get("is_stash")]
         if not stash_saves:
             return None
+        if character:
+            selected = next((save for save in self.saves if not save.get("is_stash") and save.get("name") == character), None)
+            if not selected:
+                return None
+            stash_saves = [save for save in stash_saves if save.get("core") == selected.get("core") and save.get("gameVersion") == selected.get("gameVersion")]
+        if len(stash_saves) != 1:
+            return None
         save_entry = stash_saves[0]
-        stash_items = [it for it in self.items if it.get("isStash")]
+        stash_items = [it for it in self.items if it.get("isStash") and it.get("sourceFile") == save_entry.get("file")]
         tabs_meta = save_entry.get("tabs", [])
 
         # Group items by tabIndex
         tabs = []
         for i, meta in enumerate(tabs_meta):
             tab_items = [it for it in stash_items if it.get("tabIndex") == i]
+            raw_name = meta.get("name", "")
+            if not raw_name or raw_name.startswith("Shared Stash Tab"):
+                tab_name = "Stackable" if (i == 5 or (len(tabs_meta) == 6 and i == 5)) else f"Shared {i + 1}"
+            else:
+                tab_name = raw_name
+
             tabs.append({
                 "index": i,
-                "name": meta.get("name", f"Shared Stash Tab {i + 1}"),
+                "name": tab_name,
                 "gold": meta.get("gold", 0),
                 "itemCount": len(tab_items),
                 "items": tab_items
@@ -670,7 +795,7 @@ class SaveDataManager:
             tab_items = [it for it in stash_items if it.get("tabIndex") == i]
             tabs.append({
                 "index": i,
-                "name": f"Shared Stash Tab {i + 1}",
+                "name": f"Shared {i + 1}",
                 "gold": 0,
                 "itemCount": len(tab_items),
                 "items": tab_items
@@ -795,7 +920,7 @@ class SaveDataManager:
         with self.lock:
             eligible_items = [it for it in self.items if it.get("quality") in ("Unique", "Set") or it.get("isRuneword")]
             out_of_date_items = [it for it in eligible_items if it.get("isOutOfDate")]
-            up_to_date_items = [it for it in eligible_items if not it.get("isOutOfDate")]
+            up_to_date_items = [it for it in eligible_items if it.get("verificationStatus") == "verified"]
 
             by_char = {}
             for it in out_of_date_items:
@@ -853,7 +978,7 @@ class SaveDataManager:
                 rng = s.get("range")
                 oor = s.get("outOfRange")
 
-                status = "ok"
+                status = "ok" if exp_min is not None and exp_max is not None else "unknown"
                 if oor == "below_min":
                     status = "below_min"
                 elif oor == "above_max":
@@ -893,7 +1018,9 @@ class SaveDataManager:
                 "item": it,
                 "stats_comparison": stats_comparison,
                 "is_out_of_date": it.get("isOutOfDate", False),
-                "issues": it.get("outOfDateIssues", [])
+                "issues": it.get("outOfDateIssues", []),
+                "catalogRevision": it.get("catalogRevision"),
+                "catalogStale": it.get("catalogStale", True)
             }
 
 # Global manager instance
@@ -928,7 +1055,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             items = DATA_MANAGER.search_items(params)
             self.send_json({
                 "total": len(items),
-                "items": items[:500] # Return up to 500 items per search query
+                "items": items # Return every match; counts must reflect reachable results.
             })
             return
 
@@ -949,6 +1076,18 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_error(400, "Invalid item ID")
             return
 
+        if path.startswith("/api/item/"):
+            try:
+                item_id = int(path[len("/api/item/"):])
+                item = next((it for it in DATA_MANAGER.items if it.get("id") == item_id), None)
+                if item:
+                    self.send_json(item)
+                else:
+                    self.send_error(404, "Item not found")
+            except ValueError:
+                self.send_error(400, "Invalid item ID")
+            return
+
         if path.startswith("/api/character/"):
             char_name = urllib.parse.unquote(path[len("/api/character/"):])
             detail = DATA_MANAGER.get_character_detail(char_name)
@@ -959,7 +1098,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if path == "/api/shared-stash":
-            stash_detail = DATA_MANAGER.get_shared_stash_detail()
+            stash_detail = DATA_MANAGER.get_shared_stash_detail(params.get("character"))
             if stash_detail:
                 self.send_json(stash_detail)
             else:
@@ -1012,11 +1151,28 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         return super().do_GET()
 
     def do_POST(self):
+        origin = self.headers.get("Origin")
+        allowed = {f"http://127.0.0.1:{self.server.server_port}", f"http://localhost:{self.server.server_port}"}
+        if origin and origin not in allowed:
+            self.send_json({"success": False, "error": "Save changes must originate from this local editor."})
+            return
+        try:
+            self.handle_post()
+        except (ValueError, TypeError, KeyError, IndexError, OSError, subprocess.SubprocessError) as error:
+            self.send_json({"success": False, "error": str(error)})
+
+    def handle_post(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
         content_len = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_len) if content_len > 0 else b""
         data = json.loads(body.decode("utf-8")) if body else {}
+
+        if path in ("/api/item/transfer", "/api/mule/fill", "/api/stash/stack-quantity", "/api/character/quests/complete") and DATA_MANAGER.get_active_profile().get("id") == "all":
+            self.send_json({"success": False, "error": "Select one save profile before editing."})
+            return
+
+
 
         if path == "/api/profiles/select":
             pid = data.get("profile_id")
@@ -1065,7 +1221,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json({"success": False, "error": "d2sitems runner not found."})
                 return
 
-            cmd = [runner_path, "create-mule", "--name", name, "--class", char_class, "--save-dir", save_dir]
+            cmd = runner_command(runner_type, runner_path) + ["create-mule", "--name", name, "--class", char_class, "--save-dir", save_dir]
             if hardcore:
                 cmd.append("--hardcore")
             if excel_dir and os.path.isdir(excel_dir):
@@ -1117,8 +1273,14 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json({"success": False, "error": "d2sitems runner not found."})
                 return
 
-            cmd = [runner_path, "complete-quests", "--char", char_name, "--diff", difficulty, "--save-dir", save_dir]
-            if act is not None and str(act).isdigit():
+            if not data.get("revision"):
+                self.send_json({"success": False, "error": "Rescan the character before editing quests."})
+                return
+            cmd = runner_command(runner_type, runner_path) + ["complete-quests", "--char", char_name, "--diff", difficulty, "--save-dir", save_dir, "--revision", data["revision"]]
+            if act is not None:
+                if str(act) not in ("1", "2", "3", "4", "5"):
+                    self.send_json({"success": False, "error": "Act must be from 1 to 5, or omitted for all acts."})
+                    return
                 cmd.extend(["--act", str(act)])
             if unlock_waypoints:
                 cmd.append("--waypoints")
@@ -1150,6 +1312,26 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             save_dir = active_p.get("save_dir")
             excel_dir = active_p.get("excel_dir") or DEFAULT_D2R_EXCEL_DIR
 
+            item_id = data.get("item_id")
+            if item_id is not None:
+                it = next((x for x in DATA_MANAGER.items if x.get("id") == item_id), None)
+                if it:
+                    if not data.get("source_file"):
+                        data["source_file"] = it.get("sourceFile", "")
+                    if not data.get("source_container"):
+                        loc = it.get("location", "SharedStash")
+                        data["source_container"] = "sharedstash" if it.get("isStash") else loc
+                    if "source_tab" not in data:
+                        data["source_tab"] = it.get("tabIndex", 0)
+                    if "source_x" not in data:
+                        data["source_x"] = it.get("invX", 0)
+                    if "source_y" not in data:
+                        data["source_y"] = it.get("invY", 0)
+                    if not data.get("seed"):
+                        data["seed"] = it.get("itemSeed")
+                    if not data.get("code"):
+                        data["code"] = it.get("itemCode")
+
             source_file = data.get("source_file", "").strip()
             source_container = data.get("source_container", "sharedstash").strip()
             source_tab = int(data.get("source_tab", 0))
@@ -1159,6 +1341,10 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             item_code = data.get("code")
 
             target_file = data.get("target_file", "").strip()
+            target_char = data.get("target_character", "").strip()
+            if not target_file and target_char:
+                target_file = f"{target_char}.d2s"
+
             target_container = data.get("target_container", "inventory").strip()
             target_tab = int(data.get("target_tab", 0))
             target_x = data.get("target_x")
@@ -1187,7 +1373,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
             cmd = [
-                runner_path, "transfer-item",
+                *runner_command(runner_type, runner_path), "transfer-item",
                 "--from-file", source_file,
                 "--from-container", source_container,
                 "--from-tab", str(source_tab),
@@ -1196,6 +1382,10 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 "--to-tab", str(target_tab),
                 "--excel", excel_dir
             ]
+            if not data.get("source_revision") or not data.get("target_revision"):
+                self.send_json({"success": False, "error": "Rescan saves before transferring; save revisions are required."})
+                return
+            cmd.extend(["--source-revision", data["source_revision"], "--target-revision", data["target_revision"]])
             if source_x is not None and source_y is not None:
                 cmd.extend(["--from-x", str(source_x), "--from-y", str(source_y)])
             if item_seed is not None:
@@ -1210,15 +1400,13 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             proc = subprocess.run(cmd, cwd=SCRIPT_DIR, capture_output=True, text=True)
             try:
                 res = json.loads(proc.stdout)
+                if proc.returncode != 0:
+                    res["Success"] = False
                 if res.get("Success"):
                     DATA_MANAGER.run_scan()
                 self.send_json(res)
-            except Exception:
-                if proc.returncode == 0:
-                    DATA_MANAGER.run_scan()
-                    self.send_json({"success": True, "output": proc.stdout.strip()})
-                else:
-                    self.send_json({"success": False, "error": proc.stdout.strip() or proc.stderr.strip()})
+            except (ValueError, TypeError):
+                self.send_json({"success": False, "error": "Invalid editor response: " + (proc.stderr.strip() or proc.stdout.strip())})
             return
 
         if path == "/api/mule/fill":
@@ -1254,8 +1442,12 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json({"success": False, "error": "d2sitems runner not found."})
                 return
 
+            if not data.get("source_revision") or not data.get("target_revision"):
+                self.send_json({"success": False, "error": "Rescan both saves before packing a mule."})
+                return
             cmd = [
-                runner_path, "fill-mule",
+                *runner_command(runner_type, runner_path), "fill-mule",
+                "--source-revision", data["source_revision"], "--target-revision", data["target_revision"],
                 "--stash", stash_file,
                 "--tab", str(tab),
                 "--char", char_file,
@@ -1269,15 +1461,76 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             proc = subprocess.run(cmd, cwd=SCRIPT_DIR, capture_output=True, text=True)
             try:
                 res = json.loads(proc.stdout)
+                if proc.returncode != 0:
+                    res["Success"] = False
                 if res.get("Success"):
                     DATA_MANAGER.run_scan()
                 self.send_json(res)
-            except Exception:
-                if proc.returncode == 0:
+            except (ValueError, TypeError):
+                self.send_json({"success": False, "error": "Invalid editor response: " + (proc.stderr.strip() or proc.stdout.strip())})
+            return
+
+        if path == "/api/stash/stack-quantity":
+            active_p = DATA_MANAGER.get_active_profile()
+            save_dir = active_p.get("save_dir")
+            excel_dir = active_p.get("excel_dir") or DEFAULT_D2R_EXCEL_DIR
+
+            stash_file = data.get("file", "").strip()
+            tab_idx = int(data.get("tab", 5))
+            item_code = data.get("code", "").strip()
+            item_seed = data.get("seed")
+            quantity = int(data.get("quantity", 0))
+
+            if not item_code:
+                self.send_json({"success": False, "error": "Item code is required."})
+                return
+
+            if not stash_file or item_seed is None or "tab" not in data:
+                self.send_json({"success": False, "error": "Exact stash file, tab, and item seed are required."})
+                return
+
+            if save_dir == "all":
+                for prof in DATA_MANAGER.profiles:
+                    if prof.get("save_dir") and prof["save_dir"] != "all":
+                        cand = os.path.join(prof["save_dir"], stash_file)
+                        if os.path.isfile(cand):
+                            save_dir = prof["save_dir"]
+                            excel_dir = prof.get("excel_dir") or excel_dir
+                            break
+
+            if not os.path.isabs(stash_file) and save_dir and save_dir != "all":
+                stash_file = os.path.join(save_dir, stash_file)
+
+            runner_type, runner_path = find_d2s_runner()
+            if not runner_path:
+                self.send_json({"success": False, "error": "d2sitems runner not found."})
+                return
+
+            cmd = [
+                *runner_command(runner_type, runner_path), "edit-stack",
+                "--file", stash_file,
+                "--tab", str(tab_idx),
+                "--code", item_code,
+                "--qty", str(quantity),
+                "--excel", excel_dir
+            ]
+            if not data.get("revision"):
+                self.send_json({"success": False, "error": "Rescan before editing a stack; its save revision is required."})
+                return
+            cmd.extend(["--revision", data["revision"]])
+            if item_seed is not None:
+                cmd.extend(["--seed", str(item_seed)])
+
+            proc = subprocess.run(cmd, cwd=SCRIPT_DIR, capture_output=True, text=True)
+            try:
+                res = json.loads(proc.stdout)
+                if proc.returncode != 0:
+                    res["Success"] = False
+                if res.get("Success"):
                     DATA_MANAGER.run_scan()
-                    self.send_json({"success": True, "output": proc.stdout.strip()})
-                else:
-                    self.send_json({"success": False, "error": proc.stdout.strip() or proc.stderr.strip()})
+                self.send_json(res)
+            except (ValueError, TypeError):
+                self.send_json({"success": False, "error": "Invalid editor response: " + (proc.stderr.strip() or proc.stdout.strip())})
             return
 
         self.send_error(404)

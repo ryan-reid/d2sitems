@@ -17,16 +17,20 @@ import shutil
 
 DEFAULT_PALETTE_PATH = r"E:\Games\Diablo II Resurrected\Data\global\palette\act1\pal.dat"
 DEFAULT_DC6_DIRS = [
+    r"E:\Games\Diablo II Resurrected\Mods\BKDiablo\bkdiablo.mpq\data\global\items",
     r"E:\Games\Diablo II Resurrected\Data\global\items",
-    r"E:\Games\Diablo II Resurrected\Mods\Reimagined\Reimagined.mpq\data\global\items",
 ]
-DEFAULT_HD_ITEMS_ROOT = r"E:\Games\Diablo II Resurrected\Data\hd\global\ui\items"
-DEFAULT_HD_JSON_DIR = r"E:\Games\Diablo II Resurrected\Data\hd\items"
+DEFAULT_HD_ITEMS_ROOTS = [
+    r"E:\Games\Diablo II Resurrected\Mods\BKDiablo\bkdiablo.mpq\data\hd\global\ui\items",
+    r"E:\Games\Diablo II Resurrected\Data\hd\global\ui\items",
+]
+DEFAULT_HD_JSON_DIRS = [
+    r"E:\Games\Diablo II Resurrected\Mods\BKDiablo\bkdiablo.mpq\data\hd\items",
+    r"E:\Games\Diablo II Resurrected\Data\hd\items",
+]
 DEFAULT_EXCEL_DIRS = [
     r"E:\Games\Diablo II Resurrected\Mods\BKDiablo\bkdiablo.mpq\data\global\excel",
-    r"E:\Games\Diablo II Resurrected\Mods\btdiablo\btdiablo.mpq\data\global\excel",
-    r"E:\Games\Diablo II Resurrected\Mods\Reimagined\Reimagined.mpq\data\global\excel",
-    r"E:\Games\Diablo II Resurrected\Mods\D2RMM\D2RMM.mpq\data\global\excel",
+    r"E:\Games\Diablo II Resurrected\Data\global\excel",
 ]
 DEFAULT_OUTPUT_DIR = r"web\assets\items"
 DEFAULT_JSON_PATH = r"web\item_images.json"
@@ -137,7 +141,7 @@ def decode_spa1_to_png(sprite_path: str) -> bytes | None:
 
 
 def extract_all_sprites(palette_path=DEFAULT_PALETTE_PATH, dc6_dirs=DEFAULT_DC6_DIRS,
-                        hd_root=DEFAULT_HD_ITEMS_ROOT, out_dir=DEFAULT_OUTPUT_DIR):
+                        hd_roots=DEFAULT_HD_ITEMS_ROOTS, out_dir=DEFAULT_OUTPUT_DIR):
     os.makedirs(out_dir, exist_ok=True)
 
     # 1. Classic DC6 sprites (with BGR palette fix)
@@ -145,13 +149,13 @@ def extract_all_sprites(palette_path=DEFAULT_PALETTE_PATH, dc6_dirs=DEFAULT_DC6_
     palette = load_palette(palette_path)
 
     dc6_files = {}
-    for d in dc6_dirs:
+    # Scan in reverse so BKDiablo overrides retail
+    for d in reversed(dc6_dirs):
         if not os.path.exists(d):
             continue
         for f in glob.glob(os.path.join(d, "*.[dD][cC]6")):
             base = os.path.splitext(os.path.basename(f))[0].lower()
-            if base not in dc6_files:
-                dc6_files[base] = f
+            dc6_files[base] = f
 
     print(f"Converting {len(dc6_files)} classic DC6 sprite files...")
     dc6_converted = 0
@@ -176,7 +180,9 @@ def extract_all_sprites(palette_path=DEFAULT_PALETTE_PATH, dc6_dirs=DEFAULT_DC6_
     # 2. Modern D2R HD SpA1 sprites
     hd_converted = 0
     hd_files_map = {}
-    if os.path.exists(hd_root):
+    for hd_root in reversed(hd_roots):
+        if not os.path.exists(hd_root):
+            continue
         print(f"Converting modern D2R HD SpA1 sprites from {hd_root}...")
         for prefix in ["armor", "weapon", "misc"]:
             p = os.path.join(hd_root, prefix)
@@ -201,164 +207,128 @@ def extract_all_sprites(palette_path=DEFAULT_PALETTE_PATH, dc6_dirs=DEFAULT_DC6_
                         except Exception as e:
                             print(f"Error converting HD sprite {src_path}: {e}")
 
-        print(f"Successfully converted {hd_converted} D2R HD sprites.")
-
+    print(f"Successfully converted {hd_converted} D2R HD sprites.")
     return hd_files_map
 
 
-def build_image_mappings(excel_dirs=DEFAULT_EXCEL_DIRS, hd_json_dir=DEFAULT_HD_JSON_DIR,
+def build_image_mappings(excel_dirs=DEFAULT_EXCEL_DIRS, hd_json_dirs=DEFAULT_HD_JSON_DIRS,
                          hd_files_map=None, json_path=DEFAULT_JSON_PATH):
-    print("Building comprehensive sprite mappings (Classic + D2R HD)...")
-    out_dir = os.path.dirname(os.path.abspath(json_path))
-    items_dir = os.path.join(out_dir, "assets", "items")
+    """Resolve each definition from the mod before considering a retail match."""
+    import csv
+    import hashlib
+    import re
+    items_dir = os.path.join(os.path.dirname(os.path.abspath(json_path)), "assets", "items")
+    groups = ("codes", "uniques", "sets")
+    result = {prefix + group: {} for prefix in ("", "hd_", "classic_") for group in groups}
+    result["provenance"] = {}
+    result["variants"] = {}
+    fingerprints = {}
 
-    # Discover HD file map if not passed
-    if not hd_files_map:
-        hd_files_map = {}
-        for f in glob.glob(os.path.join(items_dir, "hd_*.png")):
-            base = os.path.splitext(os.path.basename(f))[0]
-            # hd_weapon_axe_hand_axe -> axe/hand_axe
-            asset_key = base[3:].replace("_", "/")
-            hd_files_map[asset_key] = os.path.basename(f)
+    def read_bytes(path):
+        with open(path, "rb") as stream:
+            data = stream.read()
+        fingerprints[os.path.abspath(path)] = hashlib.sha256(data).hexdigest()
+        return data
 
-    # 1. Classic code mapping from Excel
-    classic_codes = {}
-    for edir in excel_dirs:
-        for fname in ["armor.txt", "weapons.txt", "misc.txt"]:
-            p = os.path.join(edir, fname)
-            if not os.path.exists(p):
-                continue
-            with open(p, "r", encoding="latin-1") as f:
-                headers = [h.strip() for h in f.readline().split("\t")]
-                if "code" not in headers or "invfile" not in headers:
+    def key(value):
+        return re.sub(r"[^a-z0-9]", "", value.lower())
+
+    def existing(name):
+        return name if name and os.path.isfile(os.path.join(items_dir, name)) else None
+
+    def hd_file(asset):
+        # uniques.json can reference ../misc relative to the inventory items root.
+        asset = asset.lower().replace("\\", "/")
+        if asset.startswith("../misc/"):
+            asset = asset[len("../misc/"):]
+        return existing("hd_" + asset.replace("/", "_") + ".png") if asset else None
+
+    sources = []
+    for position, excel_dir in enumerate(excel_dirs):
+        tables = {group: {} for group in groups}
+        for group, filenames in (("codes", ("armor.txt", "weapons.txt", "misc.txt")),
+                                 ("uniques", ("uniqueitems.txt",)), ("sets", ("setitems.txt",))):
+            for filename in filenames:
+                path = os.path.join(excel_dir, filename)
+                if not os.path.isfile(path):
                     continue
-                c_idx = headers.index("code")
-                i_idx = headers.index("invfile")
-                for line in f:
-                    parts = [p.strip() for p in line.split("\t")]
-                    if len(parts) > max(c_idx, i_idx):
-                        code = parts[c_idx]
-                        inv = parts[i_idx]
-                        if code and inv and code not in classic_codes:
-                            classic_codes[code] = f"{inv.lower()}.png"
+                rows = csv.DictReader(read_bytes(path).decode("latin1").splitlines(), delimiter="\t")
+                for row in rows:
+                    identity = row.get("code" if group == "codes" else "index", "").strip()
+                    if not identity:
+                        continue
+                    tables[group][identity.lower()] = row
+        hd = {}
+        json_dir = hd_json_dirs[position] if position < len(hd_json_dirs) else ""
+        for group, filename in (("codes", "items.json"), ("uniques", "uniques.json"), ("sets", "sets.json")):
+            path = os.path.join(json_dir, filename)
+            hd[group] = {}
+            if os.path.isfile(path):
+                for entry in json.loads(read_bytes(path).decode("utf-8-sig")):
+                    for identity, info in entry.items():
+                        hd[group][key(identity)] = info
+        sources.append((excel_dir, tables, hd))
 
-    classic_codes["bag"] = "invgemb.png"
-
-    classic_uniques = {}
-    for edir in excel_dirs:
-        p = os.path.join(edir, "uniqueitems.txt")
-        if not os.path.exists(p):
-            continue
-        with open(p, "r", encoding="latin-1") as f:
-            headers = [h.strip() for h in f.readline().split("\t")]
-            id_col = headers.index("*ID") if "*ID" in headers else -1
-            name_col = headers.index("index") if "index" in headers else -1
-            inv_col = headers.index("invfile") if "invfile" in headers else -1
-            for line in f:
-                parts = [p.strip() for p in line.split("\t")]
-                if inv_col >= 0 and len(parts) > inv_col:
-                    inv = parts[inv_col]
-                    if inv:
-                        png = f"{inv.lower()}.png"
-                        if id_col >= 0 and len(parts) > id_col and parts[id_col]:
-                            classic_uniques[str(parts[id_col])] = png
-                        if name_col >= 0 and len(parts) > name_col and parts[name_col]:
-                            classic_uniques[parts[name_col].lower()] = png
-
-    classic_sets = {}
-    for edir in excel_dirs:
-        p = os.path.join(edir, "setitems.txt")
-        if not os.path.exists(p):
-            continue
-        with open(p, "r", encoding="latin-1") as f:
-            headers = [h.strip() for h in f.readline().split("\t")]
-            id_col = headers.index("*ID") if "*ID" in headers else -1
-            name_col = headers.index("index") if "index" in headers else -1
-            inv_col = headers.index("invfile") if "invfile" in headers else -1
-            for line in f:
-                parts = [p.strip() for p in line.split("\t")]
-                if inv_col >= 0 and len(parts) > inv_col:
-                    inv = parts[inv_col]
-                    if inv:
-                        png = f"{inv.lower()}.png"
-                        if id_col >= 0 and len(parts) > id_col and parts[id_col]:
-                            classic_sets[str(parts[id_col])] = png
-                        if name_col >= 0 and len(parts) > name_col and parts[name_col]:
-                            classic_sets[parts[name_col].lower()] = png
-
-    # 2. Modern D2R HD Mappings from items.json, uniques.json, sets.json
-    hd_codes = {}
-    hd_uniques = {}
-    hd_sets = {}
-
-    items_json_path = os.path.join(hd_json_dir, "items.json")
-    if os.path.exists(items_json_path):
-        with open(items_json_path, "r", encoding="utf-8") as f:
-            items_json = json.load(f)
-        for entry in items_json:
-            for code, info in entry.items():
-                asset = info.get("asset", "").lower()
-                clean_name = "hd_" + asset.replace("/", "_") + ".png"
-                if os.path.exists(os.path.join(items_dir, clean_name)):
-                    hd_codes[code] = clean_name
-
-    uniques_json_path = os.path.join(hd_json_dir, "uniques.json")
-    if os.path.exists(uniques_json_path):
-        with open(uniques_json_path, "r", encoding="utf-8") as f:
-            uniques_json = json.load(f)
-        for entry in uniques_json:
-            for uname, info in entry.items():
-                asset = info.get("normal", "").lower()
-                clean_name = "hd_" + asset.replace("/", "_") + ".png"
-                if os.path.exists(os.path.join(items_dir, clean_name)):
-                    hd_uniques[uname.lower()] = clean_name
-                    hd_uniques[uname.lower().replace("_", " ")] = clean_name
-
-    sets_json_path = os.path.join(hd_json_dir, "sets.json")
-    if os.path.exists(sets_json_path):
-        with open(sets_json_path, "r", encoding="utf-8") as f:
-            sets_json = json.load(f)
-        for entry in sets_json:
-            for sname, info in entry.items():
-                asset = info.get("normal", "").lower()
-                clean_name = "hd_" + asset.replace("/", "_") + ".png"
-                if os.path.exists(os.path.join(items_dir, clean_name)):
-                    hd_sets[sname.lower()] = clean_name
-                    hd_sets[sname.lower().replace("_", " ")] = clean_name
-
-    # 3. Merged Best-Quality mappings (HD preferred, falling back to classic)
-    merged_codes = dict(classic_codes)
-    merged_codes.update(hd_codes)
-
-    merged_uniques = dict(classic_uniques)
-    merged_uniques.update(hd_uniques)
-
-    merged_sets = dict(classic_sets)
-    merged_sets.update(hd_sets)
-
-    mapping_data = {
-        "codes": merged_codes,
-        "uniques": merged_uniques,
-        "sets": merged_sets,
-        "hd_codes": hd_codes,
-        "hd_uniques": hd_uniques,
-        "hd_sets": hd_sets,
-        "classic_codes": classic_codes,
-        "classic_uniques": classic_uniques,
-        "classic_sets": classic_sets,
-    }
-
+    for group in groups:
+        identities = set().union(*(set(tables[group]) for _, tables, _ in sources))
+        for identity in sorted(identities):
+            chosen = None
+            classics = None
+            modern = None
+            provenance = None
+            variants = {}
+            aliases = {identity}
+            for source_index, (source_dir, tables, hd) in enumerate(sources):
+                row = tables[group].get(identity)
+                if not row:
+                    continue
+                # The authoritative row owns the numeric ID; never borrow a conflicting retail ID.
+                if not provenance and row.get("*ID"):
+                    aliases.add(row["*ID"].strip())
+                classic = existing(row.get("invfile", "").strip().lower() + ".png")
+                info = hd[group].get(key(identity), {})
+                modern_candidate = hd_file(info.get("asset" if group == "codes" else "normal", ""))
+                if not chosen and (modern_candidate or classic):
+                    chosen = modern_candidate or classic
+                    modern = modern_candidate
+                    classics = classic
+                    provenance = {"definition": source_dir, "source": "BKDiablo" if source_index == 0 else "retail", "fallback": source_index != 0}
+                    variants = {tier: hd_file(info.get(tier, "")) or chosen for tier in ("normal", "uber", "ultra")}
+                    break
+            if not chosen:
+                continue
+            for alias in aliases:
+                result[group][alias] = chosen
+                if modern:
+                    result["hd_" + group][alias] = modern
+                if classics:
+                    result["classic_" + group][alias] = classics
+                result["provenance"][group + ":" + alias] = provenance
+                result["variants"][group + ":" + alias] = variants
+    # Include resolved artwork bytes so replacing an icon changes the catalog revision.
+    artwork = {name for group in groups for prefix in ("", "hd_", "classic_") for name in result[prefix + group].values()}
+    artwork.update(name for variants in result["variants"].values() for name in variants.values() if name)
+    for name in sorted(artwork):
+        read_bytes(os.path.join(items_dir, name))
+    result["schemaVersion"] = 2
+    result["inputHashes"] = fingerprints
+    result["revision"] = hashlib.sha256(json.dumps(fingerprints, sort_keys=True).encode()).hexdigest()
     os.makedirs(os.path.dirname(os.path.abspath(json_path)), exist_ok=True)
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(mapping_data, f, indent=2)
-
-    print(f"Saved complete sprite mapping to {json_path}")
-    print(f"  Merged codes: {len(merged_codes)} (HD: {len(hd_codes)}, Classic: {len(classic_codes)})")
-    print(f"  Merged uniques: {len(merged_uniques)} (HD: {len(hd_uniques)}, Classic: {len(classic_uniques)})")
-    print(f"  Merged sets: {len(merged_sets)} (HD: {len(hd_sets)}, Classic: {len(classic_sets)})")
-    return mapping_data
+    import tempfile
+    handle, staging = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(json_path)), suffix=".pending")
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as stream:
+            json.dump(result, stream, indent=2)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(staging, json_path)
+    finally:
+        if os.path.exists(staging): os.remove(staging)
+    print(f"Saved verified mappings to {json_path}: " + ", ".join(f"{group}={len(result[group])}" for group in groups))
+    return result
 
 
 if __name__ == "__main__":
     hd_map = extract_all_sprites()
     build_image_mappings(hd_files_map=hd_map)
+

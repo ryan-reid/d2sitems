@@ -17,10 +17,11 @@
       cube: { width: 6, height: 6 },
       sharedStash: { width: 16, height: 13 }
     },
-    viewMode: 'panels',     // 'panels' | 'cards'
     graphicsMode: 'hd',     // 'hd' (Resurrected HD) | 'classic' (Legacy Classic)
     weaponSwap: 1,          // 1: Primary (RightHand/LeftHand), 2: Secondary (AlternateRightHand/AlternateLeftHand)
     activeStashTab: 'shared_0', // 'shared_0'..'shared_5', 'personal', 'cube'
+    stackedViewMode: 'mod_layout', // 'mod_layout' | 'categorized' | 'grid'
+    rightPanelView: 'hero',        // 'hero' | 'mercenary'
     draggedItem: null
   };
 
@@ -33,8 +34,18 @@
     .then(data => { if (data) itemImageMappings = data; })
     .catch(() => {});
 
+  function resolveJewelSprite() { return null; }
+
   function getItemSpriteUrl(item) {
-    if (d2rState.graphicsMode === 'classic') {
+    const isClassic = d2rState.graphicsMode === 'classic';
+    const resolved = window.BKItemArt?.resolve(item, itemImageMappings, isClassic);
+    if (resolved?.file) return `assets/items/${resolved.file}`;
+    const jewelSprite = resolveJewelSprite(item, isClassic);
+    if (jewelSprite) {
+      return `assets/items/${jewelSprite}`;
+    }
+
+    if (isClassic) {
       if (item.invFileClassic) {
         return `assets/items/${item.invFileClassic}`;
       }
@@ -181,8 +192,8 @@
       html += `<div class="d2r-tooltip-reqs">${reqs.join('<br>')}</div>`;
     }
 
-    // Affixes & Modifiers
-    const affixes = item.stats || [];
+    // Affixes & Modifiers (including runeword and socket stats)
+    const affixes = [...(item.stats || []), ...(item.runewordStats || []), ...(item.socketBonuses || [])];
     if (affixes.length > 0) {
       affixes.forEach(aff => {
         const desc = aff.description || '';
@@ -194,9 +205,12 @@
     }
 
     // Sockets
-    if (item.sockets || item.totalSockets) {
-      const count = item.sockets || item.totalSockets;
-      html += `<div class="d2r-tooltip-sockets">Socketed (${count})</div>`;
+    const socketRaw = item.sockets !== undefined ? item.sockets : item.totalSockets;
+    if (socketRaw) {
+      const socketCount = Array.isArray(socketRaw) ? socketRaw.length : (typeof socketRaw === 'number' ? socketRaw : (parseInt(socketRaw, 10) || 0));
+      if (socketCount > 0) {
+        html += `<div class="d2r-tooltip-sockets">Socketed (${socketCount})</div>`;
+      }
     }
 
     // Ethereal
@@ -243,6 +257,231 @@
   };
 
   // -------------------------------------------------------------------------
+  // Stackable Slot Names & Edit Modal Handlers
+  // -------------------------------------------------------------------------
+  const D2R_STACK_SLOT_NAMES = {
+    // Runes
+    r01: "El Rune", r02: "Eld Rune", r03: "Tir Rune", r04: "Nef Rune", r05: "Eth Rune",
+    r06: "Ith Rune", r07: "Tal Rune", r08: "Ral Rune", r09: "Ort Rune", r10: "Thul Rune",
+    r11: "Amn Rune", r12: "Sol Rune", r13: "Shael Rune", r14: "Dol Rune", r15: "Hel Rune",
+    r16: "Io Rune", r17: "Lum Rune", r18: "Ko Rune", r19: "Fal Rune", r20: "Lem Rune",
+    r21: "Pul Rune", r22: "Um Rune", r23: "Mal Rune", r24: "Ist Rune", r25: "Gul Rune",
+    r26: "Vex Rune", r27: "Ohm Rune", r28: "Lo Rune", r29: "Sur Rune", r30: "Ber Rune",
+    r31: "Jah Rune", r32: "Cham Rune", r33: "Zod Rune",
+    // Chipped
+    gcw: "Chipped Diamond", gcg: "Chipped Emerald", gcr: "Chipped Ruby",
+    gcy: "Chipped Topaz", gcv: "Chipped Amethyst", gcb: "Chipped Sapphire", skc: "Chipped Skull",
+    // Flawed
+    gfw: "Flawed Diamond", gfg: "Flawed Emerald", gfr: "Flawed Ruby",
+    gfy: "Flawed Topaz", gfv: "Flawed Amethyst", gfb: "Flawed Sapphire", skf: "Flawed Skull",
+    // Regular
+    gsw: "Diamond", gsg: "Emerald", gsr: "Ruby",
+    gsy: "Topaz", gsv: "Amethyst", gsb: "Sapphire", sku: "Skull",
+    // Flawless
+    glw: "Flawless Diamond", glg: "Flawless Emerald", glr: "Flawless Ruby",
+    gly: "Flawless Topaz", gzv: "Flawless Amethyst", glb: "Flawless Sapphire", skl: "Flawless Skull",
+    // Perfect
+    gpw: "Perfect Diamond", gpg: "Perfect Emerald", gpr: "Perfect Ruby",
+    gpy: "Perfect Topaz", gpv: "Perfect Amethyst", gpb: "Perfect Sapphire", skz: "Perfect Skull",
+    // Keys & Essences
+    pk1: "Key of Terror", pk2: "Key of Hate", pk3: "Key of Destruction",
+    tes: "Twisted Essence of Suffering", ceh: "Charged Essence of Hatred",
+    bet: "Burning Essence of Terror", fed: "Festering Essence of Destruction",
+    toa: "Token of Absolution",
+    dhn: "Diablo's Horn", bey: "Baal's Eye", mbr: "Mephisto's Brain",
+    // Potions & Special
+    wms: "Thawing Potion", mfp: "Magic Find Potion", rvl: "Full Rejuvenation Potion", rvs: "Rejuvenation Potion",
+    // Crafting & Mod Materials
+    std: "Standard of Heroes", dsd: "The Divine Standard",
+    cct: "(C) Caster Crafting Tablet", bct: "(B) Blood Crafting Tablet",
+    sct: "(S) Safety Crafting Tablet", pct: "(P) Hit Power Crafting Tablet",
+    rrr: "Infernal Mawstone", tds: "Hellfire Ashes", rtr: "Fracture Halo",
+    fel: "Flask of Etheric Light", voa: "Blood-Coiled Stone", gwh: "Prime Sigil",
+    hsm: "Hratli's Spiritual Herb", dss: "Diablo's Soulstone",
+    mls: "Charsi's Malus", lmr: "Larzuk's Forging Hammer", bgn: "The Gidbinn",
+    gft: "Holiday Gift", dw1: "White Dye", db1: "Black Dye", "1dr": "Dye Cleanser",
+    brk: "Hellfire Brick", mbk: "Megabrick"
+  };
+
+  window.openEditStackModalByCode = function (code, displayName, currentQty, tabIndex, selectedItem, quickDelta) {
+    window.closeD2RActionMenu();
+    window.hideD2RItemTooltip();
+
+    code = (code || '').trim().toLowerCase();
+    const candidates = ((d2rState.stashData?.tabs || []).flatMap(t => t.items || []))
+      .filter(it => it.itemCode?.trim().toLowerCase() === code && it.tabIndex === tabIndex);
+    const item = selectedItem || (candidates.length === 1 ? candidates[0] : null);
+    if (!item || !item.isStash || item.itemSeed == null || !item.sourceFile) {
+      window.showToast?.('Select an existing stack from a specific shared stash. Reload if it is missing or ambiguous.', 'error');
+      return;
+    }
+    window.editStackSelection = { file: item.sourceFile, seed: item.itemSeed, revision: item.saveRevision, tab: item.tabIndex, code: item.itemCode };
+
+    if (!displayName || displayName === code || displayName === code.toUpperCase()) {
+      displayName = D2R_STACK_SLOT_NAMES[code] || code.toUpperCase();
+    }
+    currentQty = parseInt(currentQty, 10) || 0;
+    tabIndex = tabIndex != null ? tabIndex : 5;
+
+    const modal = document.getElementById('edit-stack-modal');
+    if (!modal) return;
+
+    document.getElementById('edit-stack-item-code').value = code;
+    document.getElementById('edit-stack-tab-idx').value = tabIndex;
+    document.getElementById('edit-stack-preview-name').textContent = displayName;
+    document.getElementById('edit-stack-preview-code').textContent = code;
+    document.getElementById('edit-stack-preview-curr').textContent = currentQty;
+
+    const input = document.getElementById('edit-stack-qty-input');
+    
+    if (quickDelta) {
+      input.value = Math.max(0, Math.min(255, currentQty + quickDelta));
+      input.dataset.currentQty = currentQty;
+      window.submitEditStackQuantity();
+      return;
+    }
+
+    input.value = currentQty > 0 ? currentQty : 1;
+    input.dataset.currentQty = currentQty;
+
+    const iconBox = document.getElementById('edit-stack-preview-icon');
+    if (iconBox) {
+      const sprite = resolveSlotSprite(code);
+      iconBox.innerHTML = sprite ? `<img src="/assets/items/${sprite}" style="max-width: 44px; max-height: 44px; object-fit: contain;">` : '📦';
+    }
+
+    const statusEl = document.getElementById('edit-stack-status');
+    if (statusEl) statusEl.style.display = 'none';
+
+    modal.style.display = 'flex';
+    input.focus();
+    input.select();
+  };
+
+  window.openEditStackModalFromItem = function (itemId) {
+    window.closeD2RActionMenu();
+    const it = (d2rState.stashData && d2rState.stashData.tabs && d2rState.stashData.tabs.flatMap(t => t.items || []).find(x => String(x.id) === String(itemId)))
+            || (d2rState.charData && [...(d2rState.charData.inventory || []), ...(d2rState.charData.stash || []), ...(d2rState.charData.cube || [])].find(x => String(x.id) === String(itemId)))
+            || ((window.state && window.state.items) || []).find(x => String(x.id) === String(itemId));
+    if (it) {
+      window.openEditStackModalByCode(it.itemCode, it.displayName || it.name, it.quantity != null ? it.quantity : 1, it.tabIndex != null ? it.tabIndex : 5, it);
+    }
+  };
+
+  window.closeEditStackModal = function () {
+    const modal = document.getElementById('edit-stack-modal');
+    if (modal) modal.style.display = 'none';
+  };
+
+  window.adjustEditStackQty = function (delta) {
+    const input = document.getElementById('edit-stack-qty-input');
+    if (!input) return;
+    let v = (parseInt(input.value, 10) || 0) + delta;
+    input.value = Math.max(0, Math.min(255, v));
+  };
+
+  window.addEditStackRelative = function (addCount) {
+    const input = document.getElementById('edit-stack-qty-input');
+    if (!input) return;
+    const base = parseInt(input.dataset.currentQty, 10) || 0;
+    input.value = Math.max(0, Math.min(255, base + addCount));
+  };
+
+  window.setEditStackPreset = function (val) {
+    const input = document.getElementById('edit-stack-qty-input');
+    if (!input) return;
+    input.value = Math.max(0, Math.min(255, val));
+  };
+
+  window.submitEditStackQuantity = function () {
+    const code = document.getElementById('edit-stack-item-code').value.trim();
+    const tabIdx = parseInt(document.getElementById('edit-stack-tab-idx').value, 10);
+    const qty = parseInt(document.getElementById('edit-stack-qty-input').value, 10);
+    const btn = document.getElementById('btn-submit-edit-stack');
+    const statusEl = document.getElementById('edit-stack-status');
+
+    if (isNaN(qty) || qty < 1 || qty > 255) {
+      if (statusEl) {
+        statusEl.style.display = 'block';
+        statusEl.style.background = 'rgba(255,0,0,0.2)';
+        statusEl.style.color = '#ff6b6b';
+        statusEl.textContent = 'Please enter a valid stack quantity between 1 and 255.';
+      }
+      return;
+    }
+
+    if (btn) btn.disabled = true;
+    if (statusEl) {
+      statusEl.style.display = 'block';
+      statusEl.style.background = 'rgba(255,215,0,0.1)';
+      statusEl.style.color = 'var(--gold)';
+      statusEl.textContent = 'Saving stack quantity...';
+    }
+
+    // WASM mode support
+    if (window.state?.isWasmMode && window.D2Wasm) {
+      window.D2Wasm.editStackQuantity(tabIdx, code, qty, window.editStackSelection.file, window.editStackSelection.seed).then(async res => {
+        if (btn) btn.disabled = false;
+        if (res && res.success) {
+          window.closeEditStackModal();
+          if (window.showToast) window.showToast(`Updated ${res.code || code} stack quantity to ${qty}.`, 'success');
+          if (typeof reloadArmoryData === 'function') await reloadArmoryData();
+          if (window.loadSavesAndItems) await window.loadSavesAndItems();
+        } else {
+          if (statusEl) {
+            statusEl.style.background = 'rgba(255,0,0,0.2)';
+            statusEl.style.color = '#ff6b6b';
+            statusEl.textContent = (res && res.message) || 'Failed to update stack.';
+          }
+        }
+      }).catch(err => {
+        if (btn) btn.disabled = false;
+        if (statusEl) statusEl.textContent = err.message || 'Failed to save stack.';
+      });
+      return;
+    }
+
+    // Server API mode
+    fetch('/api/stash/stack-quantity', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...window.editStackSelection,
+        tab: tabIdx,
+        code: code,
+        quantity: qty
+      })
+    })
+    .then(r => r.json())
+    .then(async res => {
+      if (btn) btn.disabled = false;
+      if (res && (res.Success || res.success)) {
+        window.closeEditStackModal();
+        if (window.showToast) window.showToast(`Updated ${code.toUpperCase()} stack count to ${qty}.`, 'success');
+        // Refresh shared stash data and item list
+        if (typeof reloadArmoryData === 'function') await reloadArmoryData();
+        if (window.loadSavesAndItems) await window.loadSavesAndItems();
+      } else {
+        if (statusEl) {
+          statusEl.style.display = 'block';
+          statusEl.style.background = 'rgba(255,0,0,0.2)';
+          statusEl.style.color = '#ff6b6b';
+          statusEl.textContent = (res && (res.Message || res.error)) || 'Failed to update stack.';
+        }
+      }
+    })
+    .catch(err => {
+      if (btn) btn.disabled = false;
+      if (statusEl) {
+        statusEl.style.display = 'block';
+        statusEl.style.background = 'rgba(255,0,0,0.2)';
+        statusEl.style.color = '#ff6b6b';
+        statusEl.textContent = 'Network error: ' + err.message;
+      }
+    });
+  };
+
+  // -------------------------------------------------------------------------
   // Context Action Menu
   // -------------------------------------------------------------------------
   window.showD2RItemActionMenu = function (item, evt) {
@@ -261,6 +500,17 @@
     let itemsHtml = `
       <div class="d2r-action-menu-header">${escapeHtml(item.displayName || item.name)}</div>
     `;
+
+    // Stack editing option if item is in stackable tab or has stackable properties
+    const isStackable = item.isStash && item.isAdvancedStack;
+    if (isStackable) {
+      itemsHtml += `
+        <div class="d2r-menu-item" style="color: #ffd700;" onclick="openEditStackModalFromItem(${item.id})">
+          <span>✏️ Edit Stack Quantity (${item.quantity != null ? item.quantity : 0})...</span>
+        </div>
+        <div class="d2r-menu-divider"></div>
+      `;
+    }
 
     // Quick transfer options
     if (isInv || isCube || isEquipped) {
@@ -340,6 +590,9 @@
     const y = item.invY !== undefined ? item.invY : 0;
 
     el.className = `d2r-item-element ${qClass} ${item.isEthereal ? 'is-ethereal' : ''}`;
+    el.tabIndex = 0;
+    el.setAttribute('role', 'button');
+    el.setAttribute('aria-label', `Inspect ${item.displayName || item.name}`);
 
     if (customLeft !== undefined) {
       el.style.left = `${customLeft}px`;
@@ -419,7 +672,7 @@
     }
 
     // Sockets overlay
-    const socketCount = item.sockets || item.totalSockets || 0;
+    const socketCount = item.socketCount || 0;
     if (socketCount > 0 && socketCount <= 6) {
       const socketsLayer = document.createElement('div');
       socketsLayer.className = 'd2r-sockets-layer';
@@ -440,6 +693,14 @@
         socketsLayer.appendChild(rowEl);
       }
       content.appendChild(socketsLayer);
+    }
+
+    // Stack / Quantity badge for grid and inventory
+    if (item.quantity && item.quantity > 1) {
+      const qBadge = document.createElement('div');
+      qBadge.className = 'd2r-mod-slot-qty';
+      qBadge.textContent = item.quantity;
+      content.appendChild(qBadge);
     }
 
     el.appendChild(content);
@@ -465,11 +726,6 @@
 
     const container = document.getElementById('armory-content');
     if (!container) return;
-
-    if (d2rState.viewMode === 'cards') {
-      renderLegacyCardsView(container, charData);
-      return;
-    }
 
     const char = charData.character || {};
     const equipped = charData.equipped || {};
@@ -506,17 +762,304 @@
         </div>
 
         <!-- ================================================================= -->
-        <!-- RIGHT PANEL: HERO PAPERDOLL & INVENTORY                          -->
+        <!-- RIGHT PANEL: HERO PAPERDOLL OR MERCENARY IN-GAME PANEL           -->
         <!-- ================================================================= -->
         <div class="d2r-panel d2r-inventory-panel" id="d2r-right-panel">
-          <div class="d2r-panel-header">
-            <h3 class="d2r-panel-title">INVENTORY</h3>
-            <div class="d2r-panel-subtitle">${escapeHtml(char.name)} - Level ${char.level} ${escapeHtml(char.class)}</div>
+          <!-- Rendered in renderRightPanelContent -->
+        </div>
+
+      </div>
+    `;
+
+    // Render Right Panel (Hero Inventory or Mercenary)
+    renderRightPanelContent();
+
+    // Populate Stash Tab Ribbon & Viewport
+    updateStashTabRibbon();
+    renderActiveStashViewport();
+
+    // Enable drag targets
+    setupDragDropTargets();
+  };
+
+  // -------------------------------------------------------------------------
+  // Mercenary Data Resolution & Slot Mapping
+  // -------------------------------------------------------------------------
+  function mapMercenarySlots(mercItems) {
+    const slots = {
+      Head: null, Neck: null, Torso: null,
+      RightHand: null, LeftHand: null,
+      Belt: null, RightRing: null, LeftRing: null
+    };
+
+    (mercItems || []).forEach(it => {
+      const loc = (it.location || '').toLowerCase();
+      const x = it.invX;
+
+      if (x === 1 || loc.includes('head') || loc.includes('helm')) slots.Head = it;
+      else if (x === 2 || loc.includes('neck') || loc.includes('amulet')) slots.Neck = it;
+      else if (x === 3 || loc.includes('torso') || loc.includes('armor')) slots.Torso = it;
+      else if (x === 4 || loc.includes('righthand') || loc.includes('rightarm') || loc.includes('mainhand')) slots.RightHand = it;
+      else if (x === 5 || loc.includes('lefthand') || loc.includes('leftarm') || loc.includes('offhand') || loc.includes('shield')) slots.LeftHand = it;
+      else if (x === 6 || loc.includes('rightring')) slots.RightRing = it;
+      else if (x === 7 || loc.includes('leftring')) slots.LeftRing = it;
+      else if (x === 8 || loc.includes('belt')) slots.Belt = it;
+      else if (loc.includes('ring')) {
+        if (!slots.RightRing) slots.RightRing = it;
+        else if (!slots.LeftRing) slots.LeftRing = it;
+      }
+    });
+
+    return slots;
+  }
+
+  function calculateMercenaryStats(charData) {
+    const mercInfo = charData.mercenary_info || {};
+    const char = charData.character || {};
+    const level = mercInfo.level || char.level || 90;
+    const mercType = mercInfo.type || 'Desert Mercenary';
+    const subType = mercInfo.subType || '';
+    const isDead = Boolean(mercInfo.isDead);
+
+    // Base attributes derived from type and level
+    let baseLife, baseStr, baseDex, baseDef, baseRes;
+    const mt = mercType.toLowerCase();
+    if (mt.includes('barbarian')) {
+      baseLife = 1680 + (level - 80) * 45;
+      baseStr = 200 + Math.round((level - 80) * 2.0);
+      baseDex = 129 + Math.round((level - 80) * 1.5);
+      baseDef = 1332 + (level - 80) * 35;
+      baseRes = Math.min(75, 50 + (level - 80));
+    } else if (mt.includes('desert')) {
+      baseLife = 1430 + (level - 75) * 40;
+      baseStr = 173 + Math.round((level - 75) * 1.5);
+      baseDex = 139 + Math.round((level - 75) * 1.2);
+      baseDef = 1027 + (level - 75) * 28;
+      baseRes = Math.min(75, 50 + (level - 75));
+    } else if (mt.includes('rogue')) {
+      baseLife = 1100 + (level - 75) * 30;
+      baseStr = 135 + Math.round((level - 75) * 1.0);
+      baseDex = 210 + Math.round((level - 75) * 2.0);
+      baseDef = 950 + (level - 75) * 25;
+      baseRes = Math.min(75, 50 + (level - 75));
+    } else if (mt.includes('iron') || mt.includes('wolf')) {
+      baseLife = 1250 + (level - 75) * 32;
+      baseStr = 145 + Math.round((level - 75) * 1.5);
+      baseDex = 140 + Math.round((level - 75) * 1.5);
+      baseDef = 1100 + (level - 75) * 30;
+      baseRes = Math.min(75, 50 + (level - 75));
+    } else {
+      baseLife = 1200 + (level - 70) * 35;
+      baseStr = 150 + (level - 70);
+      baseDex = 150 + (level - 70);
+      baseDef = 1000 + (level - 70) * 25;
+      baseRes = 75;
+    }
+
+    let bonusLife = 0, bonusStr = 0, bonusDex = 0, bonusDef = 0;
+    let bonusFire = 0, bonusCold = 0, bonusLight = 0, bonusPois = 0;
+    let maxPoisRes = 75;
+    let enhancedDmg = 0;
+    let dmgMin = 50 + Math.round(level * 1.5);
+    let dmgMax = 120 + Math.round(level * 2.5);
+
+    (charData.mercenary || []).forEach(it => {
+      if (it.defense) bonusDef += it.defense;
+      else if (it.baseDefense) bonusDef += it.baseDefense;
+
+      const allStats = [...(it.stats || []), ...(it.runewordStats || []), ...(it.socketBonuses || [])];
+      allStats.forEach(st => {
+        const desc = (st.description || '').toLowerCase();
+        const id = (st.id || '').toLowerCase();
+        const val = typeof st.value === 'number' ? st.value : (parseInt(st.value, 10) || 0);
+
+        if (id.includes('strength') || desc.includes('strength')) bonusStr += val;
+        if (id.includes('dexterity') || desc.includes('dexterity')) bonusDex += val;
+        if (id.includes('vitality') || desc.includes('vitality')) bonusLife += val * 3;
+        if (id.includes('maxlife') || desc.includes('to life')) bonusLife += val;
+        if (id.includes('fire') && (id.includes('resist') || desc.includes('fire resist'))) bonusFire += val;
+        if (id.includes('cold') && (id.includes('resist') || desc.includes('cold resist'))) bonusCold += val;
+        if (id.includes('lightning') && (id.includes('resist') || desc.includes('lightning resist'))) bonusLight += val;
+        if (id.includes('poison') && (id.includes('resist') || desc.includes('poison resist'))) bonusPois += val;
+        if (desc.includes('all resistances') || desc.includes('to all resistances')) {
+          bonusFire += val; bonusCold += val; bonusLight += val; bonusPois += val;
+        }
+        if (desc.includes('maximum poison resist')) maxPoisRes += val;
+        if (id === 'maxdamagepercent' || id === 'mindamagepercent' || desc.includes('enhanced damage')) {
+          enhancedDmg = Math.max(enhancedDmg, val);
+        }
+        if (st.id === 'NormalDamage' || desc.includes('damage +')) {
+          dmgMin += val; dmgMax += val;
+        }
+      });
+    });
+
+    if (enhancedDmg > 0) {
+      dmgMin = Math.round(dmgMin * (1 + enhancedDmg / 100));
+      dmgMax = Math.round(dmgMax * (1 + enhancedDmg / 100));
+    }
+
+    return {
+      name: mercInfo.name || 'Mercenary',
+      type: mercType,
+      subType,
+      level,
+      isDead,
+      life: Math.max(1, baseLife + bonusLife),
+      str: baseStr + bonusStr,
+      dex: baseDex + bonusDex,
+      def: baseDef + bonusDef,
+      dmgMin,
+      dmgMax,
+      fireRes: Math.min(75, baseRes + bonusFire),
+      coldRes: Math.min(75, baseRes + bonusCold),
+      lightRes: Math.min(75, baseRes + bonusLight),
+      poisRes: Math.min(maxPoisRes, baseRes + bonusPois)
+    };
+  }
+
+  function populateMercenarySlots(mercSlots) {
+    const slotMap = {
+      Head: { id: 'merc-slot-Head', w: 64, h: 64 },
+      Torso: { id: 'merc-slot-Torso', w: 64, h: 96 },
+      RightHand: { id: 'merc-slot-RightHand', w: 64, h: 128 },
+      LeftHand: { id: 'merc-slot-LeftHand', w: 64, h: 128 }
+    };
+
+    Object.keys(slotMap).forEach(key => {
+      const info = slotMap[key];
+      const el = document.getElementById(info.id);
+      if (!el) return;
+      el.innerHTML = '';
+      const it = mercSlots[key];
+      const emptyCls = 'empty-' + (key.includes('Ring') ? 'ring' : (key === 'RightHand' ? 'rhand' : (key === 'LeftHand' ? 'lhand' : key.toLowerCase())));
+      if (it) {
+        el.classList.remove(emptyCls);
+        el.appendChild(createD2RItemElement(it, 0, 0, info.w, info.h));
+      } else {
+        el.classList.add(emptyCls);
+      }
+    });
+  }
+
+  function renderRightPanelContent() {
+    const panel = document.getElementById('d2r-right-panel');
+    if (!panel || !d2rState.charData) return;
+
+    const charData = d2rState.charData;
+    const char = charData.character || {};
+    const equipped = charData.equipped || {};
+    const stats = char.stats || {};
+    const inventory = charData.inventory || [];
+    const invDims = d2rState.containerDims.inventory || { width: 11, height: 8 };
+    const mercCount = (charData.mercenary || []).length;
+    const hasMerc = mercCount > 0 || !!(charData.mercenary_info && charData.mercenary_info.name);
+    const isMercView = (d2rState.rightPanelView === 'mercenary' && hasMerc);
+
+    const mercStats = calculateMercenaryStats(charData);
+    const mercSlots = mapMercenarySlots(charData.mercenary);
+
+    panel.innerHTML = `
+      <div class="d2r-panel-header">
+        <div class="d2r-panel-nav-tabs">
+          <button class="d2r-panel-nav-tab ${!isMercView ? 'active' : ''}" onclick="window.switchRightPanelTab('hero')">👤 HERO INVENTORY (I)</button>
+          ${hasMerc ? `<button class="d2r-panel-nav-tab ${isMercView ? 'active' : ''}" onclick="window.switchRightPanelTab('mercenary')">🛡️ MERCENARY ${mercCount > 0 ? `(${mercCount})` : ''} (O)</button>` : ''}
+        </div>
+        <h3 class="d2r-panel-title">${isMercView ? 'MERCENARY' : 'INVENTORY'}</h3>
+        <div class="d2r-panel-subtitle">
+          ${isMercView ? `${escapeHtml(mercStats.name)} - Level ${mercStats.level} ${escapeHtml(mercStats.type)}${escapeHtml(mercStats.subType ? ' (' + mercStats.subType + ')' : '')}` : `${escapeHtml(char.name)} - Level ${char.level} ${escapeHtml(char.class)}`}
+        </div>
+      </div>
+
+      <div id="d2r-right-panel-body">
+        ${isMercView ? `
+          <!-- Mercenary Summary Bar -->
+          <div class="d2r-hero-summary-bar">
+            <span class="d2r-hero-name">${escapeHtml(mercStats.name)}</span>
+            ${mercStats.isDead ? '<span class="d2r-corpse-badge" style="color:#e74c3c; font-size:11px; margin-left:8px; border:1px solid #e74c3c; padding:1px 6px; border-radius:3px; background:rgba(231,76,60,0.15);" title="Mercenary has fallen in battle">⚰️ Fallen in Battle</span>' : '<span style="color:#2ecc71; font-size:11px; margin-left:8px; border:1px solid #2ecc71; padding:1px 6px; border-radius:3px; background:rgba(46,204,113,0.15);">⚔️ Active</span>'}
+            <button class="d2r-merc-toggle-btn" onclick="window.switchRightPanelTab('hero')" style="margin-left:auto; margin-right:8px; background:#1e1a14; border:1px solid #7c6237; color:#d8b874; padding:2px 8px; border-radius:3px; cursor:pointer; font-size:11px;" title="Switch back to Hero Inventory (Shortcut: I)">👤 Hero (I)</button>
+            <div class="d2r-attr-row">
+              <div class="d2r-attr-item"><span>STR:</span><span>${mercStats.str}</span></div>
+              <div class="d2r-attr-item"><span>DEX:</span><span>${mercStats.dex}</span></div>
+              <div class="d2r-attr-item"><span>DEF:</span><span>${mercStats.def.toLocaleString()}</span></div>
+            </div>
           </div>
 
+          <!-- Authentic Mercenary Paperdoll & Stat Sheet (380x493) -->
+          <div class="d2r-merc-panel-container">
+            <div class="d2r-paperdoll-frame" id="d2r-merc-paperdoll">
+              <!-- Equipped Slots -->
+              <div class="d2r-merc-slot slot-head ${!mercSlots.Head ? 'empty-head' : ''}" id="merc-slot-Head" title="Head / Helm"></div>
+              <div class="d2r-merc-slot slot-torso ${!mercSlots.Torso ? 'empty-torso' : ''}" id="merc-slot-Torso" title="Torso / Armor"></div>
+              <div class="d2r-merc-slot slot-rhand ${!mercSlots.RightHand ? 'empty-rhand' : ''}" id="merc-slot-RightHand" title="Right Arm / Main Hand"></div>
+              <div class="d2r-merc-slot slot-lhand ${!mercSlots.LeftHand ? 'empty-lhand' : ''}" id="merc-slot-LeftHand" title="Left Arm / Off Hand"></div>
+
+              <!-- Name & Level banner -->
+              <div class="d2r-merc-name-banner">
+                <span class="d2r-merc-name-title">${escapeHtml(mercStats.name)}</span>
+                <span class="d2r-merc-sub-title">Level ${mercStats.level} ${escapeHtml(mercStats.type)}${escapeHtml(mercStats.subType ? ' (' + mercStats.subType + ')' : '')}</span>
+              </div>
+
+              <!-- Left Column Stat Rows -->
+              <div class="d2r-merc-stat-row d2r-merc-stat-left" style="top: 334px;">
+                <span class="stat-label">LIFE</span>
+                <span class="stat-val">${mercStats.life.toLocaleString()} / ${mercStats.life.toLocaleString()}</span>
+              </div>
+              <div class="d2r-merc-stat-row d2r-merc-stat-left" style="top: 360px;">
+                <span class="stat-label">STRENGTH</span>
+                <span class="stat-val">${mercStats.str}</span>
+              </div>
+              <div class="d2r-merc-stat-row d2r-merc-stat-left" style="top: 388px;">
+                <span class="stat-label">DEXTERITY</span>
+                <span class="stat-val">${mercStats.dex}</span>
+              </div>
+              <div class="d2r-merc-stat-row d2r-merc-stat-left" style="top: 415px;">
+                <span class="stat-label">DAMAGE</span>
+                <span class="stat-val">${mercStats.dmgMin} - ${mercStats.dmgMax}</span>
+              </div>
+              <div class="d2r-merc-stat-row d2r-merc-stat-left" style="top: 442px;">
+                <span class="stat-label">DEFENSE</span>
+                <span class="stat-val">${mercStats.def.toLocaleString()}</span>
+              </div>
+
+              <!-- Right Column Resistance Rows -->
+              <div class="d2r-merc-stat-row d2r-merc-stat-right stat-fire" style="top: 360px;">
+                <span class="stat-label">FIRE RESIST</span>
+                <span class="stat-val">${mercStats.fireRes}%</span>
+              </div>
+              <div class="d2r-merc-stat-row d2r-merc-stat-right stat-cold" style="top: 388px;">
+                <span class="stat-label">COLD RESIST</span>
+                <span class="stat-val">${mercStats.coldRes}%</span>
+              </div>
+              <div class="d2r-merc-stat-row d2r-merc-stat-right stat-light" style="top: 415px;">
+                <span class="stat-label">LIGHTNING RES</span>
+                <span class="stat-val">${mercStats.lightRes}%</span>
+              </div>
+              <div class="d2r-merc-stat-row d2r-merc-stat-right stat-poison" style="top: 442px;">
+                <span class="stat-label">POISON RESIST</span>
+                <span class="stat-val">${mercStats.poisRes}%</span>
+              </div>
+            </div>
+
+            <!-- Quick Equipment Breakdown List -->
+            <div class="d2r-merc-gear-summary">
+              <div class="d2r-merc-gear-summary-title">EQUIPPED GEAR (${mercCount} items)</div>
+              <div class="d2r-merc-gear-summary-items">
+                ${(charData.mercenary || []).map(it => `
+                  <div class="d2r-merc-gear-item-line" onclick="inspectD2RItemDetails(${it.id})" onmouseenter="if(window.showD2RItemTooltip) window.showD2RItemTooltip(${JSON.stringify(it).replace(/"/g, '&quot;')}, event)" onmouseleave="if(window.hideD2RItemTooltip) window.hideD2RItemTooltip()">
+                    <span style="color:${getItemQualityColor(it.quality, it.isRuneword)}; font-weight:600;">${escapeHtml(it.displayName || it.name)}</span>
+                    <span style="color:#d8b874; font-size:10px;">${it.perfectionNum != null ? `${it.perfectionNum}%` : ''} ${it.sockets ? `[${it.sockets.length}S]` : ''}</span>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+        ` : `
           <!-- Hero Attributes Summary -->
           <div class="d2r-hero-summary-bar">
             <span class="d2r-hero-name">${escapeHtml(char.name)}</span>
+            ${(charData.hasCorpse || char.hasCorpse) ? '<span class="d2r-corpse-badge" style="color:#e74c3c; font-size:11px; margin-left:8px; border:1px solid #e74c3c; padding:1px 6px; border-radius:3px; background:rgba(231,76,60,0.15);" title="Character currently has an unretrieved corpse with equipped gear">⚰️ Corpse Gear</span>' : ''}
+            ${hasMerc ? `<button class="d2r-merc-toggle-btn" onclick="window.switchRightPanelTab('mercenary')" style="margin-left:auto; margin-right:8px; background:#1e1a14; border:1px solid #7c6237; color:#d8b874; padding:2px 8px; border-radius:3px; cursor:pointer; font-size:11px;" title="View Full Mercenary In-Game Panel (Shortcut: O)">🛡️ Merc ${mercCount > 0 ? `(${mercCount})` : ''}</button>` : ''}
             <div class="d2r-attr-row">
               <div class="d2r-attr-item"><span>STR:</span><span>${stats.strength || '-'}</span></div>
               <div class="d2r-attr-item"><span>DEX:</span><span>${stats.dexterity || '-'}</span></div>
@@ -560,43 +1103,56 @@
             <button class="d2r-gold-button" title="Gold Purse">💰 Gold</button>
             <span class="d2r-gold-val">${(stats.gold || stats.stashGold || 0).toLocaleString()}</span>
           </div>
-        </div>
-
+        `}
       </div>
     `;
 
-    // Populate Paperdoll Slots
-    populatePaperdollSlots(equipped, d2rState.weaponSwap);
+    if (isMercView) {
+      populateMercenarySlots(mercSlots);
+    } else {
+      populatePaperdollSlots(equipped, d2rState.weaponSwap);
+      populateGridWithItems(document.getElementById('d2r-inventory-grid'), inventory, 'inventory');
+    }
+  }
 
-    // Populate Inventory Grid
-    populateGridWithItems(document.getElementById('d2r-inventory-grid'), inventory, 'inventory');
-
-    // Populate Stash Tab Ribbon & Viewport
-    updateStashTabRibbon();
-    renderActiveStashViewport();
-
-    // Enable drag targets
-    setupDragDropTargets();
+  window.switchRightPanelTab = function (tab) {
+    if (tab === 'mercenary') {
+      const merc = (d2rState.charData && d2rState.charData.mercenary) || [];
+      const mercInfo = d2rState.charData && d2rState.charData.mercenary_info;
+      if (!merc.length && (!mercInfo || !mercInfo.name)) {
+        if (window.showToast) window.showToast('No mercenary found for this character.', 'info');
+        else alert('No mercenary found for this character.');
+        return;
+      }
+    }
+    d2rState.rightPanelView = tab;
+    renderRightPanelContent();
   };
 
   // -------------------------------------------------------------------------
   // Paperdoll Slots Population
   // -------------------------------------------------------------------------
   function populatePaperdollSlots(equipped, weaponSwap) {
+    const getEq = (keys) => keys.reduce((acc, k) => acc || equipped[k], null);
+
     const slotMap = {
-      Head: { id: 'slot-Head', w: 64, h: 64 },
-      Neck: { id: 'slot-Neck', w: 32, h: 32 },
-      Torso: { id: 'slot-Torso', w: 64, h: 96 },
-      Gloves: { id: 'slot-Gloves', w: 60, h: 60 },
-      Belt: { id: 'slot-Belt', w: 60, h: 30 },
-      Boots: { id: 'slot-Boots', w: 60, h: 60 },
-      RightRing: { id: 'slot-RightRing', w: 30, h: 30 },
-      LeftRing: { id: 'slot-LeftRing', w: 30, h: 30 }
+      Head: { id: 'slot-Head', w: 64, h: 64, keys: ['Head'] },
+      Neck: { id: 'slot-Neck', w: 32, h: 32, keys: ['Neck'] },
+      Torso: { id: 'slot-Torso', w: 64, h: 96, keys: ['Torso', 'Body Armor', 'Armor'] },
+      Gloves: { id: 'slot-Gloves', w: 60, h: 60, keys: ['Gloves', 'Hands'] },
+      Belt: { id: 'slot-Belt', w: 60, h: 30, keys: ['Belt'] },
+      Boots: { id: 'slot-Boots', w: 60, h: 60, keys: ['Boots', 'Feet'] },
+      RightRing: { id: 'slot-RightRing', w: 30, h: 30, keys: ['RightRing', 'Right Ring'] },
+      LeftRing: { id: 'slot-LeftRing', w: 30, h: 30, keys: ['LeftRing', 'Left Ring'] }
     };
 
     // Weapon swap handling
-    const rHandItem = weaponSwap === 1 ? equipped.RightHand : equipped.AlternateRightHand;
-    const lHandItem = weaponSwap === 1 ? equipped.LeftHand : equipped.AlternateLeftHand;
+    const rHandItem = weaponSwap === 1 
+      ? getEq(['RightHand', 'Right Arm', 'PrimaryRight']) 
+      : getEq(['AlternateRightHand', 'Alternate Right Arm', 'SecondaryRight']);
+    const lHandItem = weaponSwap === 1 
+      ? getEq(['LeftHand', 'Left Arm', 'PrimaryLeft']) 
+      : getEq(['AlternateLeftHand', 'Alternate Left Arm', 'SecondaryLeft']);
 
     const rHandSlot = document.getElementById('slot-RightHand');
     if (rHandSlot) {
@@ -627,10 +1183,13 @@
       if (!slotEl) return;
 
       slotEl.innerHTML = '';
-      const it = equipped[key];
+      const it = getEq(info.keys);
+      const emptyCls = 'empty-' + (key.includes('Ring') ? 'ring' : key.toLowerCase());
       if (it) {
-        slotEl.className = slotEl.className.replace(/empty-[a-z]+/g, '');
+        slotEl.classList.remove(emptyCls);
         slotEl.appendChild(createD2RItemElement(it, 0, 0, info.w, info.h));
+      } else {
+        slotEl.classList.add(emptyCls);
       }
     });
   }
@@ -651,43 +1210,85 @@
   // -------------------------------------------------------------------------
   // Stash Tabs & Active Viewport Rendering
   // -------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // Stash Tabs & Active Viewport Rendering
+  // -------------------------------------------------------------------------
   function updateStashTabRibbon() {
     const ribbon = document.getElementById('d2r-stash-tabs');
     if (!ribbon) return;
 
     const tabsMeta = (d2rState.stashData && d2rState.stashData.tabs) || [];
-    let html = '';
-
-    // Shared Stash Tabs 1..N
-    tabsMeta.forEach((t, idx) => {
-      const tabKey = `shared_${idx}`;
-      const isActive = d2rState.activeStashTab === tabKey;
-      html += `
-        <button class="d2r-tab-btn ${isActive ? 'active' : ''}" onclick="switchD2RStashTab('${tabKey}')">
-          ${escapeHtml(t.name || `Shared ${idx + 1}`)} (${t.itemCount || 0})
-        </button>
-      `;
-    });
-
-    // Personal Stash Tab
     const pStashItems = (d2rState.charData && d2rState.charData.stash) || [];
-    const isPStashActive = d2rState.activeStashTab === 'personal';
-    html += `
-      <button class="d2r-tab-btn ${isPStashActive ? 'active' : ''}" onclick="switchD2RStashTab('personal')">
-        Personal (${pStashItems.length})
-      </button>
+    const cubeItems = (d2rState.charData && d2rState.charData.cube) || [];
+
+    // Separate regular shared tabs (indices 0..4) from the stacked tab (idx 5)
+    const sharedTabs = tabsMeta.filter((t, idx) => idx !== 5);
+    const stackTab = tabsMeta[5] || { name: 'Stackable', itemCount: 0, items: [] };
+    const sharedTotalCount = sharedTabs.reduce((sum, t) => sum + (t.itemCount || 0), 0);
+
+    // Compute crafting total (items in Cube + crafting materials in stash)
+    const craftingMatCodes = /mls|lmr|bgn|gft|dw1|db1|1dr|cct|bct|sct|pct|rrr|mfp|tds|std|dsd|rtr|fel|voa|gwh|hsm|dss/;
+    const craftingMaterialsCount = (stackTab.items || []).filter(it => craftingMatCodes.test((it.itemCode || '').toLowerCase())).length;
+    const craftingTotalCount = cubeItems.length + craftingMaterialsCount;
+
+    const isPersonalActive = d2rState.activeStashTab === 'personal';
+    const isSharedActive = d2rState.activeStashTab.startsWith('shared_') && d2rState.activeStashTab !== 'shared_5';
+    const isCraftingActive = d2rState.activeStashTab === 'crafting' || d2rState.activeStashTab === 'cube';
+    const isStackableActive = d2rState.activeStashTab === 'stackable' || d2rState.activeStashTab === 'shared_5';
+
+    let html = `
+      <div class="d2r-main-tabs-row">
+        <button class="d2r-tab-btn ${isPersonalActive ? 'active' : ''}" onclick="switchD2RStashTab('personal')">
+          Personal (${pStashItems.length})
+        </button>
+        <button class="d2r-tab-btn ${isSharedActive ? 'active' : ''}" onclick="switchD2RSharedSubTab(0)">
+          Shared (${sharedTotalCount})
+        </button>
+        <button class="d2r-tab-btn ${isCraftingActive ? 'active' : ''}" onclick="switchD2RStashTab('crafting')">
+          Crafting (${craftingTotalCount})
+        </button>
+        <button class="d2r-tab-btn ${isStackableActive ? 'active' : ''}" onclick="switchD2RStashTab('stackable')">
+          Stackable (${stackTab.itemCount || 0})
+        </button>
+      </div>
     `;
 
-    // Horadric Cube Tab
-    const cubeItems = (d2rState.charData && d2rState.charData.cube) || [];
-    const isCubeActive = d2rState.activeStashTab === 'cube';
-    html += `
-      <button class="d2r-tab-btn ${isCubeActive ? 'active' : ''}" onclick="switchD2RStashTab('cube')">
-        Horadric Cube (${cubeItems.length})
-      </button>
-    `;
+    if (isSharedActive) {
+      const match = d2rState.activeStashTab.match(/^shared_(\d+)$/);
+      const currentSharedIdx = match ? parseInt(match[1], 10) : 0;
+      let subPagesHtml = '';
+      sharedTabs.forEach((t, idx) => {
+        const isSubActive = currentSharedIdx === idx;
+        subPagesHtml += `
+          <button class="d2r-subtab-btn ${isSubActive ? 'active' : ''}" onclick="switchD2RSharedSubTab(${idx})">
+            ${escapeHtml(t.name || `Shared ${idx + 1}`)} (${t.itemCount || 0})
+          </button>
+        `;
+      });
+      html += `
+        <div class="d2r-shared-subtabs-row">
+          <button class="d2r-subtab-arrow" onclick="switchD2RSharedRelative(-1)" title="Previous Shared Tab">◄</button>
+          <div class="d2r-subtab-pages">${subPagesHtml}</div>
+          <button class="d2r-subtab-arrow" onclick="switchD2RSharedRelative(1)" title="Next Shared Tab">►</button>
+        </div>
+      `;
+    }
 
     ribbon.innerHTML = html;
+  }
+
+  function resolveSlotSprite(code) {
+    if (!code) return null;
+    code = code.toLowerCase().trim();
+    if (itemImageMappings) {
+      if (itemImageMappings.hd_codes && itemImageMappings.hd_codes[code]) {
+        return itemImageMappings.hd_codes[code];
+      }
+      if (itemImageMappings.codes && itemImageMappings.codes[code]) {
+        return itemImageMappings.codes[code];
+      }
+    }
+    return null;
   }
 
   function renderActiveStashViewport() {
@@ -698,25 +1299,10 @@
 
     const stashDims = d2rState.containerDims.sharedStash || { width: 16, height: 13 };
     const cubeDims = d2rState.containerDims.cube || { width: 6, height: 6 };
+    const tabsMeta = (d2rState.stashData && d2rState.stashData.tabs) || [];
+    const stackTab = tabsMeta[5] || { name: 'Stackable', gold: 0, items: [] };
 
-    // Case 1: Horadric Cube
-    if (d2rState.activeStashTab === 'cube') {
-      if (titleEl) titleEl.textContent = 'HORADRIC CUBE';
-      if (subTitleEl) subTitleEl.textContent = 'Transmutation & Storage';
-
-      const cubeItems = (d2rState.charData && d2rState.charData.cube) || [];
-      container.innerHTML = `
-        <div class="d2r-cube-container">
-          <div class="d2r-cube-grid-viewport" id="d2r-cube-grid" style="width: ${cubeDims.width * 32}px; height: ${cubeDims.height * 32}px;"></div>
-          <button class="d2r-transmute-btn" onclick="alert('Cube recipes are active in Diablo II!')">TRANSMUTE</button>
-        </div>
-      `;
-      populateGridWithItems(document.getElementById('d2r-cube-grid'), cubeItems, 'cube');
-      setupDragDropTargets();
-      return;
-    }
-
-    // Case 2: Personal Stash
+    // Case 1: Personal Stash
     if (d2rState.activeStashTab === 'personal') {
       if (titleEl) titleEl.textContent = 'PERSONAL STASH';
       if (subTitleEl) subTitleEl.textContent = `${(d2rState.charData && d2rState.charData.character && d2rState.charData.character.name) || ''}'s Bank`;
@@ -736,11 +1322,26 @@
       return;
     }
 
-    // Case 3: Shared Stash Tabs 1..N
+    // Case 2: Crafting Tab (Authentic 6x6 Cube + advancedstash_materials layout)
+    if (d2rState.activeStashTab === 'crafting' || d2rState.activeStashTab === 'cube') {
+      if (titleEl) titleEl.textContent = 'CRAFTING CHAMBER';
+      if (subTitleEl) subTitleEl.textContent = 'BKDiablo Horadric Forge & Materials';
+      renderCraftingViewport(container, stackTab);
+      return;
+    }
+
+    // Case 3: Stackable Tab (Authentic 112-slot advancedstash_gems layout)
+    if (d2rState.activeStashTab === 'stackable' || d2rState.activeStashTab === 'shared_5') {
+      if (titleEl) titleEl.textContent = 'STACKABLE ADVANCED STASH';
+      if (subTitleEl) subTitleEl.textContent = 'BKDiablo Gems, Runes & Stacked Materials';
+      renderStackableViewport(container, stackTab);
+      return;
+    }
+
+    // Case 5: Shared Stash Tabs 1..5
     const match = d2rState.activeStashTab.match(/^shared_(\d+)$/);
     const tabIdx = match ? parseInt(match[1], 10) : 0;
-    const tabsMeta = (d2rState.stashData && d2rState.stashData.tabs) || [];
-    const activeTab = tabsMeta[tabIdx] || { name: `Shared Stash Tab ${tabIdx + 1}`, gold: 0, items: [] };
+    const activeTab = tabsMeta[tabIdx] || { name: `Shared ${tabIdx + 1}`, gold: 0, items: [] };
 
     if (titleEl) titleEl.textContent = 'SHARED STASH';
     if (subTitleEl) subTitleEl.textContent = activeTab.name || `Shared Tab ${tabIdx + 1}`;
@@ -757,6 +1358,515 @@
     setupDragDropTargets();
   }
 
+  function renderStackableViewport(container, activeTab) {
+    const items = activeTab.items || [];
+    const currentMode = d2rState.stackedViewMode || 'mod_layout';
+    const layout = window.D2R_BANK_LAYOUT || null;
+    const origin = (layout && layout.origin) || { x: 91, y: 235 };
+    const scale = (layout && layout.scale) || (32.0 / 98.0);
+    const slots = (layout && layout.stackable_slots) || [];
+
+    let bodyHtml = '';
+
+    if (currentMode === 'mod_layout' && slots.length > 0) {
+      const itemsByCode = new Map();
+      items.forEach(it => {
+        const c = (it.itemCode || '').trim().toLowerCase();
+        if (!itemsByCode.has(c)) itemsByCode.set(c, []);
+        itemsByCode.get(c).push(it);
+      });
+
+      let slotsHtml = '';
+      slots.forEach(slot => {
+        const code = (slot.itemCode || '').toLowerCase();
+        const sx = Math.round((slot.x - origin.x) * scale);
+        const sy = Math.round((slot.y - origin.y) * scale);
+        const sw = Math.round(slot.width * scale);
+        const sh = Math.round(slot.height * scale);
+
+        const matchedList = itemsByCode.get(code) || [];
+        const totalQty = matchedList.reduce((sum, x) => sum + (x.quantity != null ? x.quantity : 0), 0);
+        const hasItem = matchedList.length > 0 && totalQty > 0;
+        const friendlyName = (matchedList[0] && (matchedList[0].displayName || matchedList[0].name)) || D2R_STACK_SLOT_NAMES[code] || code.toUpperCase();
+
+        if (hasItem) {
+          const primaryItem = Object.assign({}, matchedList[0]);
+          primaryItem.quantity = totalQty;
+          const itEncoded = encodeURIComponent(JSON.stringify(primaryItem));
+          slotsHtml += `
+            <div class="d2r-mod-slot has-item" style="left: ${sx}px; top: ${sy}px; width: ${sw}px; height: ${sh}px;" data-code="${code}" data-name="${escapeHtml(friendlyName)}" data-qty="${totalQty}" data-tab="5" data-item="${itEncoded}" data-item-id="${primaryItem.id || ''}" title="${escapeHtml(friendlyName)} (Count: ${totalQty} - Click to Edit Stack)">
+              <div style="position: absolute; bottom: 2px; right: 2px; display: flex; gap: 4px; z-index: 10;">
+                <button class="d2r-mod-slot-quick-btn" title="-5" data-delta="-5" style="background: rgba(0,0,0,0.8); color: #ff5555; border: 1px solid #ff5555; padding: 1px 4px; font-size: 10px; cursor: pointer; border-radius: 2px;">-5</button>
+                <button class="d2r-mod-slot-edit-btn" title="Edit Stack Count" style="position: static; padding: 1px 4px; border-radius: 2px;">✏️</button>
+                <button class="d2r-mod-slot-quick-btn" title="+5" data-delta="5" style="background: rgba(0,0,0,0.8); color: #55ff55; border: 1px solid #55ff55; padding: 1px 4px; font-size: 10px; cursor: pointer; border-radius: 2px;">+5</button>
+              </div>
+            </div>
+          `;
+        } else {
+          const imgFile = resolveSlotSprite(code);
+          const wmHtml = imgFile ? `<img src="/assets/items/${imgFile}" class="d2r-mod-slot-watermark" alt="${code}">` : '';
+          slotsHtml += `
+            <div class="d2r-mod-slot is-empty" style="left: ${sx}px; top: ${sy}px; width: ${sw}px; height: ${sh}px;" data-code="${code}" data-name="${escapeHtml(friendlyName)}" data-qty="0" data-tab="5" title="Empty Slot: ${escapeHtml(friendlyName)} (Click to Add / Edit Stack)">
+              ${wmHtml}
+              <div class="d2r-mod-slot-empty-add" title="Add to stack">+</div>
+            </div>
+          `;
+        }
+      });
+
+      bodyHtml = `
+        <div class="d2r-mod-layout-viewport" id="d2r-mod-stackable-viewport">
+          ${slotsHtml}
+        </div>
+      `;
+    } else if (currentMode === 'categorized') {
+      bodyHtml = renderCategorizedMaterialsHtml(items);
+    } else {
+      bodyHtml = `
+        <div class="d2r-stash-grid-viewport d2r-stacked-grid-flow" id="d2r-stash-grid" style="width: 492px; min-height: 440px;"></div>
+      `;
+    }
+
+    container.innerHTML = `
+      <div class="d2r-stacked-tab-wrapper">
+        <div class="d2r-stacked-header-bar">
+          <div class="d2r-stacked-info">
+            <span class="d2r-stacked-pill">STACKABLE</span>
+            <span class="d2r-stacked-tab-name">Advanced Stash</span>
+            <span class="d2r-stacked-count-pill">${items.length} items</span>
+          </div>
+          <div class="d2r-stacked-toggles">
+            <button class="d2r-stacked-mode-btn ${currentMode === 'mod_layout' ? 'active' : ''}" onclick="window.setD2RStackedViewMode('mod_layout')">
+              🏛️ Mod Layout
+            </button>
+            <button class="d2r-stacked-mode-btn ${currentMode === 'categorized' ? 'active' : ''}" onclick="window.setD2RStackedViewMode('categorized')">
+              🗂️ Categorized
+            </button>
+            <button class="d2r-stacked-mode-btn ${currentMode === 'grid' ? 'active' : ''}" onclick="window.setD2RStackedViewMode('grid')">
+              🔲 Grid
+            </button>
+          </div>
+        </div>
+
+        <div class="d2r-stacked-body" id="d2r-stacked-body-container">
+          ${bodyHtml}
+        </div>
+      </div>
+    `;
+
+    if (currentMode === 'mod_layout') {
+      container.querySelectorAll('.d2r-mod-slot.has-item').forEach(slotBox => {
+        const itemJson = slotBox.getAttribute('data-item');
+        if (itemJson) {
+          try {
+            const it = JSON.parse(decodeURIComponent(itemJson));
+            const w = parseInt(slotBox.style.width, 10) || 32;
+            const h = parseInt(slotBox.style.height, 10) || 32;
+            const itemEl = createD2RItemElement(it, 0, 0, w, h);
+            itemEl.style.position = 'relative';
+            itemEl.style.left = '0';
+            itemEl.style.top = '0';
+            itemEl.style.width = '100%';
+            itemEl.style.height = '100%';
+            slotBox.appendChild(itemEl);
+
+            // Display stack count badge on the slot
+            const q = it.quantity != null ? it.quantity : 1;
+            const qBadge = document.createElement('div');
+            qBadge.className = 'd2r-mod-slot-qty';
+            qBadge.textContent = q;
+            const wrap = itemEl.querySelector('.d2r-item-content') || itemEl;
+            wrap.appendChild(qBadge);
+
+            // Double click opens stack editor
+            itemEl.addEventListener('dblclick', (e) => {
+              e.stopPropagation();
+              window.openEditStackModalByCode(it.itemCode, it.displayName || it.name, q, 5);
+            });
+          } catch (e) {}
+        }
+      });
+
+      // Attach click listeners to all empty slots and edit buttons cleanly
+      container.querySelectorAll('#d2r-mod-stackable-viewport .d2r-mod-slot.is-empty').forEach(slotBox => {
+        slotBox.addEventListener('click', () => {
+          const code = slotBox.getAttribute('data-code');
+          const name = slotBox.getAttribute('data-name');
+          const qty = parseInt(slotBox.getAttribute('data-qty'), 10) || 0;
+          const tab = parseInt(slotBox.getAttribute('data-tab'), 10) || 5;
+          window.openEditStackModalByCode(code, name, qty, tab);
+        });
+      });
+
+      container.querySelectorAll('#d2r-mod-stackable-viewport .d2r-mod-slot-edit-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const slot = btn.closest('.d2r-mod-slot');
+          if (slot) {
+            const code = slot.getAttribute('data-code');
+            const name = slot.getAttribute('data-name');
+            const qty = parseInt(slot.getAttribute('data-qty'), 10) || 0;
+            const tab = parseInt(slot.getAttribute('data-tab'), 10) || 5;
+            window.openEditStackModalByCode(code, name, qty, tab);
+          }
+        });
+      });
+    } else if (currentMode === 'categorized') {
+      attachCategorizedSlotItems(container);
+    } else if (currentMode === 'grid') {
+      const gridEl = document.getElementById('d2r-stash-grid');
+      if (gridEl) {
+        gridEl.innerHTML = '';
+        const numRows = Math.max(13, Math.ceil(items.length / 16));
+        gridEl.style.height = `${numRows * 32}px`;
+        items.forEach((it, idx) => {
+          const col = idx % 16;
+          const row = Math.floor(idx / 16);
+          const itemEl = createD2RItemElement(it, col * 32, row * 32, (it.width || 1) * 32, (it.height || 1) * 32);
+          gridEl.appendChild(itemEl);
+        });
+      }
+    }
+
+    setupDragDropTargets();
+  }
+
+  function renderCraftingViewport(container, activeTab) {
+    const items = activeTab.items || [];
+    const cubeItems = (d2rState.charData && d2rState.charData.cube) || [];
+    const currentMode = d2rState.stackedViewMode || 'mod_layout';
+    const layout = window.D2R_BANK_LAYOUT || null;
+    const origin = (layout && layout.origin) || { x: 91, y: 235 };
+    const scale = (layout && layout.scale) || (32.0 / 98.0);
+    const slots = ((layout && layout.crafting_slots) || []).filter(s => (s.itemCode || '').toLowerCase() !== 'rtr');
+    const cubeMeta = (layout && layout.crafting_cube) || { x: 1002, y: 538, cellCount: { x: 6, y: 6 } };
+
+    let bodyHtml = '';
+
+    if (currentMode === 'mod_layout') {
+      const itemsByCode = new Map();
+      items.forEach(it => {
+        const c = (it.itemCode || '').trim().toLowerCase();
+        if (!itemsByCode.has(c)) itemsByCode.set(c, []);
+        itemsByCode.get(c).push(it);
+      });
+
+      const slotNames = {
+        hdm: "Horadric Malus",
+        hfh: "Hellforge Hammer",
+        bgn: "The Gidbinn",
+        dw1: "White Dye",
+        db1: "Black Dye",
+        '1dr': "Dye Cleanser",
+        cct: "Colossal Caster Jewel",
+        bct: "Colossal Blood Jewel",
+        sct: "Colossal Safety Jewel",
+        pct: "Colossal Hit Power Jewel",
+        rrr: "Infernal Mawstone",
+        mfp: "Magic Find Potion",
+        tds: "Hellfire Ashes",
+        std: "Standard of Heroes",
+        dsd: "The Divine Standard",
+        fel: "Flask of Etheric Light",
+        voa: "Blood-Coiled Stone",
+        gwh: "Prime Sigil",
+        hsm: "Hratli's Spiritual Herb",
+        dss: "Diablo's Soulstone",
+        gft: "Holiday Gift"
+      };
+
+      let slotsHtml = '';
+      slots.forEach(slot => {
+        const code = (slot.itemCode || '').toLowerCase();
+        const sx = Math.round((slot.x - origin.x) * scale);
+        const sy = Math.round((slot.y - origin.y) * scale);
+        const sw = Math.round(slot.width * scale);
+        const sh = Math.round(slot.height * scale);
+
+        const matchedList = itemsByCode.get(code) || [];
+        const totalQty = matchedList.reduce((sum, x) => sum + (x.quantity != null ? x.quantity : 0), 0);
+        const hasItem = matchedList.length > 0 && totalQty > 0;
+        const friendlyName = (matchedList[0] && (matchedList[0].displayName || matchedList[0].name)) || slotNames[code] || D2R_STACK_SLOT_NAMES[code] || ('Crafting Material: ' + code.toUpperCase());
+
+        if (hasItem) {
+          const primaryItem = Object.assign({}, matchedList[0]);
+          primaryItem.quantity = totalQty;
+          const itEncoded = encodeURIComponent(JSON.stringify(primaryItem));
+          slotsHtml += `
+            <div class="d2r-mod-slot has-item" style="left: ${sx}px; top: ${sy}px; width: ${sw}px; height: ${sh}px;" data-code="${code}" data-name="${escapeHtml(friendlyName)}" data-qty="${totalQty}" data-tab="5" data-item="${itEncoded}" data-item-id="${primaryItem.id || ''}" title="${escapeHtml(friendlyName)} (Count: ${totalQty} - Click to Edit Stack)">
+              <div style="position: absolute; bottom: 2px; right: 2px; display: flex; gap: 4px; z-index: 10;">
+                <button class="d2r-mod-slot-quick-btn" title="-5" data-delta="-5" style="background: rgba(0,0,0,0.8); color: #ff5555; border: 1px solid #ff5555; padding: 1px 4px; font-size: 10px; cursor: pointer; border-radius: 2px;">-5</button>
+                <button class="d2r-mod-slot-edit-btn" title="Edit Stack Count" style="position: static; padding: 1px 4px; border-radius: 2px;">✏️</button>
+                <button class="d2r-mod-slot-quick-btn" title="+5" data-delta="5" style="background: rgba(0,0,0,0.8); color: #55ff55; border: 1px solid #55ff55; padding: 1px 4px; font-size: 10px; cursor: pointer; border-radius: 2px;">+5</button>
+              </div>
+            </div>
+          `;
+        } else {
+          const imgFile = resolveSlotSprite(code);
+          const wmHtml = imgFile ? `<img src="/assets/items/${imgFile}" class="d2r-mod-slot-watermark" alt="${code}">` : '';
+          slotsHtml += `
+            <div class="d2r-mod-slot is-empty" style="left: ${sx}px; top: ${sy}px; width: ${sw}px; height: ${sh}px;" data-code="${code}" data-name="${escapeHtml(friendlyName)}" data-qty="0" data-tab="5" title="Empty Slot: ${escapeHtml(friendlyName)} (Click to Add / Edit Stack)">
+              ${wmHtml}
+              <div class="d2r-mod-slot-empty-add" title="Add to stack">+</div>
+            </div>
+          `;
+        }
+      });
+
+      const cubeX = Math.round((cubeMeta.x - origin.x) * scale);
+      const cubeY = Math.round((cubeMeta.y - origin.y) * scale);
+
+      bodyHtml = `
+        <div class="d2r-mod-layout-viewport" id="d2r-mod-crafting-viewport">
+          <!-- Authentic 6x6 Horadric Cube Chamber -->
+          <div class="d2r-crafting-cube-grid-authentic" id="d2r-crafting-cube-grid" style="left: ${cubeX}px; top: ${cubeY}px;"></div>
+
+          <!-- Crafting Slots (mls, lmr, bgn, dw1, tablets, etc.) -->
+          ${slotsHtml}
+        </div>
+      `;
+    } else if (currentMode === 'cube') {
+      bodyHtml = `
+        <div class="d2r-cube-container" style="width: 100%; min-height: 440px; height: 440px;">
+          <div class="d2r-cube-grid-viewport" id="d2r-cube-grid" style="width: 192px; height: 192px;"></div>
+          <div style="font-size: 11px; color: var(--d2-color-text-dim); margin-top: 10px;">
+            Horadric Cube: ${cubeItems.length} items loaded.
+          </div>
+        </div>
+      `;
+    } else {
+      bodyHtml = renderCategorizedMaterialsHtml(items);
+    }
+
+    container.innerHTML = `
+      <div class="d2r-stacked-tab-wrapper">
+        <div class="d2r-stacked-header-bar">
+          <div class="d2r-stacked-info">
+            <span class="d2r-stacked-pill">CRAFTING</span>
+            <span class="d2r-stacked-tab-name">Horadric Forge</span>
+            <span class="d2r-stacked-count-pill">${cubeItems.length} in Cube</span>
+          </div>
+          <div class="d2r-stacked-toggles">
+            <button class="d2r-stacked-mode-btn ${currentMode === 'mod_layout' ? 'active' : ''}" onclick="window.setD2RStackedViewMode('mod_layout')">
+              🏛️ Mod Layout
+            </button>
+            <button class="d2r-stacked-mode-btn ${currentMode === 'cube' ? 'active' : ''}" onclick="window.setD2RStackedViewMode('cube')">
+              🔮 Cube Focus
+            </button>
+            <button class="d2r-stacked-mode-btn ${currentMode === 'categorized' ? 'active' : ''}" onclick="window.setD2RStackedViewMode('categorized')">
+              🗂️ Categorized
+            </button>
+          </div>
+        </div>
+
+        <div class="d2r-stacked-body" id="d2r-stacked-body-container">
+          ${bodyHtml}
+        </div>
+      </div>
+    `;
+
+    if (currentMode === 'mod_layout') {
+      const craftingCubeGrid = document.getElementById('d2r-crafting-cube-grid');
+      if (craftingCubeGrid) {
+        populateGridWithItems(craftingCubeGrid, cubeItems, 'cube');
+      }
+
+      container.querySelectorAll('.d2r-mod-slot.has-item').forEach(slotBox => {
+        const itemJson = slotBox.getAttribute('data-item');
+        if (itemJson) {
+          try {
+            const it = JSON.parse(decodeURIComponent(itemJson));
+            const w = parseInt(slotBox.style.width, 10) || 32;
+            const h = parseInt(slotBox.style.height, 10) || 32;
+            const itemEl = createD2RItemElement(it, 0, 0, w, h);
+            itemEl.style.position = 'relative';
+            itemEl.style.left = '0';
+            itemEl.style.top = '0';
+            itemEl.style.width = '100%';
+            itemEl.style.height = '100%';
+            slotBox.appendChild(itemEl);
+
+            const q = it.quantity != null ? it.quantity : 1;
+            const qBadge = document.createElement('div');
+            qBadge.className = 'd2r-mod-slot-qty';
+            qBadge.textContent = q;
+            const wrap = itemEl.querySelector('.d2r-item-content') || itemEl;
+            wrap.appendChild(qBadge);
+
+            // Double click opens stack editor
+            itemEl.addEventListener('dblclick', (e) => {
+              e.stopPropagation();
+              window.openEditStackModalByCode(it.itemCode, it.displayName || it.name, q, 5);
+            });
+          } catch (e) {}
+        }
+      });
+
+      // Attach click listeners to all empty slots and edit buttons cleanly
+      container.querySelectorAll('#d2r-mod-crafting-viewport .d2r-mod-slot.is-empty').forEach(slotBox => {
+        slotBox.addEventListener('click', () => {
+          const code = slotBox.getAttribute('data-code');
+          const name = slotBox.getAttribute('data-name');
+          const qty = parseInt(slotBox.getAttribute('data-qty'), 10) || 0;
+          const tab = parseInt(slotBox.getAttribute('data-tab'), 10) || 5;
+          window.openEditStackModalByCode(code, name, qty, tab);
+        });
+      });
+
+      container.querySelectorAll('#d2r-mod-crafting-viewport .d2r-mod-slot-edit-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const slot = btn.closest('.d2r-mod-slot');
+          if (slot) {
+            const code = slot.getAttribute('data-code');
+            const name = slot.getAttribute('data-name');
+            const qty = parseInt(slot.getAttribute('data-qty'), 10) || 0;
+            const tab = parseInt(slot.getAttribute('data-tab'), 10) || 5;
+            window.openEditStackModalByCode(code, name, qty, tab);
+          }
+        });
+      });
+    } else if (currentMode === 'cube') {
+      populateGridWithItems(document.getElementById('d2r-cube-grid'), cubeItems, 'cube');
+    } else if (currentMode === 'categorized') {
+      attachCategorizedSlotItems(container);
+    }
+
+    setupDragDropTargets();
+  }
+
+  function renderCategorizedMaterialsHtml(items) {
+    const runes = [];
+    const gems = [];
+    const keysEssences = [];
+    const craftingMaterials = [];
+    const others = [];
+
+    const gemCodes = new Set([
+      'gcw', 'gfw', 'gsw', 'glw', 'gpw', 'gaw',
+      'gcg', 'gfg', 'gsg', 'glg', 'gpg', 'gag',
+      'gcr', 'gfr', 'gsr', 'glr', 'gpr', 'gar',
+      'gcy', 'gfy', 'gsy', 'gly', 'gpy', 'gay',
+      'gcv', 'gfv', 'gsv', 'gzv', 'gpv', 'gav',
+      'gcb', 'gfb', 'gsb', 'glb', 'gpb', 'gab',
+      'skc', 'skf', 'sku', 'skl', 'skz', 'ska'
+    ]);
+
+    items.forEach(it => {
+      const code = (it.itemCode || '').trim().toLowerCase();
+      const itype = (it.type || '').toLowerCase();
+      const rawName = (it.name || it.baseName || '').toLowerCase();
+
+      if (itype === 'rune' || (/^r\d{2}$/.test(code))) {
+        runes.push(it);
+      } else if (gemCodes.has(code) || itype.includes('gem') || itype.includes('diamond') || itype.includes('ruby') || itype.includes('topaz') || itype.includes('amethyst') || itype.includes('sapphire') || itype.includes('emerald') || itype.includes('skull') || code === 'jew' || code === 'cjw' || rawName.includes('jewel')) {
+        gems.push(it);
+      } else if (/pk|bey|dhn|mbr|tes|ceh|bet|fed|toa|xa|ua/.test(code)) {
+        keysEssences.push(it);
+      } else if (/pct|sct|cct|bct|brk|mbk|rrr|rtr|fel|tds|gwh|std|wms|mfp|rvl|rvs|lmr|mls|dsd|dss|voa|hsm/.test(code)) {
+        craftingMaterials.push(it);
+      } else {
+        others.push(it);
+      }
+    });
+
+    runes.sort((a, b) => ((a.itemCode || '').toLowerCase()).localeCompare((b.itemCode || '').toLowerCase()));
+    gems.sort((a, b) => ((a.itemCode || '').toLowerCase()).localeCompare((b.itemCode || '').toLowerCase()));
+
+    return `
+      <div class="d2r-stacked-categories">
+        ${renderStackedSection('ᚱ Runes', runes, 'runes')}
+        ${renderStackedSection('💎 Gems & Jewels', gems, 'gems')}
+        ${renderStackedSection('🗝️ Keys & Essences', keysEssences, 'keys')}
+        ${renderStackedSection('📜 Crafting Tablets & Materials', craftingMaterials, 'materials')}
+        ${others.length > 0 ? renderStackedSection('📦 Other Stacked Items', others, 'others') : ''}
+      </div>
+    `;
+  }
+
+  function attachCategorizedSlotItems(container) {
+    container.querySelectorAll('.d2r-stacked-slot-box').forEach(slotBox => {
+      const itemJson = slotBox.getAttribute('data-item');
+      if (itemJson) {
+        try {
+          const it = JSON.parse(decodeURIComponent(itemJson));
+          const itemEl = createD2RItemElement(it, 0, 0, 32, 32);
+          itemEl.style.position = 'relative';
+          itemEl.style.left = '0';
+          itemEl.style.top = '0';
+          itemEl.style.width = '100%';
+          itemEl.style.height = '100%';
+          slotBox.appendChild(itemEl);
+        } catch (e) {}
+      }
+    });
+  }
+
+  function renderStackedSection(title, items, type) {
+    if (!items || items.length === 0) return '';
+    let slotsHtml = '';
+    items.forEach(it => {
+      const itEncoded = encodeURIComponent(JSON.stringify(it));
+      const code = (it.itemCode || '').trim();
+      const isRune = /^r\d{2}$/i.test(code);
+      const runeNum = isRune ? parseInt(code.slice(1), 10) : null;
+      const runeBadge = runeNum ? `<span class="d2r-stacked-rune-badge">${runeNum}</span>` : '';
+
+      slotsHtml += `
+        <div class="d2r-stacked-slot-box" data-item="${itEncoded}" title="${escapeHtml(it.displayName || it.name)}">
+          ${runeBadge}
+        </div>
+      `;
+    });
+
+    return `
+      <div class="d2r-stacked-section d2r-section-${type}">
+        <div class="d2r-stacked-section-title">
+          <span>${title}</span>
+          <span class="d2r-section-count">(${items.length})</span>
+        </div>
+        <div class="d2r-stacked-section-grid">
+          ${slotsHtml}
+        </div>
+      </div>
+    `;
+  }
+
+  window.setD2RStackedViewMode = function (mode) {
+    d2rState.stackedViewMode = mode;
+    renderActiveStashViewport();
+  };
+
+  window.triggerD2RTransmute = function() {
+    const cubeItems = (d2rState.charData && d2rState.charData.cube) || [];
+    if (cubeItems.length === 0) {
+      if (window.showToast) window.showToast('Horadric Cube is empty! Place items inside first.', 'warning');
+      else alert('Horadric Cube is empty! Place items inside first.');
+      return;
+    }
+    const itemNames = cubeItems.map(it => it.displayName || it.name).join(', ');
+    if (window.showToast) {
+      window.showToast(`Transmute active: [${itemNames}]. Transmuting recipes in D2R!`, 'info');
+    } else {
+      alert(`Transmute active: [${itemNames}]`);
+    }
+  };
+
+  window.triggerD2RWithdrawAll = async function() {
+    const cubeItems = (d2rState.charData && d2rState.charData.cube) || [];
+    if (cubeItems.length === 0) {
+      if (window.showToast) window.showToast('Horadric Cube is empty.', 'info');
+      return;
+    }
+    if (window.showToast) window.showToast(`Withdrawing ${cubeItems.length} items to stash...`, 'info');
+    for (const it of cubeItems) {
+      try {
+        await window.quickTransferD2RItem(it.id, 'stash', 5);
+      } catch (e) {}
+    }
+    await reloadArmoryData();
+  };
+
   // -------------------------------------------------------------------------
   // State Switching Controls
   // -------------------------------------------------------------------------
@@ -764,6 +1874,29 @@
     d2rState.activeStashTab = tabKey;
     updateStashTabRibbon();
     renderActiveStashViewport();
+  };
+
+  window.switchD2RSharedSubTab = function (idx) {
+    d2rState.activeStashTab = `shared_${idx}`;
+    updateStashTabRibbon();
+    renderActiveStashViewport();
+  };
+
+  window.switchD2RSharedRelative = function (delta) {
+    const tabsMeta = (d2rState.stashData && d2rState.stashData.tabs) || [];
+    const sharedTabs = tabsMeta.filter((t, idx) => idx !== 5);
+    if (sharedTabs.length === 0) return;
+
+    let currentIdx = 0;
+    const match = d2rState.activeStashTab.match(/^shared_(\d+)$/);
+    if (match) currentIdx = parseInt(match[1], 10);
+    if (currentIdx === 5) currentIdx = 0;
+
+    let newIdx = currentIdx + delta;
+    if (newIdx < 0) newIdx = sharedTabs.length - 1;
+    if (newIdx >= sharedTabs.length) newIdx = 0;
+
+    window.switchD2RSharedSubTab(newIdx);
   };
 
   window.toggleD2RWeaponSwap = function (swapNum) {
@@ -776,15 +1909,7 @@
     });
   };
 
-  window.setArmoryViewMode = function (mode) {
-    d2rState.viewMode = mode;
-    document.getElementById('view-toggle-panels').classList.toggle('active', mode === 'panels');
-    document.getElementById('view-toggle-cards').classList.toggle('active', mode === 'cards');
-
-    if (d2rState.charData) {
-      window.renderD2RInGameArmory(d2rState.charData, d2rState.stashData, d2rState.containerDims);
-    }
-  };
+  window.setArmoryViewMode = function () {};
 
   window.openArmoryForStash = function (tabIdx) {
     d2rState.activeStashTab = `shared_${tabIdx !== undefined ? tabIdx : 0}`;
@@ -811,15 +1936,31 @@
     renderActiveStashViewport();
   };
 
-  // Keyboard shortcut 'G' (authentic D2R graphics toggle)
+  // Authentic D2R Keyboard shortcuts:
+  // 'G' -> Toggle Graphics Mode (D2R vs Classic)
+  // 'O' -> Toggle Mercenary panel
+  // 'I' -> Switch to Hero Inventory
+  // 'W' -> Toggle Weapon Swap (Hero Paperdoll)
   window.addEventListener('keydown', (e) => {
+    if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA' || document.activeElement.tagName === 'SELECT')) {
+      return;
+    }
+    const armoryView = document.getElementById('armory-view');
+    if (!armoryView || !armoryView.classList.contains('active')) {
+      return;
+    }
+
     if (e.key === 'g' || e.key === 'G') {
-      if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA' || document.activeElement.tagName === 'SELECT')) {
-        return;
-      }
-      const armoryView = document.getElementById('armory-view');
-      if (armoryView && armoryView.classList.contains('active')) {
-        window.toggleD2RGraphicsMode();
+      window.toggleD2RGraphicsMode();
+    } else if (e.key === 'o' || e.key === 'O') {
+      const nextTab = d2rState.rightPanelView === 'mercenary' ? 'hero' : 'mercenary';
+      window.switchRightPanelTab(nextTab);
+    } else if (e.key === 'i' || e.key === 'I') {
+      window.switchRightPanelTab('hero');
+    } else if (e.key === 'w' || e.key === 'W') {
+      if (d2rState.rightPanelView !== 'mercenary') {
+        const nextSwap = d2rState.weaponSwap === 1 ? 2 : 1;
+        window.toggleD2RWeaponSwap(nextSwap);
       }
     }
   });
@@ -827,35 +1968,78 @@
   // -------------------------------------------------------------------------
   // Drag & Drop Handlers
   // -------------------------------------------------------------------------
+  function dropCell(event, grid) {
+    const bounds = grid.getBoundingClientRect();
+    const scaleX = bounds.width / grid.offsetWidth || 1;
+    const scaleY = bounds.height / grid.offsetHeight || 1;
+    return { x: Math.floor((event.clientX - bounds.left) / (32 * scaleX)), y: Math.floor((event.clientY - bounds.top) / (32 * scaleY)) };
+  }
+
   function setupDragDropTargets() {
     const invGrid = document.getElementById('d2r-inventory-grid');
-    const stashGrid = document.getElementById('d2r-stash-grid');
-    const cubeGrid = document.getElementById('d2r-cube-grid');
+    const stashGrid = document.getElementById('d2r-stash-grid') || 
+                      document.getElementById('d2r-mod-stackable-viewport') || 
+                      document.getElementById('d2r-mod-crafting-viewport') || 
+                      document.getElementById('d2r-stacked-body-container');
+    const cubeGrid = document.getElementById('d2r-crafting-cube-grid') || 
+                     document.getElementById('d2r-cube-grid');
 
+    const isStackedTab = d2rState.activeStashTab === 'stackable' || d2rState.activeStashTab === 'crafting' || d2rState.activeStashTab === 'shared_5';
+    const stashTargetType = isStackedTab ? 'stash' : (d2rState.activeStashTab.startsWith('shared') ? 'stash' : 'personal_stash');
+    const stashTargetTab = isStackedTab ? 5 : parseInt((d2rState.activeStashTab.match(/\d+/) || [0])[0], 10);
+
+    // 1. Separate handler for cubeGrid to stop event propagation
+    if (cubeGrid) {
+      cubeGrid.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'move';
+        cubeGrid.classList.add('d2r-drag-over');
+      });
+
+      cubeGrid.addEventListener('dragleave', (e) => {
+        e.stopPropagation();
+        cubeGrid.classList.remove('d2r-drag-over');
+      });
+
+      cubeGrid.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        cubeGrid.classList.remove('d2r-drag-over');
+        if (!d2rState.draggedItem) return;
+
+        const it = d2rState.draggedItem;
+        window.quickTransferD2RItem(it.id, 'cube', 0, dropCell(e, cubeGrid));
+      });
+    }
+
+    // 2. Handlers for inventory and stash grids
     [
       { el: invGrid, type: 'inventory', tab: 0 },
-      { el: stashGrid, type: d2rState.activeStashTab.startsWith('shared') ? 'stash' : 'personal_stash', tab: parseInt((d2rState.activeStashTab.match(/\d+/) || [0])[0], 10) },
-      { el: cubeGrid, type: 'cube', tab: 0 }
+      { el: stashGrid, type: stashTargetType, tab: stashTargetTab }
     ].forEach(target => {
       if (!target.el) return;
 
       target.el.addEventListener('dragover', (e) => {
         e.preventDefault();
+        e.stopPropagation();
         e.dataTransfer.dropEffect = 'move';
         target.el.classList.add('d2r-drag-over');
       });
 
-      target.el.addEventListener('dragleave', () => {
+      target.el.addEventListener('dragleave', (e) => {
+        e.stopPropagation();
         target.el.classList.remove('d2r-drag-over');
       });
 
       target.el.addEventListener('drop', (e) => {
         e.preventDefault();
+        e.stopPropagation();
         target.el.classList.remove('d2r-drag-over');
         if (!d2rState.draggedItem) return;
 
         const it = d2rState.draggedItem;
-        window.quickTransferD2RItem(it.id, target.type, target.tab);
+        window.quickTransferD2RItem(it.id, target.type, target.tab, target.type === 'stash' && isStackedTab ? null : dropCell(e, target.el));
       });
     });
   }
@@ -863,7 +2047,7 @@
   // -------------------------------------------------------------------------
   // Atomic Item Transfer Executor
   // -------------------------------------------------------------------------
-  window.quickTransferD2RItem = async function (itemId, targetContainer, targetTab) {
+  window.quickTransferD2RItem = async function (itemId, targetContainer, targetTab, cell = null) {
     window.closeD2RActionMenu();
     window.hideD2RItemTooltip();
 
@@ -874,16 +2058,63 @@
     }
 
     try {
+      const selected = (window.state?.allWasmItems || window.state?.items || []).find(item => String(item.id) === String(itemId))
+        || (d2rState.stashData?.tabs || []).flatMap(tab => tab.items || []).find(item => String(item.id) === String(itemId));
+      const targetSave = (window.state?.saves || []).find(save => targetContainer === 'stash' ? save.file === d2rState.stashData?.save?.file : save.name === charName);
+      if (!selected || !targetSave) throw new Error('The exact source or destination save is unavailable. Reload and select a matching stash.');
       const payload = {
+        source_revision: selected?.saveRevision,
+        target_revision: targetSave?.saveRevision,
+        source_file: selected?.sourceFile,
+        seed: selected?.itemSeed,
+        code: selected?.itemCode,
         item_id: itemId,
-        source: 'any',
+        source_container: selected?.isStash ? 'SharedStash' : selected?.location,
+        source_tab: selected?.tabIndex ?? 0,
+        source_x: selected?.invX,
+        source_y: selected?.invY,
+        target_x: cell?.x,
+        target_y: cell?.y,
         target_character: charName,
-        target_container: targetContainer,
+        target_file: targetContainer === 'stash' ? d2rState.stashData?.save?.file : undefined,
+        target_container: targetContainer === 'stash' ? 'SharedStash' : (targetContainer === 'personal_stash' ? 'Stash' : targetContainer),
         target_tab: targetTab !== undefined ? targetTab : 0,
-        force_live: true
+        force_live: false
       };
 
       if (window.showToast) window.showToast('Executing transfer...', 'info');
+
+      if (window.state && window.state.isWasmMode && window.D2Wasm) {
+        // In-memory WASM transfer
+        const allItems = window.state.allWasmItems || window.state.items || [];
+        const it = allItems.find(x => x.id === itemId);
+        if (!it) throw new Error('Item not found in memory');
+        const isTargetStash = targetContainer === 'stash';
+        const stashSave = d2rState.stashData?.save;
+        const req = {
+          source_file: it.sourceFile,
+          source_container: it.isStash ? 'SharedStash' : it.location,
+          source_tab: it.tabIndex || 0,
+          source_x: it.invX,
+          source_y: it.invY,
+          item_code: it.itemCode,
+          item_seed: it.itemSeed,
+          target_file: isTargetStash ? (stashSave ? stashSave.file : 'ModernSharedStashSoftCoreV2.d2i') : (window.state.saves.find(save => !save.is_stash && save.name === charName)?.file || `${charName}.d2s`),
+          target_container: isTargetStash ? 'SharedStash' : (targetContainer === 'personal_stash' ? 'Stash' : (targetContainer === 'cube' ? 'Cube' : 'Inventory')),
+          target_tab: targetTab !== undefined ? targetTab : 0,
+          source_revision: selected?.saveRevision,
+          target_revision: targetSave?.saveRevision,
+          target_x: cell?.x,
+          target_y: cell?.y,
+          force_live: false
+        };
+        const result = await window.D2Wasm.transferItem(req);
+        if (!result.success) throw new Error(result.message);
+        if (window.showToast) window.showToast(`Transferred ${it.displayName || 'item'}! File downloaded.`, 'success');
+        if (window.refreshWasmDataset) await window.refreshWasmDataset();
+        await reloadArmoryData();
+        return;
+      }
 
       const res = await fetch('/api/item/transfer', {
         method: 'POST',
@@ -892,8 +2123,8 @@
       });
 
       const data = await res.json();
-      if (!res.ok || data.error) {
-        throw new Error(data.error || 'Transfer failed');
+      if (!res.ok || !(data.Success === true || data.success === true)) {
+        throw new Error(data.Message || data.message || data.error || 'Transfer failed');
       }
 
       if (window.showToast) {
@@ -911,26 +2142,41 @@
   };
 
   async function reloadArmoryData() {
-    if (!d2rState.activeCharName) return;
+    if (window.state && window.state.isWasmMode && window.D2Wasm) {
+      const charData = d2rState.activeCharName
+        ? window.D2Wasm.getCharacterDetail(d2rState.activeCharName, window.state.saves, window.state.allWasmItems || window.state.items)
+        : null;
+      const stashData = window.D2Wasm.getSharedStashDetail(window.state.saves, window.state.allWasmItems || window.state.items, d2rState.activeCharName);
+      const dims = { inventory: { width: 11, height: 8 }, stash: { width: 16, height: 13 }, cube: { width: 6, height: 6 } };
+      window.renderD2RInGameArmory(charData || d2rState.charData || { character: {}, equipped: {}, stats: {}, inventory: [], stash: [], cube: [] }, stashData, dims);
+      return;
+    }
 
     try {
-      const [charRes, stashRes, dimsRes] = await Promise.all([
-        fetch(`/api/character/${encodeURIComponent(d2rState.activeCharName)}`),
-        fetch('/api/shared-stash'),
+      const promises = [
+        fetch(`/api/shared-stash?character=${encodeURIComponent(d2rState.activeCharName || '')}`),
         fetch('/api/container-dimensions')
-      ]);
+      ];
+      if (d2rState.activeCharName) {
+        promises.push(fetch(`/api/character/${encodeURIComponent(d2rState.activeCharName)}`));
+      }
+      const results = await Promise.all(promises);
+      const stashRes = results[0];
+      const dimsRes = results[1];
+      const charRes = d2rState.activeCharName ? results[2] : null;
 
-      if (charRes.ok && stashRes.ok) {
-        const charData = await charRes.json();
-        const stashData = await stashRes.json();
-        const dims = dimsRes.ok ? await dimsRes.json() : d2rState.containerDims;
+      const stashData = stashRes.ok ? await stashRes.json() : null;
+      const dims = dimsRes.ok ? await dimsRes.json() : d2rState.containerDims;
+      const charData = (charRes && charRes.ok) ? await charRes.json() : d2rState.charData;
 
-        window.renderD2RInGameArmory(charData, stashData, dims);
+      if (stashData) {
+        window.renderD2RInGameArmory(charData || { character: {}, equipped: {}, stats: {}, inventory: [], stash: [], cube: [] }, stashData, dims);
       }
     } catch (err) {
       console.error('Failed to reload armory data:', err);
     }
   }
+  window.reloadArmoryData = reloadArmoryData;
 
   window.openTransferModalForD2RItem = function (itemId) {
     if (window.openTransferModal) {
@@ -944,77 +2190,10 @@
     }
   };
 
-  // -------------------------------------------------------------------------
-  // Fallback / Legacy Card List View
-  // -------------------------------------------------------------------------
-  function renderLegacyCardsView(container, charData) {
-    const char = charData.character || {};
-    const equipped = charData.equipped || {};
-    const stats = char.stats || {};
 
-    const createSlotHtml = (slotKey, slotLabel) => {
-      const it = equipped[slotKey];
-      if (it) {
-        const qColorClass = getItemQualityClass(it.quality, it.isRuneword);
-        return `
-          <div class="gear-slot filled" onclick="inspectD2RItemDetails(${it.id})">
-            <span class="gear-slot-label">${slotLabel}</span>
-            <span class="gear-slot-name ${qColorClass}">${escapeHtml(it.displayName)}</span>
-          </div>
-        `;
-      } else {
-        return `
-          <div class="gear-slot">
-            <span class="gear-slot-label">${slotLabel}</span>
-            <span style="font-size: 11px; color: var(--text-dim);">Empty</span>
-          </div>
-        `;
-      }
-    };
 
-    container.innerHTML = `
-      <div class="paperdoll-container">
-        <div style="display: flex; justify-content: space-between; align-items: baseline;">
-          <h3 style="font-family: var(--font-heading); color: var(--color-accent); font-size: 18px;">
-            ${escapeHtml(char.name)}
-          </h3>
-          <span style="color: var(--text-muted); font-size: 13px;">Level ${char.level} ${escapeHtml(char.class)}</span>
-        </div>
-
-        <div class="char-attributes-grid">
-          <div class="attr-box"><span class="attr-name">STR</span><span class="attr-val">${stats.strength || '-'}</span></div>
-          <div class="attr-box"><span class="attr-name">DEX</span><span class="attr-val">${stats.dexterity || '-'}</span></div>
-          <div class="attr-box"><span class="attr-name">VIT</span><span class="attr-val">${stats.vitality || '-'}</span></div>
-          <div class="attr-box"><span class="attr-name">ENG</span><span class="attr-val">${stats.energy || '-'}</span></div>
-        </div>
-
-        <div class="paperdoll-layout">
-          ${createSlotHtml('Head', 'Head')}
-          ${createSlotHtml('Neck', 'Amulet')}
-          ${createSlotHtml('Torso', 'Armor')}
-          ${createSlotHtml('RightHand', 'Main Hand')}
-          ${createSlotHtml('LeftHand', 'Off Hand')}
-          ${createSlotHtml('Gloves', 'Gloves')}
-          ${createSlotHtml('RightRing', 'Right Ring')}
-          ${createSlotHtml('LeftRing', 'Left Ring')}
-          ${createSlotHtml('Belt', 'Belt')}
-          ${createSlotHtml('Boots', 'Boots')}
-        </div>
-      </div>
-
-      <div class="armory-inventory-panel">
-        <div class="inventory-tabs">
-          <button class="inv-tab-btn active" data-inv-tab="inventory" onclick="switchInvTab('inventory', this)">Inventory (${(charData.inventory || []).length})</button>
-          <button class="inv-tab-btn" data-inv-tab="stash" onclick="switchInvTab('stash', this)">Personal Stash (${(charData.stash || []).length})</button>
-          <button class="inv-tab-btn" data-inv-tab="cube" onclick="switchInvTab('cube', this)">Cube (${(charData.cube || []).length})</button>
-        </div>
-
-        <div id="armory-tab-content" class="items-grid" style="grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));">
-        </div>
-      </div>
-    `;
-
-    if (window.switchInvTab) window.switchInvTab('inventory');
-  }
+  window.toggleD2RMercModal = function() {
+    window.switchRightPanelTab(d2rState.rightPanelView === 'mercenary' ? 'hero' : 'mercenary');
+  };
 
 })();

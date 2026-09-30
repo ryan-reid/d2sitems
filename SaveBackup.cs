@@ -32,12 +32,12 @@ public static class SaveBackup
         var backupDir = Path.Combine(dir, "backups");
         Directory.CreateDirectory(backupDir);
 
-        var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        var timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss_fffffff");
         var fileName = Path.GetFileName(filePath);
-        var backupPath = Path.Combine(backupDir, $"{timestamp}_{fileName}");
+        var backupPath = Path.Combine(backupDir, $"{timestamp}_{Guid.NewGuid():N}_{fileName}");
 
-        File.Copy(filePath, backupPath, overwrite: true);
-        Console.WriteLine($"[BACKUP] Created safety backup: {backupPath}");
+        File.Copy(filePath, backupPath, overwrite: false);
+        Console.Error.WriteLine($"[BACKUP] Created safety backup: {backupPath}");
         return backupPath;
     }
 }

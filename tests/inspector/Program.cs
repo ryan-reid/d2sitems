@@ -7,6 +7,7 @@ using D2SSharp.Model;
 Console.WriteLine("=================================================");
 Console.WriteLine("    D2R Save & Stash Regression Test Suite       ");
 Console.WriteLine("=================================================");
+D2SItems.InspectQuests.Run();
 
 var projectDir = @"E:\Games\d2sitems";
 var excelDir = @"E:\Games\Diablo II Resurrected\Mods\BKDiablo\bkdiablo.mpq\data\global\excel";
@@ -484,6 +485,179 @@ finally
 {
     if (Directory.Exists(transferTestDir))
         Directory.Delete(transferTestDir, true);
+}
+
+// [6/6] Testing StackEditorManager (Edit & Add Stackable Items)
+Console.WriteLine("\n[6/6] Testing StackEditorManager (Edit & Add Stackable Items)...");
+var stackTestDir = Path.Combine(Path.GetTempPath(), $"d2sitems_stack_test_{Guid.NewGuid():N}");
+Directory.CreateDirectory(stackTestDir);
+try
+{
+    var testStashFile = Path.Combine(stackTestDir, "ModernSharedStashSoftCoreV2.d2i");
+    File.Copy(goldenStash, testStashFile);
+
+    // 6.1 Edit existing item (std) from 0 to 5
+    var editRes = D2SItems.StackEditorManager.EditStack(new D2SItems.EditStackRequest
+    {
+        StashFile = testStashFile,
+        TabIndex = 5,
+        ItemCode = "std",
+        Quantity = 5,
+        ExcelDir = excelDir
+    });
+
+    if (editRes.Success && editRes.NewQuantity == 5)
+    {
+        var verifyStash = D2StashSave.Read(File.ReadAllBytes(testStashFile), externalData);
+        var stdItem = verifyStash[5].Items.FirstOrDefault(i => i.ItemCodeString.Trim().Equals("std", StringComparison.OrdinalIgnoreCase));
+        if (stdItem != null && stdItem.AdvancedStashStackSize == 5)
+        {
+            Console.WriteLine("  [PASS] Successfully updated 'std' (Standard of Heroes) stack size to 5");
+            passed++;
+        }
+        else
+        {
+            Console.WriteLine($"  [FAIL] 'std' stack size readback mismatch: expected 5, got {stdItem?.AdvancedStashStackSize}");
+            failed++;
+        }
+    }
+    else
+    {
+        Console.WriteLine($"  [FAIL] EditStack failed: {editRes.Message}");
+        failed++;
+    }
+
+    // 6.2 Edit item back to 0
+    var zeroRes = D2SItems.StackEditorManager.EditStack(new D2SItems.EditStackRequest
+    {
+        StashFile = testStashFile,
+        TabIndex = 5,
+        ItemCode = "std",
+        Quantity = 0,
+        ExcelDir = excelDir
+    });
+
+    if (zeroRes.Success && zeroRes.NewQuantity == 0)
+    {
+        var verifyStash = D2StashSave.Read(File.ReadAllBytes(testStashFile), externalData);
+        var stdItem = verifyStash[5].Items.FirstOrDefault(i => i.ItemCodeString.Trim().Equals("std", StringComparison.OrdinalIgnoreCase));
+        if (stdItem != null && stdItem.AdvancedStashStackSize == 0)
+        {
+            Console.WriteLine("  [PASS] Successfully reset 'std' stack size to 0");
+            passed++;
+        }
+        else
+        {
+            Console.WriteLine($"  [FAIL] 'std' reset mismatch: got {stdItem?.AdvancedStashStackSize}");
+            failed++;
+        }
+    }
+    else
+    {
+        Console.WriteLine($"  [FAIL] EditStack zero reset failed: {zeroRes.Message}");
+        failed++;
+    }
+
+    // 6.3 Add new stack item code (r33)
+    var addRes = D2SItems.StackEditorManager.EditStack(new D2SItems.EditStackRequest
+    {
+        StashFile = testStashFile,
+        TabIndex = 5,
+        ItemCode = "r33",
+        Quantity = 10,
+        ExcelDir = excelDir
+    });
+
+    if (addRes.Success && addRes.NewQuantity == 10)
+    {
+        var verifyStash = D2StashSave.Read(File.ReadAllBytes(testStashFile), externalData);
+        var r33Item = verifyStash[5].Items.FirstOrDefault(i => i.ItemCodeString.Trim().Equals("r33", StringComparison.OrdinalIgnoreCase));
+        if (r33Item != null && r33Item.AdvancedStashStackSize == 10)
+        {
+            Console.WriteLine("  [PASS] Successfully added new item 'r33' with stack size 10");
+            passed++;
+        }
+        else
+        {
+            Console.WriteLine($"  [FAIL] 'r33' add readback mismatch: got {r33Item?.AdvancedStashStackSize}");
+            failed++;
+        }
+    }
+    else
+    {
+        Console.WriteLine($"  [FAIL] Add stack item failed: {addRes.Message}");
+        failed++;
+    }
+}
+finally
+{
+    if (Directory.Exists(stackTestDir))
+        Directory.Delete(stackTestDir, true);
+}
+
+// Test 7: Corpse gear recognition and Mercenary isolation
+Console.WriteLine("\n[7/7] Testing Corpse gear recognition and Mercenary isolation...");
+var sorcSaveFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Saved Games", "Diablo II Resurrected", "Mods", "BKDiablo", "Sorceress.d2s");
+if (File.Exists(sorcSaveFile))
+{
+    var sorcBytes = File.ReadAllBytes(sorcSaveFile);
+    var engine = new D2SItems.SaveInspectorEngine(excelDir, Path.Combine(projectDir, "web", "assets"));
+    var result = engine.ProcessCharacterSaveData("Sorceress.d2s", sorcBytes);
+
+    var charInfo = (Dictionary<string, object>)result["character"];
+    var hasCorpse = (bool)charInfo["hasCorpse"];
+    var allItems = (List<Dictionary<string, object?>>)result["items"];
+    var mercItems = (List<Dictionary<string, object?>>)result["mercenary"];
+
+    // 1. Verify corpse detection
+    if (hasCorpse)
+    {
+        Console.WriteLine("  [PASS] hasCorpse flag correctly identified on dead character");
+        passed++;
+    }
+    else
+    {
+        Console.WriteLine("  [FAIL] hasCorpse flag was not set!");
+        failed++;
+    }
+
+    // 2. Verify all 12 equipped corpse items are present with normalized slot names
+    var equippedSlots = new HashSet<string>();
+    foreach (var it in allItems)
+    {
+        if (it.TryGetValue("isCorpse", out var isC) && isC is true)
+        {
+            var loc = it["location"]?.ToString();
+            if (loc != null) equippedSlots.Add(loc);
+        }
+    }
+
+    var expectedSlots = new[] { "Head", "Neck", "Torso", "RightHand", "LeftHand", "Gloves", "Belt", "Boots", "RightRing", "LeftRing", "AlternateRightHand", "AlternateLeftHand" };
+    int matchedSlots = expectedSlots.Count(s => equippedSlots.Contains(s));
+    if (matchedSlots == 12)
+    {
+        Console.WriteLine($"  [PASS] All 12/12 equipped slots recovered from corpse with normalized slot names");
+        passed++;
+    }
+    else
+    {
+        Console.WriteLine($"  [FAIL] Only {matchedSlots}/12 corpse slots recovered! Missing: {string.Join(", ", expectedSlots.Where(s => !equippedSlots.Contains(s)))}");
+        failed++;
+    }
+
+    // 3. Verify mercenary items are isolated and not polluting character equipped gear
+    bool mercIsolated = mercItems.Count == 7 && mercItems.All(m => m.ContainsKey("isMercenary") && (bool)m["isMercenary"]!);
+    bool noMercInEquipped = !allItems.Any(i => i.ContainsKey("isMercenary") && (bool)i["isMercenary"]! && !i["location"]!.ToString()!.StartsWith("Mercenary"));
+    if (mercIsolated && noMercInEquipped)
+    {
+        Console.WriteLine($"  [PASS] Mercenary items ({mercItems.Count}) isolated with 'Mercenary' location prefix");
+        passed++;
+    }
+    else
+    {
+        Console.WriteLine("  [FAIL] Mercenary items leaked into character equipped items!");
+        failed++;
+    }
 }
 
 Console.WriteLine("\n=================================================");
