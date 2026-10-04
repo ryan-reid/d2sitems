@@ -19,6 +19,11 @@
   check(Array.isArray(grail.categories) && grail.total_items > 600 && grail.categories.every(category => category.items.length === category.total), 'collection totals and rows come from embedded mod definitions');
   const art = window.BKItemArt.resolve({itemCode:'bgn'}, engine.spriteMappings, false);
   check(art.file === 'hd_key_bigdinn_key.png', 'Bigdinn key resolves to BKDiablo artwork');
+  const stashSave = dataset.saves.find(s => s.is_stash);
+  stashSave.chronicle = { uniques: [{ name: 'Gull', source: 'Shared', timestamp: 1234567890 }] };
+  const testChronicle = engine.getChronicleProgress(dataset.saves);
+  const gull = testChronicle.categories.find(c => c.category === 'Unique Items').items.find(i => i.name === 'Gull');
+  check(gull && gull.tracked && gull.source === 'Shared' && gull.core === 'soft', 'offline chronicle identifies tracked items and sources');
 
   const item = dataset.items.find(item => item.isStash && item.tabIndex === 0 && item.itemCode === 'cm1');
   engine.editOriginals = new Map(engine.loadedFiles);
@@ -53,6 +58,8 @@
     itemCode: 'uap', quality: 'Unique', qualityIndex: 248, x: -1, y: -1,
     itemStats: [
       {statId: 127, layer: 0, value: 2},
+      {statId: 216, layer: 0, value: 12},
+      {statId: 217, layer: 0, value: 12},
       {statId: 80, layer: 0, value: 50},
       {statId: 36, layer: 0, value: 10},
       {statId: 0, layer: 0, value: 2},
@@ -71,6 +78,11 @@
   const oldSession = engine.sessionId;
   await engine.ingestFiles([{name:'TestAmazon.d2s',bytes:character}]);
   check(engine.sessionId !== oldSession && engine.loadedFiles.size === 1 && (await engine.loadAllFilesFromDB()).length === 1,'new folder session cannot mix duplicate filenames');
+  await engine.ingestFiles([
+    {name:'TestAmazon.d2s',bytes:character},
+    {name:'20261004_120000_TestAmazon.d2s',bytes:character}
+  ]);
+  check(engine.loadedFiles.size === 1 && !engine.loadedFiles.has('20261004_120000_TestAmazon.d2s'), 'offline ingest ignores backup files');
   output.textContent += '\nALL BROWSER CHECKS PASSED';
  } catch (error) { output.textContent += '\nFAIL ' + error.stack; }
 })();

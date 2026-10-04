@@ -330,6 +330,7 @@ async function refreshWasmDataset() {
 
   try {
     const dataset = await window.D2Wasm.buildDataset();
+    window.D2Wasm.allSaves = dataset.saves;
     state.saves = dataset.saves.filter(save => save.core === state.core);
     state.allWasmItems = dataset.items.filter(item => item.sourceCore === state.core);
     state.items = state.allWasmItems;
@@ -363,19 +364,49 @@ async function handleUserFiles(fileList) {
     await enableWasmMode();
   }
 
-  showToast(`Loading ${fileList.length} file(s) into WebAssembly...`, 'info');
   const overlay = document.getElementById('d2-dropzone-overlay');
   if (overlay) overlay.classList.remove('active');
 
   const filesToIngest = [];
+  const seenNames = new Set();
+
   for (let i = 0; i < fileList.length; i++) {
     const f = fileList[i];
     const name = f.name;
     const lower = name.toLowerCase();
-    if (lower.endsWith('.d2s') || lower.endsWith('.d2i') || lower.endsWith('.ctl')) {
-      const bytes = await D2WasmEngine.readFileAsBytes(f);
-      filesToIngest.push({ name, bytes });
+    if (!lower.endsWith('.d2s') && !lower.endsWith('.d2i') && !lower.endsWith('.ctl')) {
+      continue;
     }
+
+    // Filter out backup folders, hidden folders, or nested subdirectories
+    const relPath = (f.webkitRelativePath || f.name).replace(/\\/g, '/');
+    const segments = relPath.split('/').filter(Boolean);
+
+    // Reject any file inside a backup/archive/crash/temp/.git directory
+    const hasIgnoredDir = segments.some(seg =>
+      /^(backups?|archive|old|crashdumps?|temp|tmp|\.git|\.vs)$/i.test(seg)
+    );
+    if (hasIgnoredDir) {
+      continue;
+    }
+
+    // A Diablo II Resurrected save folder is always flat. Files in subdirectories are never active saves.
+    if (f.webkitRelativePath && segments.length > 2) {
+      continue;
+    }
+
+    // Reject timestamped backup filenames (e.g. 20260928_184843_Assassin.d2s) or backup extensions
+    if (/^\d{8}[-_]\d{6}/i.test(name) || /\.(bak|old|backup|tmp)$/i.test(name)) {
+      continue;
+    }
+
+    if (seenNames.has(lower)) {
+      continue;
+    }
+    seenNames.add(lower);
+
+    const bytes = await D2WasmEngine.readFileAsBytes(f);
+    filesToIngest.push({ name, bytes });
   }
 
   if (filesToIngest.length === 0) {
@@ -383,6 +414,7 @@ async function handleUserFiles(fileList) {
     return;
   }
 
+  showToast(`Loading ${filesToIngest.length} active save file(s) into WebAssembly...`, 'info');
   await window.D2Wasm.ingestFiles(filesToIngest);
   await refreshWasmDataset();
   showToast(`Successfully parsed and loaded ${filesToIngest.length} files with WebAssembly!`, 'success');
@@ -1946,7 +1978,11 @@ state.chronicleCore = 'both'; // 'both', 'soft', 'hard'
 
 async function loadChronicleView() {
   if (state.isWasmMode && window.D2Wasm && typeof window.D2Wasm.getChronicleProgress === 'function') {
-    state.chronicle = window.D2Wasm.getChronicleProgress(state.saves, state.chronicleCore);
+    if (!window.D2Wasm.ready) {
+      await window.D2Wasm.init();
+    }
+    const savesForChronicle = window.D2Wasm.allSaves || state.saves;
+    state.chronicle = window.D2Wasm.getChronicleProgress(savesForChronicle, state.chronicleCore);
     mergeLocalChronicleCompletions();
     renderChronicleView();
     return;

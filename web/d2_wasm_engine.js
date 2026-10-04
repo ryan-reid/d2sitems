@@ -160,6 +160,23 @@ class D2WasmEngine {
         }
       }
 
+      // Load unique catalog if not cached
+      if (!this.uniqueItemsCatalog) {
+        try {
+          const res = await fetch('unique_items_catalog.json');
+          if (res.ok) {
+            const list = await res.json();
+            const map = new Map();
+            list.forEach(item => {
+              if (item.name) map.set(item.name.toLowerCase(), item);
+            });
+            this.uniqueItemsCatalog = map;
+          }
+        } catch (e) {
+          console.warn('[D2WasmEngine] Could not load unique_items_catalog.json:', e);
+        }
+      }
+
       this.ready = true;
       this.loading = false;
       return true;
@@ -208,15 +225,28 @@ class D2WasmEngine {
   async ingestFiles(fileList) {
     await this.clearDB();
     const results = [];
-    const names = fileList.map(item => item.name || item.fileName).filter(Boolean);
-    if (new Set(names.map(name => name.toLowerCase())).size !== names.length) throw new Error('Import one save folder at a time; duplicate filenames were found.');
+    const filteredList = [];
+    const seen = new Set();
+
     for (const item of fileList) {
       const name = item.name || item.fileName;
       if (!name) continue;
       const lower = name.toLowerCase();
-      if (!lower.endsWith('.d2s') && !lower.endsWith('.d2i') && !lower.endsWith('.ctl')) {
-        continue;
+      if (!lower.endsWith('.d2s') && !lower.endsWith('.d2i') && !lower.endsWith('.ctl')) continue;
+      if (/^\d{8}[-_]\d{6}/i.test(name) || /\.(bak|old|backup|tmp)$/i.test(name)) continue;
+      if (item.webkitRelativePath) {
+        const segs = item.webkitRelativePath.replace(/\\/g, '/').split('/').filter(Boolean);
+        if (segs.some(s => /^(backups?|archive|old|crashdumps?|temp|tmp|\.git|\.vs)$/i.test(s))) continue;
+        if (segs.length > 2) continue;
       }
+      if (seen.has(lower)) continue;
+      seen.add(lower);
+      filteredList.push(item);
+    }
+
+    for (const item of filteredList) {
+      const name = item.name || item.fileName;
+      const lower = name.toLowerCase();
       let bytes = item.bytes;
       if (!bytes && item.file) {
         bytes = await D2WasmEngine.readFileAsBytes(item.file);
@@ -284,6 +314,7 @@ class D2WasmEngine {
           saveEntry.gameVersion = rawData.gameVersion || '';
           saveEntry.tabs = rawData.tabs || [];
           saveEntry.total_gold = (rawData.tabs || []).reduce((acc, t) => acc + (t.gold || 0), 0);
+          saveEntry.chronicle = rawData.chronicle || null;
         } else {
           const c = rawData.character || {};
           saveEntry.name = c.name || fileName.replace(/\.[^/.]+$/, '');
@@ -353,6 +384,7 @@ class D2WasmEngine {
       }
     }
 
+    this.allSaves = saves;
     return { saves, items };
   }
 
@@ -481,9 +513,29 @@ class D2WasmEngine {
    * Helper: In-Game Chronicle Tracker (WASM offline support)
    */
   getChronicleProgress(saves, core = 'both') {
-    const trackedUniques = new Set();
-    const trackedSets = new Set();
-    const trackedRunewords = new Set();
+    const trackedUniques = new Map();
+    const trackedSets = new Map();
+    const trackedRunewords = new Map();
+
+    const addTracked = (map, name, entry) => {
+      if (!name) return;
+      const key = name.trim().toLowerCase();
+      map.set(key, entry);
+      const aliases = {
+        'game modifiers': ['game modifers', 'charm modifiers'],
+        'game modifers': ['game modifiers', 'charm modifiers'],
+        'charm modifiers': ['game modifiers', 'game modifers'],
+        'blank charm': ['charm blank'],
+        'charm blank': ['blank charm'],
+        'level 90 reward': ['charm level reward'],
+        'charm level reward': ['level 90 reward']
+      };
+      if (aliases[key]) {
+        for (const alias of aliases[key]) {
+          map.set(alias, entry);
+        }
+      }
+    };
 
     (saves || []).forEach(save => {
       if (!save.is_stash) return;
@@ -491,24 +543,44 @@ class D2WasmEngine {
       if (core !== 'both' && sCore !== core) return;
       const chronicle = save.chronicle;
       if (!chronicle) return;
-      (chronicle.uniques || []).forEach(u => u.name && trackedUniques.add(u.name.trim().toLowerCase()));
-      (chronicle.sets || []).forEach(s => s.name && trackedSets.add(s.name.trim().toLowerCase()));
-      (chronicle.runewords || []).forEach(r => r.name && trackedRunewords.add(r.name.trim().toLowerCase()));
+      (chronicle.uniques || []).forEach(u => addTracked(trackedUniques, u.name, { id: u.id, name: u.name, source: u.source, timestamp: u.timestamp, core: sCore }));
+      (chronicle.sets || []).forEach(s => addTracked(trackedSets, s.name, { id: s.id, name: s.name, source: s.source, timestamp: s.timestamp, core: sCore }));
+      (chronicle.runewords || []).forEach(r => addTracked(trackedRunewords, r.name, { id: r.id, name: r.name, source: r.source, timestamp: r.timestamp, core: sCore }));
     });
 
     const QUEST_NAMES = new Set(['amulet of the viper', 'staff of kings', 'horadric staff', 'hell forge hammer', 'khalimflail', 'superkhalimflail']);
     const normalize = name => (name || '').replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase();
+    const spriteMap = this.spriteMappings || window.itemImageMappings || {};
+
     const categories = (this.collectionCatalog?.categories || []).map(category => {
       const isSet = category.category.includes('Set');
       const isRw = category.category.includes('Runeword');
-      const trackedSet = isRw ? trackedRunewords : (isSet ? trackedSets : trackedUniques);
+      const trackedMap = isRw ? trackedRunewords : (isSet ? trackedSets : trackedUniques);
       const entries = category.names.filter(name => !QUEST_NAMES.has(normalize(name))).map(name => {
         const norm = normalize(name);
-        const isTracked = trackedSet.has(norm);
-        const invFile = window.itemImageMappings ? (
-          (isSet ? window.itemImageMappings.sets?.[norm] : window.itemImageMappings.uniques?.[norm]) || null
-        ) : null;
-        return { name, collected: isTracked, tracked: isTracked, invFile };
+        const tInfo = trackedMap.get(norm);
+        const isTracked = !!tInfo;
+        const uCat = this.uniqueItemsCatalog?.get(norm);
+        const invFile = isSet
+          ? (spriteMap.sets?.[norm] || null)
+          : (isRw
+              ? (spriteMap.uniques?.[norm] || spriteMap.hd_codes?.['r01'] || null)
+              : (spriteMap.uniques?.[norm] || (uCat && uCat.invFile) || null));
+        return {
+          name,
+          base: uCat?.baseName || '',
+          code: uCat?.code || '',
+          lvlReq: uCat?.lvlReq || 0,
+          stats: uCat?.stats || [],
+          runes: [],
+          collected: isTracked,
+          tracked: isTracked,
+          invFile,
+          source: tInfo ? tInfo.source : null,
+          timestamp: tInfo ? tInfo.timestamp : null,
+          core: tInfo ? tInfo.core : null,
+          isManual: false
+        };
       });
       const owned = entries.filter(item => item.collected).length;
       return {
