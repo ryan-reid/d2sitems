@@ -27,10 +27,11 @@ class D2WasmEngine {
     this.loadedFiles = new Map(); // fileName -> Uint8Array
     this.initialFileBytes = new Map(); // fileName -> Uint8Array (unmodified baseline)
     this.dbName = 'D2SItems_Wasm_Storage';
-    this.dbVersion = 2;
+    this.dbVersion = 3;
     this.sessionId = localStorage.getItem('bkdiablo-session') || crypto.randomUUID();
     localStorage.setItem('bkdiablo-session', this.sessionId);
     this.db = null;
+    this.dirHandle = null;
     this._initPromise = null;
     this.spriteMappings = null;
   }
@@ -49,6 +50,12 @@ class D2WasmEngine {
         if (!db.objectStoreNames.contains('saves')) {
           db.createObjectStore('saves', { keyPath: 'name' });
         }
+        if (!db.objectStoreNames.contains('handles')) {
+          db.createObjectStore('handles');
+        }
+        if (!db.objectStoreNames.contains('metadata')) {
+          db.createObjectStore('metadata');
+        }
       };
       req.onsuccess = (e) => {
         this.db = e.target.result;
@@ -59,6 +66,193 @@ class D2WasmEngine {
         resolve(null);
       };
     });
+  }
+
+  /**
+   * Saves FileSystemDirectoryHandle to IndexedDB for persistent reload across browser sessions.
+   */
+  async saveDirectoryHandle(dirHandle) {
+    this.dirHandle = dirHandle;
+    if (!dirHandle) return;
+    const db = await this.initDB();
+    if (!db || !db.objectStoreNames.contains('handles')) return;
+    try {
+      const tx = db.transaction('handles', 'readwrite');
+      tx.objectStore('handles').put(dirHandle, 'saveDirectory');
+      if (dirHandle.name) {
+        localStorage.setItem('bkdiablo-folder-name', dirHandle.name);
+      }
+    } catch (e) {
+      console.warn('[D2WasmEngine] Could not persist directory handle in IndexedDB:', e);
+    }
+  }
+
+  /**
+   * Retrieves stored FileSystemDirectoryHandle from IndexedDB if available.
+   */
+  async getDirectoryHandle() {
+    if (this.dirHandle) return this.dirHandle;
+    const db = await this.initDB();
+    if (!db || !db.objectStoreNames.contains('handles')) return null;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction('handles', 'readonly');
+        const req = tx.objectStore('handles').get('saveDirectory');
+        req.onsuccess = () => {
+          this.dirHandle = req.result || null;
+          resolve(this.dirHandle);
+        };
+        req.onerror = () => resolve(null);
+      } catch (e) {
+        resolve(null);
+      }
+    });
+  }
+
+  /**
+   * Removes saved directory handle from memory and IndexedDB.
+   */
+  async clearDirectoryHandle() {
+    this.dirHandle = null;
+    localStorage.removeItem('bkdiablo-folder-name');
+    const db = await this.initDB();
+    if (!db || !db.objectStoreNames.contains('handles')) return;
+    try {
+      const tx = db.transaction('handles', 'readwrite');
+      tx.objectStore('handles').delete('saveDirectory');
+    } catch (e) {
+      console.warn('[D2WasmEngine] Error deleting directory handle:', e);
+    }
+  }
+
+  /**
+   * Reads raw file objects from a FileSystemDirectoryHandle.
+   */
+  async readDirectoryFiles(dirHandle) {
+    if (!dirHandle) return [];
+    const filesToIngest = [];
+    const seenNames = new Set();
+
+    for await (const [name, handle] of dirHandle.entries()) {
+      if (handle.kind !== 'file') continue;
+      const lower = name.toLowerCase();
+      if (!lower.endsWith('.d2s') && !lower.endsWith('.d2i') && !lower.endsWith('.ctl')) {
+        continue;
+      }
+      if (/^\d{8}[-_]\d{6}/i.test(name) || /\.(bak|old|backup|tmp)$/i.test(name)) {
+        continue;
+      }
+      if (seenNames.has(lower)) continue;
+      seenNames.add(lower);
+
+      try {
+        const file = await handle.getFile();
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        filesToIngest.push({ name, bytes, file });
+      } catch (e) {
+        console.warn(`[D2WasmEngine] Could not read file ${name} from handle:`, e);
+      }
+    }
+    return filesToIngest;
+  }
+
+  /**
+   * Re-reads fresh save files directly from disk via stored FileSystemDirectoryHandle.
+   */
+  async reloadFromDirectoryHandle() {
+    const dirHandle = await this.getDirectoryHandle();
+    if (!dirHandle) return { success: false, reason: 'no_handle' };
+
+    let perm = 'denied';
+    try {
+      perm = await dirHandle.queryPermission({ mode: 'read' });
+      if (perm !== 'granted') {
+        perm = await dirHandle.requestPermission({ mode: 'read' });
+      }
+    } catch (e) {
+      console.warn('[D2WasmEngine] Permission request error:', e);
+    }
+
+    if (perm !== 'granted') {
+      return { success: false, reason: 'permission_denied' };
+    }
+
+    const files = await this.readDirectoryFiles(dirHandle);
+    if (!files || files.length === 0) {
+      return { success: false, reason: 'no_files' };
+    }
+
+    await this.ingestFiles(files);
+    this.recordImportMeta(dirHandle.name, files.length);
+    return { success: true, count: files.length, folderName: dirHandle.name };
+  }
+
+  /**
+   * Records metadata about the imported folder and timestamp.
+   */
+  recordImportMeta(folderName, fileCount) {
+    const timestamp = Date.now();
+    localStorage.setItem('bkdiablo-import-time', timestamp.toString());
+    if (folderName) {
+      localStorage.setItem('bkdiablo-folder-name', folderName);
+    }
+    localStorage.setItem('bkdiablo-file-count', (fileCount || 0).toString());
+    this.importTimestamp = timestamp;
+  }
+
+  /**
+   * Retrieves metadata regarding cache age and folder source.
+   */
+  getImportMeta() {
+    const timeStr = localStorage.getItem('bkdiablo-import-time');
+    const folderName = localStorage.getItem('bkdiablo-folder-name') || '';
+    const fileCount = parseInt(localStorage.getItem('bkdiablo-file-count') || '0', 10);
+    const timestamp = timeStr ? parseInt(timeStr, 10) : null;
+    return { timestamp, folderName, fileCount };
+  }
+
+  /**
+   * Invalidates browser save cache, clearing IndexedDB and in-memory files.
+   */
+  async invalidateCache(options = {}) {
+    const keepHandle = options.keepHandle === true;
+    const db = await this.initDB();
+    if (db) {
+      try {
+        const tx = db.transaction(['sessionSaves', 'history'], 'readwrite');
+        tx.objectStore('sessionSaves').clear();
+        tx.objectStore('history').clear();
+      } catch (e) {
+        console.warn('[D2WasmEngine] Error clearing IndexedDB session saves:', e);
+      }
+    }
+
+    if (!keepHandle) {
+      await this.clearDirectoryHandle();
+    }
+
+    this.sessionId = crypto.randomUUID();
+    localStorage.setItem('bkdiablo-session', this.sessionId);
+    localStorage.removeItem('bkdiablo-import-time');
+    localStorage.removeItem('bkdiablo-file-count');
+    if (!keepHandle) {
+      localStorage.removeItem('bkdiablo-folder-name');
+    }
+
+    this.loadedFiles.clear();
+    this.initialFileBytes.clear();
+    this.allSaves = [];
+    if (window.state) {
+      window.state.saves = [];
+      window.state.items = [];
+      window.state.allWasmItems = [];
+      window.state.selectedChar = null;
+    }
+    if (window.EditWorkspace) {
+      window.EditWorkspace.changes = 0;
+      window.EditWorkspace.active = false;
+      window.EditWorkspace.originals = null;
+    }
   }
 
   async commitFiles(changes) {
@@ -117,7 +311,16 @@ class D2WasmEngine {
   }
 
   async clearDB() {
-    // Start a fresh session; old imports and their original revisions remain recoverable.
+    const db = await this.initDB();
+    if (db) {
+      try {
+        const tx = db.transaction(['sessionSaves', 'history'], 'readwrite');
+        tx.objectStore('sessionSaves').clear();
+        tx.objectStore('history').clear();
+      } catch (e) {
+        console.warn('[D2WasmEngine] Error clearing IndexedDB session saves:', e);
+      }
+    }
     this.sessionId = crypto.randomUUID();
     localStorage.setItem('bkdiablo-session', this.sessionId);
     this.loadedFiles.clear();
@@ -276,6 +479,7 @@ class D2WasmEngine {
         results.push(res);
       }
     }
+    this.recordImportMeta(localStorage.getItem('bkdiablo-folder-name') || 'Imported Files', results.length);
     return results;
   }
 

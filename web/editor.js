@@ -35,7 +35,19 @@
         ? ` Unexported edits this session: ${editLog.length} (latest: ${editLog.at(-1).text}).`
         : ` Written this session: ${editLog.length} (latest: ${editLog.at(-1).text}).`
       : ' No edits this session.';
-    notice.textContent = base + loaded + edits;
+    let cacheStatus = '';
+    if (wasm && window.D2Wasm?.getImportMeta) {
+      const meta = window.D2Wasm.getImportMeta();
+      if (meta?.timestamp) {
+        const diffMins = Math.floor((Date.now() - meta.timestamp) / 60000);
+        const ageStr = diffMins < 1 ? 'just now' : diffMins < 60 ? `${diffMins}m ago` : `${Math.floor(diffMins / 60)}h ${diffMins % 60}m ago`;
+        cacheStatus = ` Cache: ${meta.folderName ? meta.folderName + ' (' + ageStr + ')' : ageStr}.`;
+        if (diffMins >= 15) {
+          cacheStatus += ' [May be stale - Click Rescan to re-grab from disk].';
+        }
+      }
+    }
+    notice.textContent = base + loaded + edits + cacheStatus;
   }
   // Called by edit flows after a confirmed success so the banner reflects pending/written changes.
   window.recordEdit = text => { editLog.push({ text, time: Date.now() }); updateMode(); };

@@ -293,6 +293,10 @@ async function enableWasmMode() {
   if (exportAllBtn) exportAllBtn.style.display = 'inline-flex';
   const originalsBtn = document.getElementById('wasm-originals-btn');
   if (originalsBtn) originalsBtn.style.display = 'inline-flex';
+  const invalidateBtn = document.getElementById('wasm-invalidate-btn');
+  if (invalidateBtn) {
+    invalidateBtn.style.display = 'inline-flex';
+  }
 
   const addProfileBtn = document.getElementById('add-profile-btn');
   if (addProfileBtn) addProfileBtn.style.display = 'none';
@@ -303,8 +307,27 @@ async function enableWasmMode() {
 
   showToast('Running in 100% Client-Side WebAssembly Mode (Offline / Zero-Backend)', 'info');
 
-  // Check IndexedDB for existing cached saves
+  // Check if directory handle is stored and permission already granted
   if (window.D2Wasm) {
+    try {
+      const dirHandle = await window.D2Wasm.getDirectoryHandle();
+      if (dirHandle) {
+        const perm = await dirHandle.queryPermission({ mode: 'read' });
+        if (perm === 'granted') {
+          console.log('[D2Wasm] Active directory handle detected with granted permission. Auto-reloading fresh saves from disk...');
+          const res = await window.D2Wasm.reloadFromDirectoryHandle();
+          if (res && res.success) {
+            await refreshWasmDataset();
+            showToast(`Automatically refreshed ${res.count} save files from ${res.folderName}!`, 'success');
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[D2Wasm] Error checking directory handle permission:', e);
+    }
+
+    // Otherwise check IndexedDB for existing cached saves
     const cached = await window.D2Wasm.loadAllFilesFromDB();
     if (cached && cached.length > 0) {
       for (const entry of cached) {
@@ -314,6 +337,7 @@ async function enableWasmMode() {
         }
       }
       await refreshWasmDataset();
+      checkAndNotifyStaleCache();
       return;
     }
   }
@@ -321,6 +345,16 @@ async function enableWasmMode() {
   // Show dropzone overlay if no saves loaded yet
   const overlay = document.getElementById('d2-dropzone-overlay');
   if (overlay) overlay.classList.add('active');
+}
+
+function checkAndNotifyStaleCache() {
+  const meta = window.D2Wasm?.getImportMeta?.();
+  if (!meta || !meta.timestamp) return;
+  const diffMins = Math.floor((Date.now() - meta.timestamp) / 60000);
+  if (diffMins >= 10) {
+    const timeStr = diffMins < 60 ? `${diffMins} minutes ago` : `${Math.floor(diffMins / 60)}h ${diffMins % 60}m ago`;
+    showToast(`Loaded cached saves from ${timeStr}. Click "Rescan" to re-grab fresh saves from your save folder.`, 'info');
+  }
 }
 
 // Rebuild and refresh dataset from WebAssembly engine
@@ -441,6 +475,121 @@ function updateExportButtonState() {
 }
 window.updateExportButtonState = updateExportButtonState;
 
+// Invalidate browser save cache and clear session
+async function invalidateWasmCache() {
+  if (!window.D2Wasm) return;
+
+  const modified = typeof window.D2Wasm.getModifiedFiles === 'function' ? window.D2Wasm.getModifiedFiles() : [];
+  const confirmMsg = modified.length > 0
+    ? `You have ${modified.length} unexported modified save(s). Invalidate cache and discard all loaded saves?`
+    : 'Are you sure you want to invalidate and clear all loaded saves from the browser cache?';
+
+  if (!window.confirm(confirmMsg)) return;
+
+  const dirHandle = await window.D2Wasm.getDirectoryHandle();
+  const hasHandle = Boolean(dirHandle);
+  const folderName = dirHandle?.name || localStorage.getItem('bkdiablo-folder-name') || '';
+
+  await window.D2Wasm.invalidateCache({ keepHandle: false });
+
+  state.saves = [];
+  state.items = [];
+  state.allWasmItems = [];
+  updateCharacterFilterDropdown();
+  await executeSearch();
+  updateExportButtonState();
+  window.updateSaveModeNotice?.();
+
+  showToast('Browser save cache invalidated and cleared.', 'success');
+
+  if (hasHandle && window.confirm(`Cache cleared. Would you like to reload fresh saves from "${folderName}" now?`)) {
+    await window.D2Wasm.saveDirectoryHandle(dirHandle);
+    await reloadWasmSavesFromDisk();
+  } else {
+    const overlay = document.getElementById('d2-dropzone-overlay');
+    if (overlay) overlay.classList.add('active');
+  }
+}
+window.invalidateWasmCache = invalidateWasmCache;
+
+// Pick and load folder using modern File System Access API with input fallback
+async function pickAndLoadWasmFolder() {
+  if (window.showDirectoryPicker) {
+    try {
+      const dirHandle = await window.showDirectoryPicker({ mode: 'read' });
+      if (dirHandle) {
+        if (!state.isWasmMode) await enableWasmMode();
+        await window.D2Wasm.saveDirectoryHandle(dirHandle);
+        showToast(`Reading save files from "${dirHandle.name}"...`, 'info');
+        const files = await window.D2Wasm.readDirectoryFiles(dirHandle);
+        if (files.length === 0) {
+          showToast('No valid .d2s or .d2i files found in selected folder.', 'warning');
+          return;
+        }
+        showToast(`Loading ${files.length} active save file(s) into WebAssembly...`, 'info');
+        await window.D2Wasm.ingestFiles(files);
+        window.D2Wasm.recordImportMeta(dirHandle.name, files.length);
+        const overlay = document.getElementById('d2-dropzone-overlay');
+        if (overlay) overlay.classList.remove('active');
+        await refreshWasmDataset();
+        showToast(`Successfully loaded ${files.length} fresh save files from ${dirHandle.name}!`, 'success');
+        return;
+      }
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+      console.warn('[D2Wasm] showDirectoryPicker failed, falling back to input:', err);
+    }
+  }
+
+  const folderPicker = document.getElementById('wasm-folder-picker');
+  if (folderPicker) folderPicker.click();
+}
+window.pickAndLoadWasmFolder = pickAndLoadWasmFolder;
+
+// Re-read fresh saves directly from disk folder
+async function reloadWasmSavesFromDisk() {
+  if (!window.D2Wasm) return;
+
+  const modified = typeof window.D2Wasm.getModifiedFiles === 'function' ? window.D2Wasm.getModifiedFiles() : [];
+  if (modified.length > 0) {
+    const proceed = window.confirm(
+      `You have ${modified.length} unexported modified save(s) in this browser session. Rescanning will discard pending browser edits and re-grab fresh files from disk. Continue?`
+    );
+    if (!proceed) return;
+  }
+
+  dom.rescanIcon.classList.add('spin');
+  dom.rescanLabel.textContent = 'Re-reading...';
+  dom.rescanBtn.disabled = true;
+
+  try {
+    const dirHandle = await window.D2Wasm.getDirectoryHandle();
+    if (dirHandle) {
+      showToast(`Re-reading save folder "${dirHandle.name}" from disk...`, 'info');
+      const res = await window.D2Wasm.reloadFromDirectoryHandle();
+      if (res && res.success) {
+        await refreshWasmDataset();
+        showToast(`Successfully re-scanned and loaded ${res.count} fresh save files from ${res.folderName}!`, 'success');
+        return;
+      } else if (res && res.reason === 'permission_denied') {
+        showToast('Permission to access save folder was denied. Please select your folder again.', 'warning');
+      }
+    }
+
+    // No handle or permission not granted: prompt to pick folder
+    showToast('Select your D2R save folder to re-grab fresh files from disk...', 'info');
+    await pickAndLoadWasmFolder();
+  } catch (err) {
+    showToast('Error re-scanning saves from disk: ' + err.message, 'error');
+  } finally {
+    dom.rescanIcon.classList.remove('spin');
+    dom.rescanLabel.textContent = 'Rescan Saves';
+    dom.rescanBtn.disabled = false;
+    updateExportButtonState();
+  }
+}
+window.reloadWasmSavesFromDisk = reloadWasmSavesFromDisk;
+
 // Setup WASM Event Listeners (Folder pickers, dropzone, exports)
 function setupWasmEvents() {
   const folderPicker = document.getElementById('wasm-folder-picker');
@@ -451,13 +600,17 @@ function setupWasmEvents() {
   const dropzoneCloseBtn = document.getElementById('dropzone-close-btn');
   const exportBtn = document.getElementById('wasm-export-btn');
   const exportAllBtn = document.getElementById('wasm-export-all-btn');
+  const invalidateBtn = document.getElementById('wasm-invalidate-btn');
   const overlay = document.getElementById('d2-dropzone-overlay');
 
-  if (pickFolderBtn && folderPicker) {
-    pickFolderBtn.addEventListener('click', () => folderPicker.click());
+  if (invalidateBtn) {
+    invalidateBtn.addEventListener('click', invalidateWasmCache);
   }
-  if (dropzoneFolderBtn && folderPicker) {
-    dropzoneFolderBtn.addEventListener('click', () => folderPicker.click());
+  if (pickFolderBtn) {
+    pickFolderBtn.addEventListener('click', pickAndLoadWasmFolder);
+  }
+  if (dropzoneFolderBtn) {
+    dropzoneFolderBtn.addEventListener('click', pickAndLoadWasmFolder);
   }
   if (dropzoneFilesBtn && filesPicker) {
     dropzoneFilesBtn.addEventListener('click', () => filesPicker.click());
@@ -648,8 +801,7 @@ function updateCharacterFilterDropdown() {
 // Rescan Button
 dom.rescanBtn.addEventListener('click', async () => {
   if (state.isWasmMode) {
-    await refreshWasmDataset();
-    showToast('Re-scanned and updated all saves in browser memory.', 'success');
+    await reloadWasmSavesFromDisk();
     return;
   }
 

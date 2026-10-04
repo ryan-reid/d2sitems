@@ -12,6 +12,7 @@ Covers:
   5. Creating new items on a character in Edit Mode + Cancel creation
   6. Editing existing items / stack quantities + Cancel editing
   7. Updating The Chronicle (Complete, Undroppable, Reset) + Cancel/Revert
+  8. Browser Cache Invalidation & Re-load (IndexedDB purge, dropzone) + Cancel/Re-ingest
 """
 
 import os
@@ -89,6 +90,7 @@ class D2SE2ERegressionTests(unittest.TestCase):
         const done = arguments[arguments.length - 1];
         (async () => {
             try {
+                if (typeof enableWasmMode === 'function' && !window.state?.isWasmMode) await enableWasmMode();
                 await window.D2Wasm.init();
                 const charBytes = Uint8Array.from(atob(arguments[0]), c => c.charCodeAt(0));
                 const stashBytes = Uint8Array.from(atob(arguments[1]), c => c.charCodeAt(0));
@@ -538,6 +540,63 @@ class D2SE2ERegressionTests(unittest.TestCase):
         reverted_score = self.driver.find_element(By.ID, "chronicle-overall-score").text
         log_bdd("THEN", f"Chronicle reverts to baseline discoveries: {reverted_score}")
         self.assertEqual(reverted_score, initial_score)
+
+    # =========================================================================
+    # FLOW 8: BROWSER CACHE INVALIDATION & RE-LOAD
+    # =========================================================================
+    def test_08_cache_invalidation_and_reload(self):
+        """
+        IF:   Saves are loaded in browser WASM memory and Invalidate Cache button is active.
+        WHEN: The user clicks Invalidate Cache but dismisses the confirmation alert.
+        THEN: The alert is dismissed and loaded saves remain intact in memory.
+        WHEN: The user clicks Invalidate Cache and confirms the alert.
+        THEN: The browser cache is wiped (0 saves, 0 items) and the dropzone overlay activates.
+        WHEN: Fresh baseline saves are ingested.
+        THEN: The system reloads fresh saves and normal views are restored.
+        """
+        print("\n--- [FLOW 8] Browser Cache Invalidation & Re-load: Cancel & Execute ---")
+
+        log_bdd("IF", "Saves are loaded in browser session and #wasm-invalidate-btn is present")
+        inv_btn = self.driver.find_element(By.ID, "wasm-invalidate-btn")
+        self.wait.until(lambda d: inv_btn.is_displayed())
+        initial_saves = self.driver.execute_script("return window.state.saves.length")
+        self.assertGreater(initial_saves, 0)
+
+        # Cancellation Sub-flow
+        log_bdd("WHEN", "User clicks Invalidate Cache but dismisses the confirmation alert")
+        self.safe_click(inv_btn)
+        alert = self.driver.switch_to.alert
+        self.assertIn("invalidate", alert.text.lower())
+        alert.dismiss()
+        time.sleep(0.5)
+
+        log_bdd("THEN", "Alert is dismissed and saves remain loaded in browser memory")
+        loaded_count = self.driver.execute_script("return window.D2Wasm.loadedFiles.size")
+        self.assertEqual(loaded_count, 2)
+
+        # Execution Sub-flow
+        log_bdd("WHEN", "User clicks Invalidate Cache and accepts the confirmation alert")
+        self.safe_click(inv_btn)
+        alert = self.driver.switch_to.alert
+        alert.accept()
+        time.sleep(1)
+
+        log_bdd("THEN", "Cache is wiped from IndexedDB/memory and dropzone overlay activates for re-load")
+        cleared_loaded = self.driver.execute_script("return window.D2Wasm.loadedFiles.size")
+        cleared_saves = self.driver.execute_script("return window.state.saves.length")
+        self.assertEqual(cleared_loaded, 0)
+        self.assertEqual(cleared_saves, 0)
+        
+        overlay = self.driver.find_element(By.ID, "d2-dropzone-overlay")
+        self.assertIn("active", overlay.get_attribute("class"))
+
+        # Re-load Sub-flow
+        log_bdd("WHEN", "Fresh baseline files are re-ingested into clean browser session")
+        self._ingest_clean_fixtures()
+        
+        log_bdd("THEN", "Fresh saves and items are restored to active session")
+        restored_saves = self.driver.execute_script("return window.state.saves.length")
+        self.assertGreater(restored_saves, 0)
 
 
 if __name__ == "__main__":
