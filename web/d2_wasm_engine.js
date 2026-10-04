@@ -310,7 +310,15 @@ class D2WasmEngine {
             return;
           }
           if (old) tx.objectStore('history').add({ ...old, timestamp: Date.now() });
-          store.put({ id, session, name, bytes, original: old?.original || bytes, timestamp: Date.now() });
+          store.put({
+            id,
+            session,
+            name,
+            bytes,
+            original: old?.original || bytes,
+            exportedBytes: old ? old.exportedBytes : bytes,
+            timestamp: Date.now()
+          });
         };
       }
     });
@@ -328,8 +336,9 @@ class D2WasmEngine {
       tx.oncomplete = () => {
         const rows = (req.result || []).filter(row => row.session === this.sessionId);
         for (const row of rows) {
-          if (row.original && !this.initialFileBytes.has(row.name)) {
-            this.initialFileBytes.set(row.name, row.original);
+          const baseline = row.exportedBytes || row.original;
+          if (baseline && !this.initialFileBytes.has(row.name)) {
+            this.initialFileBytes.set(row.name, baseline);
           }
         }
         resolve(rows);
@@ -1117,6 +1126,51 @@ class D2WasmEngine {
   }
 
   /**
+   * Marks specified files as exported (synced with user's download/disk).
+   * Updates initialFileBytes baseline and persists exportedBytes in IndexedDB.
+   * @param {string[]|Array<{name: string}>} files 
+   */
+  async markFilesAsExported(files) {
+    if (!files || files.length === 0) return;
+    const names = files.map(f => (typeof f === 'string' ? f : f.name));
+
+    for (const name of names) {
+      const current = this.loadedFiles.get(name);
+      if (current) {
+        this.initialFileBytes.set(name, current.slice());
+      }
+    }
+
+    const db = await this.initDB();
+    if (!db) return;
+
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction('sessionSaves', 'readwrite');
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error);
+        const store = tx.objectStore('sessionSaves');
+
+        for (const name of names) {
+          const id = this.sessionId + ':' + name;
+          const req = store.get(id);
+          req.onsuccess = () => {
+            const row = req.result;
+            if (row) {
+              const current = this.loadedFiles.get(name);
+              row.exportedBytes = current ? current.slice() : row.bytes;
+              store.put(row);
+            }
+          };
+        }
+      });
+    } catch (err) {
+      console.warn('[D2Wasm] Error persisting exportedBytes to IndexedDB:', err);
+    }
+  }
+
+  /**
    * Exports saves that were modified or newly created.
    * If 1-3 files: downloads individually with a 200ms delay.
    * If >3 files: packages them into a single uncompressed ZIP archive.
@@ -1125,20 +1179,26 @@ class D2WasmEngine {
     const list = modifiedList || this.getModifiedFiles();
     if (!list || list.length === 0) return { count: 0, zip: false };
 
+    let res;
     if (list.length <= 3) {
       for (let i = 0; i < list.length; i++) {
         if (i > 0) await new Promise(r => setTimeout(r, 200));
         this.downloadFile(list[i].name, list[i].bytes);
       }
-      return { count: list.length, zip: false };
+      res = { count: list.length, zip: false };
+    } else {
+      const zip = D2WasmEngine.createZip(list);
+      const now = new Date();
+      const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+      const zipName = `BKDiablo_Modified_Saves_${dateStr}.zip`;
+      this.downloadBlob(new Blob([zip], { type: 'application/zip' }), zipName);
+      res = { count: list.length, zip: true, fileName: zipName };
     }
 
-    const zip = D2WasmEngine.createZip(list);
-    const now = new Date();
-    const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
-    const zipName = `BKDiablo_Modified_Saves_${dateStr}.zip`;
-    this.downloadBlob(new Blob([zip], { type: 'application/zip' }), zipName);
-    return { count: list.length, zip: true, fileName: zipName };
+    await this.markFilesAsExported(list.map(f => f.name));
+    if (typeof window.clearEditLog === 'function') window.clearEditLog();
+    if (typeof window.updateExportButtonState === 'function') window.updateExportButtonState();
+    return res;
   }
 
   /**
@@ -1159,6 +1219,10 @@ class D2WasmEngine {
     const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
     const zipName = `BKDiablo_All_Saves_${dateStr}.zip`;
     this.downloadBlob(new Blob([zip], { type: 'application/zip' }), zipName);
+
+    await this.markFilesAsExported(files.map(f => f.name));
+    if (typeof window.clearEditLog === 'function') window.clearEditLog();
+    if (typeof window.updateExportButtonState === 'function') window.updateExportButtonState();
     return { count: files.length, zip: true, fileName: zipName };
   }
 

@@ -421,7 +421,12 @@ class D2SE2ERegressionTests(unittest.TestCase):
         """
         print("\n--- [FLOW 6] Editing Existing Items (Stack Quantity): Cancel & Execute ---")
 
-        log_bdd("IF", "Stack editor modal is opened for Ral Rune in Advanced Stash Tab 5")
+        log_bdd("IF", "Edit Mode is turned on and stack editor modal is opened for Ral Rune in Tab 5")
+        edit_start_btn = self.driver.find_element(By.ID, "edit-start")
+        if edit_start_btn.is_displayed():
+            self.safe_click(edit_start_btn)
+            time.sleep(1)
+
         item_id = self.driver.execute_script("""
             const it = window.state.items.find(i => i.isStash && i.tabIndex === 5 && i.itemCode === 'r08');
             return it ? it.id : null;

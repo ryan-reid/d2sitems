@@ -30,10 +30,11 @@
     const tabLabel = activeTab.startsWith('shared_') ? `shared stash tab ${Number(activeTab.slice(7)) + 1}` : activeTab;
     const active = d2r?.activeCharName ? ` Active: ${d2r.activeCharName}${tabLabel ? ' · ' + tabLabel : ''}.` : '';
     const loaded = (saves ? ` Loaded saves: ${saves}.` : '') + active;
-    const edits = editLog.length
+    const unexported = wasm && typeof window.D2Wasm?.getModifiedFiles === 'function' ? window.D2Wasm.getModifiedFiles().length : editLog.length;
+    const edits = unexported > 0
       ? wasm
-        ? ` Unexported edits this session: ${editLog.length} (latest: ${editLog.at(-1).text}).`
-        : ` Written this session: ${editLog.length} (latest: ${editLog.at(-1).text}).`
+        ? ` Unexported edits this session: ${unexported} (latest: ${editLog.at(-1)?.text || 'modified save'}).`
+        : ` Written this session: ${editLog.length} (latest: ${editLog.at(-1)?.text || 'save'}).`
       : ' No edits this session.';
     let cacheStatus = '';
     if (wasm && window.D2Wasm?.getImportMeta) {
@@ -51,6 +52,7 @@
   }
   // Called by edit flows after a confirmed success so the banner reflects pending/written changes.
   window.recordEdit = text => { editLog.push({ text, time: Date.now() }); updateMode(); };
+  window.clearEditLog = () => { editLog.length = 0; updateMode(); };
   window.updateSaveModeNotice = updateMode;
   updateMode();
   document.addEventListener('click', updateMode);

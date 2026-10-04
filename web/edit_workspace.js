@@ -84,10 +84,17 @@
           engine.editOriginals = null; engine.loadedFiles = originals;
           try { await engine.commitFiles(changes); }
           catch (error) { engine.loadedFiles = draft; engine.editOriginals = originals; throw error; }
-          for (const [name, bytes] of changes) engine.downloadFile(name, bytes);
+          if (changes.length > 3) {
+            await engine.downloadModifiedSaves(changes.map(([name, bytes]) => ({ name, bytes })));
+          } else {
+            for (const [name, bytes] of changes) engine.downloadFile(name, bytes);
+            await engine.markFilesAsExported(changes.map(([name]) => name));
+          }
         } else { engine.loadedFiles = originals; engine.editOriginals = null; }
       } else await post(save ? '/api/edit/save' : '/api/edit/discard');
       workspace.active = false; workspace.token = null; workspace.changes = 0; update();
+      if (typeof window.clearEditLog === 'function') window.clearEditLog();
+      if (typeof window.updateExportButtonState === 'function') window.updateExportButtonState();
       if (selectedChar) {
         state.selectedChar = selectedChar;
         if (window._d2rState) window._d2rState.activeCharName = selectedChar;

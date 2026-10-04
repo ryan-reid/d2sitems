@@ -238,5 +238,102 @@ class TestUIIssuesResolution(unittest.TestCase):
         self.assertEqual(updated_qty, "64", f"Expected stack qty 64 on slot, got {updated_qty}")
         print("  [PASS] Slot display and data-qty updated cleanly to 64 in browser memory")
 
+    def test_05_save_and_export_clears_export_button_count(self):
+        """Verify saving in Edit Mode or clicking Export clears Export(#) button count."""
+        driver = self.driver
+        export_btn = driver.find_element(By.ID, "wasm-export-btn")
+        export_label = driver.find_element(By.ID, "wasm-export-label")
+
+        # Initial clean state
+        self.assertIn("Export", export_label.text)
+        self.assertNotIn("has-modifications", export_btn.get_attribute("class"))
+        print("  [PASS] Initial state: Export button shows 'Export' with 0 pending")
+
+        # Switch to armory and turn on edit mode
+        armory_nav = driver.find_element(By.CSS_SELECTOR, "button[data-tab='armory-view']")
+        armory_nav.click()
+        time.sleep(1)
+
+        edit_start_btn = driver.find_element(By.ID, "edit-start")
+        edit_start_btn.click()
+        time.sleep(1)
+
+        # Switch to stackable tab and modify Ral Rune
+        stackable_tab_btn = driver.find_element(By.XPATH, "//button[contains(@class, 'd2r-tab-btn') and contains(text(), 'Stackable')]")
+        stackable_tab_btn.click()
+        time.sleep(1)
+
+        driver.execute_script("""
+            const slot = document.querySelector('#d2r-mod-stackable-viewport .d2r-mod-slot[data-code="r08"]');
+            const code = slot.getAttribute('data-code');
+            const name = slot.getAttribute('data-name');
+            const qty = parseInt(slot.getAttribute('data-qty'), 10);
+            window.openEditStackModalByCode(code, name, qty, 5);
+        """)
+        time.sleep(1)
+
+        qty_input = driver.find_element(By.ID, "edit-stack-qty-input")
+        qty_input.clear()
+        qty_input.send_keys("77")
+
+        submit_btn = driver.find_element(By.ID, "btn-submit-edit-stack")
+        submit_btn.click()
+        time.sleep(1)
+
+        # Verify staged change
+        staged = driver.execute_script("return window.EditWorkspace?.changes || 0;")
+        self.assertEqual(staged, 1)
+
+        # Click Save changes
+        edit_save_btn = driver.find_element(By.ID, "edit-save")
+        edit_save_btn.click()
+        time.sleep(2)
+
+        # Verify Edit Mode turned off
+        is_active = driver.execute_script("return window.EditWorkspace?.active;")
+        self.assertFalse(is_active, "Edit mode should be inactive after Save changes")
+
+        # Verify Export button immediately cleared and does NOT show Export(1)
+        current_label = driver.find_element(By.ID, "wasm-export-label").text.strip()
+        current_btn = driver.find_element(By.ID, "wasm-export-btn")
+        modified_count = driver.execute_script("return window.D2Wasm.getModifiedFiles().length;")
+
+        self.assertEqual(modified_count, 0, f"Expected 0 modified files after Save, got {modified_count}")
+        self.assertIn("Export", current_label)
+        self.assertNotIn("(", current_label)
+        self.assertNotIn("has-modifications", current_btn.get_attribute("class"))
+        print(f"  [PASS] After Save changes: Export(#) button count cleared cleanly (0 unexported)")
+
+        # Now test manual modification and clicking the Export button directly
+        driver.execute_script("""
+            // Make a direct modification in loadedFiles
+            const stash = window.D2Wasm.loadedFiles.get('ModernSharedStashSoftCoreV2.d2i');
+            if (stash) {
+                const copy = new Uint8Array(stash);
+                copy[copy.length - 1] ^= 0xFF; // flip last byte
+                window.D2Wasm.loadedFiles.set('ModernSharedStashSoftCoreV2.d2i', copy);
+                window.updateExportButtonState();
+            }
+        """)
+        time.sleep(1)
+
+        # Button should now show Export (1)
+        btn_with_mod = driver.find_element(By.ID, "wasm-export-label").text.strip()
+        self.assertIn("(1)", btn_with_mod, f"Expected '(1)', got '{btn_with_mod}'")
+        print("  [PASS] Direct modification reflects as 'Export (1)'")
+
+        # Click Export button
+        export_btn.click()
+        time.sleep(2)
+
+        # Verify button immediately cleared back to Export
+        final_label = driver.find_element(By.ID, "wasm-export-label").text.strip()
+        final_modified = driver.execute_script("return window.D2Wasm.getModifiedFiles().length;")
+        self.assertEqual(final_modified, 0, f"Expected 0 modified files after Export, got {final_modified}")
+        self.assertIn("Export", final_label)
+        self.assertNotIn("(", final_label)
+        print(f"  [PASS] After clicking Export button: Export(#) count cleared cleanly")
+
 if __name__ == '__main__':
     unittest.main()
+

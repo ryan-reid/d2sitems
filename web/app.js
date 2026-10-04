@@ -332,8 +332,9 @@ async function enableWasmMode() {
     if (cached && cached.length > 0) {
       for (const entry of cached) {
         window.D2Wasm.loadedFiles.set(entry.name, entry.bytes);
-        if (entry.original) {
-          window.D2Wasm.initialFileBytes.set(entry.name, entry.original);
+        const baseline = entry.exportedBytes || entry.original;
+        if (baseline) {
+          window.D2Wasm.initialFileBytes.set(entry.name, baseline);
         }
       }
       await refreshWasmDataset();
@@ -652,6 +653,7 @@ function setupWasmEvents() {
         } else {
           showToast(`Exported ${result.count} modified save(s).`, 'success');
         }
+        if (typeof window.clearEditLog === 'function') window.clearEditLog();
         updateExportButtonState();
       } catch (err) {
         showToast('Error exporting modified saves: ' + err.message, 'error');
