@@ -3576,10 +3576,7 @@ async function submitItemTransfer() {
           statusEl.style.color = '#f87171';
           statusEl.textContent = data.message || 'Transfer failed.';
         }
-        if (data.isProtected) {
-          const forceContainer = document.getElementById('transfer-force-live-container');
-          if (forceContainer) forceContainer.style.display = 'block';
-        }
+
         if (submitBtn) submitBtn.disabled = false;
       }
       return;
@@ -3612,10 +3609,7 @@ async function submitItemTransfer() {
         statusEl.style.color = '#f87171';
         statusEl.textContent = data.Message || data.error || 'Transfer failed.';
       }
-      if (data.IsProtected) {
-        const forceContainer = document.getElementById('transfer-force-live-container');
-        if (forceContainer) forceContainer.style.display = 'block';
-      }
+
       if (submitBtn) submitBtn.disabled = false;
     }
   } catch (err) {
@@ -3822,10 +3816,7 @@ async function submitPackMule() {
         statusEl.style.color = '#f87171';
         statusEl.textContent = data.Message || data.error || 'Packing failed.';
       }
-      if (data.IsProtected) {
-        const forceContainer = document.getElementById('pack-force-live-container');
-        if (forceContainer) forceContainer.style.display = 'block';
-      }
+
       if (submitBtn) submitBtn.disabled = false;
     }
   } catch (err) {
