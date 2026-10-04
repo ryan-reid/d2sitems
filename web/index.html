@@ -43,14 +43,8 @@
         <button class="nav-tab active" data-tab="search-view">
           <svg class="tab-svg" aria-hidden="true"><use href="#i-search"/></svg> Item Search
         </button>
-        <button class="nav-tab" data-tab="characters-view">
-          <svg class="tab-svg" aria-hidden="true"><use href="#i-armor"/></svg> Characters &amp; Stash
-        </button>
         <button class="nav-tab" data-tab="armory-view">
           <svg class="tab-svg" aria-hidden="true"><use href="#i-sword"/></svg> In-Game Armory
-        </button>
-        <button class="nav-tab" data-tab="grail-view">
-          <svg class="tab-svg" aria-hidden="true"><use href="#i-skull"/></svg> Holy Grail
         </button>
         <button class="nav-tab" data-tab="chronicle-view">
           <svg class="tab-svg" aria-hidden="true"><use href="#i-chronicle"/></svg> The Chronicle
@@ -340,24 +334,7 @@
       </div>
     </section>
 
-    <!-- VIEW 2: CHARACTERS & STASHES -->
-    <section id="characters-view" class="view-panel">
-      <div class="characters-header">
-        <div>
-          <h2>Characters & Shared Stashes</h2>
-          <p class="section-desc">Overview of all detected heroes, mules, and stash files.</p>
-        </div>
-        <div style="display:flex; align-items:center; gap:12px;">
-          <button id="btn-open-create-mule" class="btn btn-primary" onclick="openCreateMuleModal()">+ Create New Mule</button>
-          <button id="btn-open-pack-mule" class="btn btn-secondary" onclick="openPackMuleModal()" style="border-color: var(--color-accent); color: var(--color-accent);">📦 Pack Mule from Stash</button>
-          <div id="characters-summary-stats" class="summary-stats"></div>
-        </div>
-      </div>
-
-      <div id="characters-grid" class="characters-grid"></div>
-    </section>
-
-    <!-- VIEW 3: ARMORY / PAPERDOLL SHEET -->
+    <!-- VIEW 2: ARMORY / PAPERDOLL SHEET -->
     <section id="armory-view" class="view-panel">
       <div class="d2r-armory-toolbar">
         <div class="d2r-toolbar-left">
@@ -365,6 +342,7 @@
             <label for="armory-char-select">HERO:</label>
             <select id="armory-char-select" class="form-select" style="min-width: 200px;"></select>
           </div>
+          <button id="btn-open-create-mule" class="btn btn-primary btn-sm" onclick="openCreateMuleModal()">+ Create New Mule</button>
           <button class="btn btn-secondary btn-sm" onclick="openQuestsModalForCurrentArmoryChar()">📜 Quests &amp; WPs</button>
           <button class="btn btn-secondary btn-sm" onclick="openPackMuleModalForCurrentArmoryChar()">📦 Pack Mule from Stash</button>
           <div class="d2r-search-box-wrap">
@@ -392,37 +370,6 @@
       <div id="armory-content" class="armory-content-wrap">
         <!-- Dual In-Game Panels or Card list generated in JS -->
       </div>
-    </section>
-
-    <!-- VIEW 4: HOLY GRAIL TRACKER -->
-    <section id="grail-view" class="view-panel">
-      <div class="grail-header">
-        <div>
-          <h2>The Holy Grail Tracker</h2>
-          <p class="section-desc">Track all Unique Items, Sets, and Runewords collected across your account.</p>
-        </div>
-        <div class="grail-filters">
-          <button class="chip active" data-grail-filter="all">All Items</button>
-          <button class="chip" data-grail-filter="collected">Collected Only</button>
-          <button class="chip" data-grail-filter="missing">Missing Only</button>
-        </div>
-      </div>
-
-      <!-- Overall Grail Progress Card -->
-      <div class="grail-progress-card">
-        <div class="grail-progress-header">
-          <span class="grail-score-title">GRAIL COMPLETION</span>
-          <span id="grail-overall-score" class="grail-overall-score">0.00%</span>
-        </div>
-        <div class="progress-bar-wrap">
-          <div id="grail-overall-bar" class="progress-bar-fill" style="width: 0%;"></div>
-        </div>
-        <div class="grail-progress-counts">
-          <span id="grail-count-text">0 / 0 items collected</span>
-        </div>
-      </div>
-
-      <div id="grail-categories" class="grail-categories"></div>
     </section>
 
     <!-- VIEW 4.5: THE CHRONICLE (IN-GAME HOLY GRAIL DISCOVERY TRACKER) -->

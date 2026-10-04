@@ -61,7 +61,6 @@ coreSelect.addEventListener('change', async () => {
   renderItemsView();
   if (state.isWasmMode) await refreshWasmDataset();
   else await loadSavesAndItems();
-  if (state.activeTab === 'grail-view') await loadGrailView();
   if (state.activeTab === 'chronicle-view') await loadChronicleView();
   if (state.activeTab === 'verifier-view') await loadVerifierView();
 });
@@ -239,12 +238,8 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
     if (panel) panel.classList.add('active');
 
     // Trigger tab specific loads
-    if (state.activeTab === 'characters-view') {
-      renderCharactersView();
-    } else if (state.activeTab === 'armory-view') {
+    if (state.activeTab === 'armory-view') {
       loadArmoryView();
-    } else if (state.activeTab === 'grail-view') {
-      loadGrailView();
     } else if (state.activeTab === 'chronicle-view') {
       loadChronicleView();
     } else if (state.activeTab === 'verifier-view') {
@@ -344,12 +339,8 @@ async function refreshWasmDataset() {
     updateCharacterFilterDropdown();
     await executeSearch();
 
-    if (state.activeTab === 'characters-view') {
-      renderCharactersView();
-    } else if (state.activeTab === 'armory-view') {
+    if (state.activeTab === 'armory-view') {
       loadArmoryView();
-    } else if (state.activeTab === 'grail-view') {
-      loadGrailView();
     } else if (state.activeTab === 'chronicle-view') {
       loadChronicleView();
     }
@@ -604,10 +595,8 @@ async function loadSavesAndItems() {
     // Trigger search
     await executeSearch();
 
-    // If characters tab active, render it
-    if (state.activeTab === 'characters-view') {
-      renderCharactersView();
-    } else if (state.activeTab === 'armory-view') {
+    // If armory tab active, render it
+    if (state.activeTab === 'armory-view') {
       loadArmoryView();
     }
   } catch (err) {
@@ -1591,6 +1580,7 @@ dom.resetFiltersBtn.addEventListener('click', () => {
 // CHARACTERS & STASH VIEW
 // ==========================================================================
 function renderCharactersView() {
+  if (!dom.charactersGrid || !dom.charactersSummaryStats) return;
   dom.charactersGrid.innerHTML = '';
 
   const chars = state.saves.filter(s => !s.is_stash);
@@ -1839,6 +1829,7 @@ window.switchInvTab = function(tabName, btnEl) {
 // HOLY GRAIL VIEW
 // ==========================================================================
 async function loadGrailView() {
+  if (!dom.grailCategories) return;
   if (state.isWasmMode && window.D2Wasm) {
     state.grail = window.D2Wasm.getGrailProgress(state.allWasmItems || state.items);
     renderGrailView();
@@ -1863,7 +1854,7 @@ async function loadGrailView() {
 }
 
 function renderGrailView() {
-  if (!state.grail) return;
+  if (!state.grail || !dom.grailCategories) return;
 
   const g = state.grail;
   const pct = (typeof g.percent === 'number' && !isNaN(g.percent)) ? g.percent.toFixed(2) : '0.00';
