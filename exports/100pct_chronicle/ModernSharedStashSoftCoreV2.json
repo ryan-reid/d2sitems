@@ -1,6 +1,6 @@
 {
   "catalogRevision": "118B9CC1C118FB4CDBB76BD48FC09DD98F6AA2790175A499DB17B020DFC9D97A",
-  "saveRevision": "73E36B1A07388021BD7D22A797E87F6C4E495A5713CD41D2981CB913584D7E15",
+  "saveRevision": "3FF9613E5B62CFB1FD32931A31E87762ABA8AAEB0305973CFBABB44FA48A76DF",
   "file": "ModernSharedStashSoftCoreV2.d2i",
   "type": "SharedStash",
   "core": "soft",
@@ -4517,6 +4517,12 @@
       {
         "id": 20561,
         "name": "Honor",
+        "source": 0,
+        "timestamp": 29900000
+      },
+      {
+        "id": 20562,
+        "name": "Revenge",
         "source": 0,
         "timestamp": 29900000
       },
