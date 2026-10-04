@@ -366,6 +366,13 @@ code { font-family: var(--font-mono); font-size: 0.88em; background: var(--surfa
   transform: translateY(-1px);
 }
 
+.filter-button.btn-accent.has-modifications {
+  background: linear-gradient(180deg, #3d2b0e 0%, #201507 100%);
+  border-color: #ffd875;
+  color: #fff;
+  box-shadow: 0 0 8px rgba(255, 216, 117, 0.35), inset 0 0 10px rgba(255, 216, 117, 0.2);
+}
+
 .btn-secondary {
   background: var(--surface-2);
   border-color: var(--line);

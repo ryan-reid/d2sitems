@@ -90,11 +90,13 @@
         <button id="wasm-pick-folder-btn" class="filter-button btn-accent" title="Load D2R Saved Games folder directly in browser">
           <span>📁 Load Folder</span>
         </button>
-        <button id="wasm-export-btn" class="filter-button btn-accent" style="display:none;" title="Download all modified saves">
-          <span>💾 Export</span>
+        <button id="wasm-export-btn" class="filter-button btn-accent" style="display:none;" title="Download modified saves">
+          <span id="wasm-export-label">💾 Export</span>
         </button>
-
-        <button id="wasm-originals-btn" class="filter-button" style="display:none;" title="Download the original imported bytes for this browser session">Export originals</button>
+        <button id="wasm-export-all-btn" class="filter-button" style="display:none;" title="Download all loaded saves in a single ZIP archive">
+          <span>📦 Export All (ZIP)</span>
+        </button>
+        <button id="wasm-originals-btn" class="filter-button" style="display:none;" title="Download the original imported saves for this browser session">Export Originals</button>
 
         <input type="file" id="wasm-folder-picker" webkitdirectory directory multiple style="display:none;" />
         <input type="file" id="wasm-files-picker" multiple accept=".d2s,.d2i,.ctl" style="display:none;" />

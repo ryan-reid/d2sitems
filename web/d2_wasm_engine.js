@@ -25,6 +25,7 @@ class D2WasmEngine {
     this.ready = false;
     this.loading = false;
     this.loadedFiles = new Map(); // fileName -> Uint8Array
+    this.initialFileBytes = new Map(); // fileName -> Uint8Array (unmodified baseline)
     this.dbName = 'D2SItems_Wasm_Storage';
     this.dbVersion = 2;
     this.sessionId = localStorage.getItem('bkdiablo-session') || crypto.randomUUID();
@@ -102,7 +103,15 @@ class D2WasmEngine {
     return new Promise((resolve, reject) => {
       const tx = db.transaction('sessionSaves', 'readonly');
       const req = tx.objectStore('sessionSaves').getAll();
-      tx.oncomplete = () => resolve((req.result || []).filter(row => row.session === this.sessionId));
+      tx.oncomplete = () => {
+        const rows = (req.result || []).filter(row => row.session === this.sessionId);
+        for (const row of rows) {
+          if (row.original && !this.initialFileBytes.has(row.name)) {
+            this.initialFileBytes.set(row.name, row.original);
+          }
+        }
+        resolve(rows);
+      };
       tx.onerror = () => reject(tx.error);
     });
   }
@@ -112,6 +121,7 @@ class D2WasmEngine {
     this.sessionId = crypto.randomUUID();
     localStorage.setItem('bkdiablo-session', this.sessionId);
     this.loadedFiles.clear();
+    this.initialFileBytes.clear();
   }
 
   /**
@@ -202,6 +212,9 @@ class D2WasmEngine {
    */
   async ingestFile(fileName, bytes) {
     await this.init();
+    if (!this.initialFileBytes.has(fileName)) {
+      this.initialFileBytes.set(fileName, bytes.slice());
+    }
     await this.saveFileToDB(fileName, bytes);
 
     const isStash = fileName.toLowerCase().endsWith('.d2i') || fileName.toLowerCase().includes('stash');
@@ -252,6 +265,9 @@ class D2WasmEngine {
         bytes = await D2WasmEngine.readFileAsBytes(item.file);
       }
       if (bytes) {
+        if (!this.initialFileBytes.has(name)) {
+          this.initialFileBytes.set(name, bytes.slice());
+        }
         if (lower.endsWith('.ctl')) {
           await this.saveFileToDB(name, bytes);
           continue;
@@ -799,9 +815,7 @@ class D2WasmEngine {
     return parsed;
   }
 
-  downloadFile(fileName, bytes) {
-    if (this.editOriginals) return;
-    const blob = new Blob([bytes], { type: 'application/octet-stream' });
+  downloadBlob(blob, fileName) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -814,20 +828,213 @@ class D2WasmEngine {
     }, 200);
   }
 
+  downloadFile(fileName, bytes) {
+    if (this.editOriginals) return;
+    this.downloadBlob(new Blob([bytes], { type: 'application/octet-stream' }), fileName);
+  }
+
   /**
-   * Downloads all currently loaded save files.
+   * Returns an array of saves that were modified or newly created during this session.
+   * @returns {Array<{name: string, bytes: Uint8Array, isNew: boolean}>}
+   */
+  getModifiedFiles() {
+    const modified = [];
+    for (const [name, currentBytes] of this.loadedFiles.entries()) {
+      const lower = name.toLowerCase();
+      if (!lower.endsWith('.d2s') && !lower.endsWith('.d2i') && !lower.endsWith('.ctl')) continue;
+      const orig = this.initialFileBytes?.get(name);
+      if (!orig) {
+        modified.push({ name, bytes: currentBytes, isNew: true });
+      } else if (currentBytes.length !== orig.length || currentBytes.some((b, i) => b !== orig[i])) {
+        modified.push({ name, bytes: currentBytes, isNew: false });
+      }
+    }
+    return modified;
+  }
+
+  /**
+   * Exports saves that were modified or newly created.
+   * If 1-3 files: downloads individually with a 200ms delay.
+   * If >3 files: packages them into a single uncompressed ZIP archive.
+   */
+  async downloadModifiedSaves(modifiedList) {
+    const list = modifiedList || this.getModifiedFiles();
+    if (!list || list.length === 0) return { count: 0, zip: false };
+
+    if (list.length <= 3) {
+      for (let i = 0; i < list.length; i++) {
+        if (i > 0) await new Promise(r => setTimeout(r, 200));
+        this.downloadFile(list[i].name, list[i].bytes);
+      }
+      return { count: list.length, zip: false };
+    }
+
+    const zip = D2WasmEngine.createZip(list);
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+    const zipName = `BKDiablo_Modified_Saves_${dateStr}.zip`;
+    this.downloadBlob(new Blob([zip], { type: 'application/zip' }), zipName);
+    return { count: list.length, zip: true, fileName: zipName };
+  }
+
+  /**
+   * Downloads all currently loaded save files in a single ZIP archive.
+   */
+  async downloadAllSavesAsZip() {
+    const files = [];
+    for (const [name, bytes] of this.loadedFiles.entries()) {
+      const lower = name.toLowerCase();
+      if (lower.endsWith('.d2s') || lower.endsWith('.d2i') || lower.endsWith('.ctl')) {
+        files.push({ name, bytes });
+      }
+    }
+    if (files.length === 0) return { count: 0, zip: false };
+
+    const zip = D2WasmEngine.createZip(files);
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+    const zipName = `BKDiablo_All_Saves_${dateStr}.zip`;
+    this.downloadBlob(new Blob([zip], { type: 'application/zip' }), zipName);
+    return { count: files.length, zip: true, fileName: zipName };
+  }
+
+  /**
+   * Downloads original imported saves. If >2 files, packages them into a ZIP archive.
    */
   async downloadOriginals() {
     const originals = await this.loadAllFilesFromDB();
-    for (const row of originals) this.downloadFile('original-' + row.name, row.original);
+    const valid = originals.filter(r => r.original && (r.name.endsWith('.d2s') || r.name.endsWith('.d2i') || r.name.endsWith('.ctl')));
+    if (valid.length === 0) return { count: 0, zip: false };
+
+    if (valid.length <= 2) {
+      for (let i = 0; i < valid.length; i++) {
+        if (i > 0) await new Promise(r => setTimeout(r, 200));
+        this.downloadFile('original-' + valid[i].name, valid[i].original);
+      }
+      return { count: valid.length, zip: false };
+    }
+
+    const files = valid.map(r => ({ name: r.name, bytes: r.original }));
+    const zip = D2WasmEngine.createZip(files);
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+    const zipName = `BKDiablo_Original_Saves_${dateStr}.zip`;
+    this.downloadBlob(new Blob([zip], { type: 'application/zip' }), zipName);
+    return { count: valid.length, zip: true, fileName: zipName };
   }
 
-  downloadAllSaves() {
-    for (const [name, bytes] of this.loadedFiles.entries()) {
-      if (name.endsWith('.d2s') || name.endsWith('.d2i') || name.endsWith('.ctl')) {
-        this.downloadFile(name, bytes);
+  /**
+   * Backward-compatible alias for downloading all saves.
+   */
+  async downloadAllSaves() {
+    return this.downloadAllSavesAsZip();
+  }
+
+  /**
+   * Generates a standard uncompressed PKZIP (STORE) archive in browser memory.
+   * @param {Array<{name: string, bytes: Uint8Array}>} files
+   * @returns {Uint8Array}
+   */
+  static createZip(files) {
+    let crcTable = D2WasmEngine._crcTable;
+    if (!crcTable) {
+      crcTable = new Uint32Array(256);
+      for (let i = 0; i < 256; i++) {
+        let c = i;
+        for (let k = 0; k < 8; k++) {
+          c = ((c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1)) >>> 0;
+        }
+        crcTable[i] = c;
       }
+      D2WasmEngine._crcTable = crcTable;
     }
+
+    const calcCrc = (bytes) => {
+      let crc = 0xFFFFFFFF;
+      for (let i = 0; i < bytes.length; i++) {
+        crc = (crcTable[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8)) >>> 0;
+      }
+      return (crc ^ 0xFFFFFFFF) >>> 0;
+    };
+
+    const now = new Date();
+    const dosTime = ((now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1)) & 0xFFFF;
+    const dosDate = (((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate()) & 0xFFFF;
+    const encoder = new TextEncoder();
+
+    let totalLocal = 0;
+    let totalCentral = 0;
+    const prepared = files.map(f => {
+      const cleanName = f.name.replace(/^.*[\\\/]/, '');
+      const nameBytes = encoder.encode(cleanName);
+      const crc = calcCrc(f.bytes);
+      const localLen = 30 + nameBytes.length + f.bytes.length;
+      const centralLen = 46 + nameBytes.length;
+      totalLocal += localLen;
+      totalCentral += centralLen;
+      return { nameBytes, bytes: f.bytes, crc, localLen, centralLen };
+    });
+
+    const totalSize = totalLocal + totalCentral + 22;
+    const buffer = new Uint8Array(totalSize);
+    const view = new DataView(buffer.buffer);
+
+    let localOffset = 0;
+    const offsets = [];
+
+    for (const item of prepared) {
+      offsets.push(localOffset);
+      view.setUint32(localOffset, 0x04034b50, true);
+      view.setUint16(localOffset + 4, 20, true);
+      view.setUint16(localOffset + 6, 0x0800, true); // UTF-8 filename flag
+      view.setUint16(localOffset + 8, 0, true);      // STORE (uncompressed)
+      view.setUint16(localOffset + 10, dosTime, true);
+      view.setUint16(localOffset + 12, dosDate, true);
+      view.setUint32(localOffset + 14, item.crc, true);
+      view.setUint32(localOffset + 18, item.bytes.length, true);
+      view.setUint32(localOffset + 22, item.bytes.length, true);
+      view.setUint16(localOffset + 26, item.nameBytes.length, true);
+      view.setUint16(localOffset + 28, 0, true);
+      buffer.set(item.nameBytes, localOffset + 30);
+      buffer.set(item.bytes, localOffset + 30 + item.nameBytes.length);
+      localOffset += item.localLen;
+    }
+
+    let centralOffset = localOffset;
+    for (let i = 0; i < prepared.length; i++) {
+      const item = prepared[i];
+      const off = offsets[i];
+      view.setUint32(centralOffset, 0x02014b50, true);
+      view.setUint16(centralOffset + 4, 20, true);
+      view.setUint16(centralOffset + 6, 20, true);
+      view.setUint16(centralOffset + 8, 0x0800, true);
+      view.setUint16(centralOffset + 10, 0, true);
+      view.setUint16(centralOffset + 12, dosTime, true);
+      view.setUint16(centralOffset + 14, dosDate, true);
+      view.setUint32(centralOffset + 16, item.crc, true);
+      view.setUint32(centralOffset + 20, item.bytes.length, true);
+      view.setUint32(centralOffset + 24, item.bytes.length, true);
+      view.setUint16(centralOffset + 28, item.nameBytes.length, true);
+      view.setUint16(centralOffset + 30, 0, true);
+      view.setUint16(centralOffset + 32, 0, true);
+      view.setUint16(centralOffset + 34, 0, true);
+      view.setUint16(centralOffset + 36, 0, true);
+      view.setUint32(centralOffset + 38, 0, true);
+      view.setUint32(centralOffset + 42, off, true);
+      buffer.set(item.nameBytes, centralOffset + 46);
+      centralOffset += item.centralLen;
+    }
+
+    view.setUint32(centralOffset, 0x06054b50, true);
+    view.setUint16(centralOffset + 4, 0, true);
+    view.setUint16(centralOffset + 6, 0, true);
+    view.setUint16(centralOffset + 8, prepared.length, true);
+    view.setUint16(centralOffset + 10, prepared.length, true);
+    view.setUint32(centralOffset + 12, totalCentral, true);
+    view.setUint32(centralOffset + 16, localOffset, true);
+    view.setUint16(centralOffset + 20, 0, true);
+
+    return buffer;
   }
 }
 

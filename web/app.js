@@ -294,7 +294,10 @@ async function enableWasmMode() {
 
   const exportBtn = document.getElementById('wasm-export-btn');
   if (exportBtn) exportBtn.style.display = 'inline-flex';
-  document.getElementById('wasm-originals-btn').style.display = 'inline-flex';
+  const exportAllBtn = document.getElementById('wasm-export-all-btn');
+  if (exportAllBtn) exportAllBtn.style.display = 'inline-flex';
+  const originalsBtn = document.getElementById('wasm-originals-btn');
+  if (originalsBtn) originalsBtn.style.display = 'inline-flex';
 
   const addProfileBtn = document.getElementById('add-profile-btn');
   if (addProfileBtn) addProfileBtn.style.display = 'none';
@@ -311,6 +314,9 @@ async function enableWasmMode() {
     if (cached && cached.length > 0) {
       for (const entry of cached) {
         window.D2Wasm.loadedFiles.set(entry.name, entry.bytes);
+        if (entry.original) {
+          window.D2Wasm.initialFileBytes.set(entry.name, entry.original);
+        }
       }
       await refreshWasmDataset();
       return;
@@ -352,6 +358,7 @@ async function refreshWasmDataset() {
   } finally {
     dom.rescanIcon.classList.remove('spin');
     dom.rescanLabel.textContent = 'Rescan Saves';
+    updateExportButtonState();
   }
 }
 window.refreshWasmDataset = refreshWasmDataset;
@@ -421,6 +428,28 @@ async function handleUserFiles(fileList) {
 }
 window.handleUserFiles = handleUserFiles;
 
+// Updates Export button count and badge based on modified saves in memory
+function updateExportButtonState() {
+  const exportBtn = document.getElementById('wasm-export-btn');
+  const exportLabel = document.getElementById('wasm-export-label');
+  if (!exportBtn || !window.D2Wasm) return;
+
+  const modified = typeof window.D2Wasm.getModifiedFiles === 'function' ? window.D2Wasm.getModifiedFiles() : [];
+  const count = modified.length;
+
+  if (count === 0) {
+    if (exportLabel) exportLabel.textContent = '💾 Export';
+    exportBtn.title = 'No saves modified yet in this browser session';
+    exportBtn.classList.remove('has-modifications');
+  } else {
+    if (exportLabel) exportLabel.textContent = `💾 Export (${count})`;
+    const listStr = modified.map(m => (m.isNew ? `+ ${m.name}` : `* ${m.name}`)).join('\n');
+    exportBtn.title = `${count} modified/new save(s):\n${listStr}`;
+    exportBtn.classList.add('has-modifications');
+  }
+}
+window.updateExportButtonState = updateExportButtonState;
+
 // Setup WASM Event Listeners (Folder pickers, dropzone, exports)
 function setupWasmEvents() {
   const folderPicker = document.getElementById('wasm-folder-picker');
@@ -430,6 +459,7 @@ function setupWasmEvents() {
   const dropzoneFilesBtn = document.getElementById('dropzone-files-btn');
   const dropzoneCloseBtn = document.getElementById('dropzone-close-btn');
   const exportBtn = document.getElementById('wasm-export-btn');
+  const exportAllBtn = document.getElementById('wasm-export-all-btn');
   const overlay = document.getElementById('d2-dropzone-overlay');
 
   if (pickFolderBtn && folderPicker) {
@@ -445,18 +475,54 @@ function setupWasmEvents() {
     dropzoneCloseBtn.addEventListener('click', () => overlay.classList.remove('active'));
   }
   if (exportBtn) {
-    exportBtn.addEventListener('click', () => {
-      if (window.D2Wasm) {
-        window.D2Wasm.downloadAllSaves();
-        showToast('Initiated download of all saves in memory.', 'info');
+    exportBtn.addEventListener('click', async () => {
+      if (!window.D2Wasm) return;
+      const modified = typeof window.D2Wasm.getModifiedFiles === 'function' ? window.D2Wasm.getModifiedFiles() : [];
+      if (modified.length === 0) {
+        showToast('No saves have been modified yet in this session.', 'info');
+        return;
+      }
+      try {
+        const result = await window.D2Wasm.downloadModifiedSaves(modified);
+        if (result.zip) {
+          showToast(`Exported ${result.count} modified save(s) in ZIP: ${result.fileName}`, 'success');
+        } else {
+          showToast(`Exported ${result.count} modified save(s).`, 'success');
+        }
+        updateExportButtonState();
+      } catch (err) {
+        showToast('Error exporting modified saves: ' + err.message, 'error');
+      }
+    });
+  }
+
+  if (exportAllBtn) {
+    exportAllBtn.addEventListener('click', async () => {
+      if (!window.D2Wasm) return;
+      try {
+        const result = await window.D2Wasm.downloadAllSavesAsZip();
+        if (result.count === 0) {
+          showToast('No saves loaded to export.', 'info');
+        } else {
+          showToast(`Exported all ${result.count} save(s) in ZIP: ${result.fileName}`, 'success');
+        }
+      } catch (err) {
+        showToast('Error exporting all saves: ' + err.message, 'error');
       }
     });
   }
 
   document.getElementById('wasm-originals-btn')?.addEventListener('click', async () => {
     try {
-      await window.D2Wasm.downloadOriginals();
-      showToast('Original imported saves exported. Current browser edits are unchanged.', 'info');
+      if (!window.D2Wasm) return;
+      const result = await window.D2Wasm.downloadOriginals();
+      if (!result || result.count === 0) {
+        showToast('No original saves found in browser storage.', 'info');
+      } else if (result.zip) {
+        showToast(`Original imported saves exported (${result.count} files in ZIP: ${result.fileName}). Current browser edits are unchanged.`, 'info');
+      } else {
+        showToast(`Original imported saves exported (${result.count} files). Current browser edits are unchanged.`, 'info');
+      }
     } catch (error) { showToast(error.message, 'error'); }
   });
 
