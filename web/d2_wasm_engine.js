@@ -126,34 +126,62 @@ class D2WasmEngine {
   }
 
   /**
-   * Reads raw file objects from a FileSystemDirectoryHandle.
+   * Reads raw file objects from a FileSystemDirectoryHandle, recursively traversing
+   * subdirectories (e.g. Saved Games/Diablo II Resurrected/Mods/BKDiablo).
+   * Scopes to BKDiablo mod saves when present to prevent duplicate characters or backup pollution.
    */
   async readDirectoryFiles(dirHandle) {
     if (!dirHandle) return [];
-    const filesToIngest = [];
-    const seenNames = new Set();
+    const collected = [];
 
-    for await (const [name, handle] of dirHandle.entries()) {
-      if (handle.kind !== 'file') continue;
-      const lower = name.toLowerCase();
-      if (!lower.endsWith('.d2s') && !lower.endsWith('.d2i') && !lower.endsWith('.ctl')) {
-        continue;
-      }
-      if (/^\d{8}[-_]\d{6}/i.test(name) || /\.(bak|old|backup|tmp)$/i.test(name)) {
-        continue;
-      }
-      if (seenNames.has(lower)) continue;
-      seenNames.add(lower);
+    const isIgnoredFolder = (name) => {
+      return /^(backups?|archive|old|crashdumps?|temp|tmp|\.git|\.vs|\.death-tracker|\.kill-tracker|\.time-played|d2rloader backups|reimaginedlauncherbackups|reimagined backups|bkbackup|bt-backup)$/i.test(name);
+    };
 
-      try {
-        const file = await handle.getFile();
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        filesToIngest.push({ name, bytes, file });
-      } catch (e) {
-        console.warn(`[D2WasmEngine] Could not read file ${name} from handle:`, e);
+    const isBackupFile = (name) => {
+      return /^\d{8}[-_]\d{6}/i.test(name) || /\.(bak|old|backup|tmp)$/i.test(name);
+    };
+
+    const scanDir = async (handle, pathSegments = []) => {
+      for await (const [name, entry] of handle.entries()) {
+        if (entry.kind === 'directory') {
+          if (!isIgnoredFolder(name) && pathSegments.length < 5) {
+            await scanDir(entry, [...pathSegments, name]);
+          }
+        } else if (entry.kind === 'file') {
+          const lower = name.toLowerCase();
+          if (!lower.endsWith('.d2s') && !lower.endsWith('.d2i') && !lower.endsWith('.ctl')) {
+            continue;
+          }
+          if (isBackupFile(name)) {
+            continue;
+          }
+          try {
+            const file = await entry.getFile();
+            const bytes = new Uint8Array(await file.arrayBuffer());
+            const relPath = [...pathSegments, name].join('/');
+            collected.push({ name, bytes, file, relPath });
+          } catch (e) {
+            console.warn(`[D2WasmEngine] Could not read file ${name} from handle:`, e);
+          }
+        }
+      }
+    };
+
+    await scanDir(dirHandle, [dirHandle.name || '']);
+
+    const hasBK = collected.some(c => /bkdiablo/i.test(c.relPath));
+    const candidateFiles = hasBK ? collected.filter(c => /bkdiablo/i.test(c.relPath)) : collected;
+
+    const fileMap = new Map();
+    for (const item of candidateFiles) {
+      const lower = item.name.toLowerCase();
+      if (!fileMap.has(lower)) {
+        fileMap.set(lower, item);
       }
     }
-    return filesToIngest;
+
+    return Array.from(fileMap.values());
   }
 
   /**
@@ -314,9 +342,14 @@ class D2WasmEngine {
     const db = await this.initDB();
     if (db) {
       try {
-        const tx = db.transaction(['sessionSaves', 'history'], 'readwrite');
-        tx.objectStore('sessionSaves').clear();
-        tx.objectStore('history').clear();
+        await new Promise((resolve, reject) => {
+          const tx = db.transaction(['sessionSaves', 'history'], 'readwrite');
+          tx.oncomplete = resolve;
+          tx.onerror = () => reject(tx.error);
+          tx.onabort = () => reject(tx.error);
+          tx.objectStore('sessionSaves').clear();
+          tx.objectStore('history').clear();
+        });
       } catch (e) {
         console.warn('[D2WasmEngine] Error clearing IndexedDB session saves:', e);
       }
@@ -441,27 +474,44 @@ class D2WasmEngine {
   async ingestFiles(fileList) {
     await this.clearDB();
     const results = [];
-    const filteredList = [];
-    const seen = new Set();
 
+    const isIgnoredFolder = (name) => {
+      return /^(backups?|archive|old|crashdumps?|temp|tmp|\.git|\.vs|\.death-tracker|\.kill-tracker|\.time-played|d2rloader backups|reimaginedlauncherbackups|reimagined backups|bkbackup|bt-backup)$/i.test(name);
+    };
+
+    const isBackupFile = (name) => {
+      return /^\d{8}[-_]\d{6}/i.test(name) || /\.(bak|old|backup|tmp)$/i.test(name);
+    };
+
+    const collected = [];
     for (const item of fileList) {
       const name = item.name || item.fileName;
       if (!name) continue;
       const lower = name.toLowerCase();
       if (!lower.endsWith('.d2s') && !lower.endsWith('.d2i') && !lower.endsWith('.ctl')) continue;
-      if (/^\d{8}[-_]\d{6}/i.test(name) || /\.(bak|old|backup|tmp)$/i.test(name)) continue;
-      if (item.webkitRelativePath) {
-        const segs = item.webkitRelativePath.replace(/\\/g, '/').split('/').filter(Boolean);
-        if (segs.some(s => /^(backups?|archive|old|crashdumps?|temp|tmp|\.git|\.vs)$/i.test(s))) continue;
-        if (segs.length > 2) continue;
-      }
-      if (seen.has(lower)) continue;
-      seen.add(lower);
-      filteredList.push(item);
+      if (isBackupFile(name)) continue;
+
+      const relPath = (item.webkitRelativePath || item.relPath || item.name || '').replace(/\\/g, '/');
+      const segs = relPath.split('/').filter(Boolean);
+      if (segs.slice(0, -1).some(s => isIgnoredFolder(s))) continue;
+
+      collected.push({ ...item, name, relPath });
     }
 
-    for (const item of filteredList) {
-      const name = item.name || item.fileName;
+    const hasBK = collected.some(c => /bkdiablo/i.test(c.relPath));
+    const candidateFiles = hasBK ? collected.filter(c => /bkdiablo/i.test(c.relPath)) : collected;
+
+    const fileMap = new Map();
+    for (const item of candidateFiles) {
+      const lower = item.name.toLowerCase();
+      if (!fileMap.has(lower)) {
+        fileMap.set(lower, item);
+      }
+    }
+    const finalItems = Array.from(fileMap.values());
+
+    for (const item of finalItems) {
+      const name = item.name;
       const lower = name.toLowerCase();
       let bytes = item.bytes;
       if (!bytes && item.file) {

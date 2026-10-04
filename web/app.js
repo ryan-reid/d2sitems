@@ -399,8 +399,15 @@ async function handleUserFiles(fileList) {
   const overlay = document.getElementById('d2-dropzone-overlay');
   if (overlay) overlay.classList.remove('active');
 
-  const filesToIngest = [];
-  const seenNames = new Set();
+  const isIgnoredFolder = (name) => {
+    return /^(backups?|archive|old|crashdumps?|temp|tmp|\.git|\.vs|\.death-tracker|\.kill-tracker|\.time-played|d2rloader backups|reimaginedlauncherbackups|reimagined backups|bkbackup|bt-backup)$/i.test(name);
+  };
+
+  const isBackupFile = (name) => {
+    return /^\d{8}[-_]\d{6}/i.test(name) || /\.(bak|old|backup|tmp)$/i.test(name);
+  };
+
+  const collected = [];
 
   for (let i = 0; i < fileList.length; i++) {
     const f = fileList[i];
@@ -409,36 +416,40 @@ async function handleUserFiles(fileList) {
     if (!lower.endsWith('.d2s') && !lower.endsWith('.d2i') && !lower.endsWith('.ctl')) {
       continue;
     }
+    if (isBackupFile(name)) {
+      continue;
+    }
 
-    // Filter out backup folders, hidden folders, or nested subdirectories
     const relPath = (f.webkitRelativePath || f.name).replace(/\\/g, '/');
     const segments = relPath.split('/').filter(Boolean);
-
-    // Reject any file inside a backup/archive/crash/temp/.git directory
-    const hasIgnoredDir = segments.some(seg =>
-      /^(backups?|archive|old|crashdumps?|temp|tmp|\.git|\.vs)$/i.test(seg)
-    );
+    const hasIgnoredDir = segments.slice(0, -1).some(seg => isIgnoredFolder(seg));
     if (hasIgnoredDir) {
       continue;
     }
 
-    // A Diablo II Resurrected save folder is always flat. Files in subdirectories are never active saves.
-    if (f.webkitRelativePath && segments.length > 2) {
-      continue;
-    }
+    collected.push({ file: f, name, relPath });
+  }
 
-    // Reject timestamped backup filenames (e.g. 20260928_184843_Assassin.d2s) or backup extensions
-    if (/^\d{8}[-_]\d{6}/i.test(name) || /\.(bak|old|backup|tmp)$/i.test(name)) {
-      continue;
-    }
+  if (collected.length === 0) {
+    showToast('No valid .d2s or .d2i files found in selection.', 'warning');
+    return;
+  }
 
-    if (seenNames.has(lower)) {
-      continue;
-    }
-    seenNames.add(lower);
+  const hasBK = collected.some(c => /bkdiablo/i.test(c.relPath));
+  const candidateFiles = hasBK ? collected.filter(c => /bkdiablo/i.test(c.relPath)) : collected;
 
-    const bytes = await D2WasmEngine.readFileAsBytes(f);
-    filesToIngest.push({ name, bytes });
+  const fileMap = new Map();
+  for (const item of candidateFiles) {
+    const lower = item.name.toLowerCase();
+    if (!fileMap.has(lower)) {
+      fileMap.set(lower, item);
+    }
+  }
+
+  const filesToIngest = [];
+  for (const item of fileMap.values()) {
+    const bytes = await D2WasmEngine.readFileAsBytes(item.file);
+    filesToIngest.push({ name: item.name, bytes, file: item.file });
   }
 
   if (filesToIngest.length === 0) {
@@ -514,30 +525,38 @@ window.invalidateWasmCache = invalidateWasmCache;
 
 // Pick and load folder using modern File System Access API with input fallback
 async function pickAndLoadWasmFolder() {
+  let dirHandle = null;
   if (window.showDirectoryPicker) {
     try {
-      const dirHandle = await window.showDirectoryPicker({ mode: 'read' });
-      if (dirHandle) {
-        if (!state.isWasmMode) await enableWasmMode();
-        await window.D2Wasm.saveDirectoryHandle(dirHandle);
-        showToast(`Reading save files from "${dirHandle.name}"...`, 'info');
-        const files = await window.D2Wasm.readDirectoryFiles(dirHandle);
-        if (files.length === 0) {
-          showToast('No valid .d2s or .d2i files found in selected folder.', 'warning');
-          return;
-        }
-        showToast(`Loading ${files.length} active save file(s) into WebAssembly...`, 'info');
-        await window.D2Wasm.ingestFiles(files);
-        window.D2Wasm.recordImportMeta(dirHandle.name, files.length);
-        const overlay = document.getElementById('d2-dropzone-overlay');
-        if (overlay) overlay.classList.remove('active');
-        await refreshWasmDataset();
-        showToast(`Successfully loaded ${files.length} fresh save files from ${dirHandle.name}!`, 'success');
-        return;
-      }
+      dirHandle = await window.showDirectoryPicker({ mode: 'read' });
     } catch (err) {
       if (err.name === 'AbortError') return;
-      console.warn('[D2Wasm] showDirectoryPicker failed, falling back to input:', err);
+      console.warn('[D2Wasm] showDirectoryPicker failed, falling back to file input:', err);
+    }
+  }
+
+  if (dirHandle) {
+    try {
+      if (!state.isWasmMode) await enableWasmMode();
+      await window.D2Wasm.saveDirectoryHandle(dirHandle);
+      showToast(`Reading save files from "${dirHandle.name}"...`, 'info');
+      const files = await window.D2Wasm.readDirectoryFiles(dirHandle);
+      if (!files || files.length === 0) {
+        showToast(`No valid .d2s or .d2i files found in "${dirHandle.name}".`, 'warning');
+        return;
+      }
+      showToast(`Loading ${files.length} active save file(s) into WebAssembly...`, 'info');
+      await window.D2Wasm.ingestFiles(files);
+      window.D2Wasm.recordImportMeta(dirHandle.name, files.length);
+      const overlay = document.getElementById('d2-dropzone-overlay');
+      if (overlay) overlay.classList.remove('active');
+      await refreshWasmDataset();
+      showToast(`Successfully loaded ${files.length} fresh save files from ${dirHandle.name}!`, 'success');
+      return;
+    } catch (err) {
+      console.error('[D2Wasm] Error processing selected folder:', err);
+      showToast(`Error processing folder "${dirHandle.name}": ${err.message}`, 'error');
+      return;
     }
   }
 
@@ -709,7 +728,47 @@ function setupWasmEvents() {
     if (overlay && state.saves && state.saves.length > 0) {
       overlay.classList.remove('active');
     }
-    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+
+    const droppedFiles = [];
+    if (e.dataTransfer && e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      const traverseEntry = async (entry, path = '') => {
+        if (!entry) return;
+        if (entry.isFile) {
+          try {
+            const file = await new Promise((res, rej) => entry.file(res, rej));
+            file.webkitRelativePath = path ? `${path}/${file.name}` : file.name;
+            droppedFiles.push(file);
+          } catch (err) {
+            console.warn('[D2Wasm] Error reading dropped file entry:', err);
+          }
+        } else if (entry.isDirectory) {
+          const reader = entry.createReader();
+          const readEntries = () => new Promise((res, rej) => reader.readEntries(res, rej));
+          let batch;
+          do {
+            batch = await readEntries();
+            for (const child of batch) {
+              await traverseEntry(child, path ? `${path}/${entry.name}` : entry.name);
+            }
+          } while (batch && batch.length > 0);
+        }
+      };
+
+      for (let i = 0; i < e.dataTransfer.items.length; i++) {
+        const item = e.dataTransfer.items[i];
+        if (typeof item.webkitGetAsEntry === 'function') {
+          const entry = item.webkitGetAsEntry();
+          if (entry) await traverseEntry(entry);
+        } else if (item.kind === 'file') {
+          const f = item.getAsFile();
+          if (f) droppedFiles.push(f);
+        }
+      }
+    }
+
+    if (droppedFiles.length > 0) {
+      await handleUserFiles(droppedFiles);
+    } else if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       await handleUserFiles(e.dataTransfer.files);
     }
   });
