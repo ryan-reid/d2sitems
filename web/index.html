@@ -4,9 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>BKDiablo / BT-BK - Armory &amp; Vault</title>
-  <link rel="stylesheet" href="style.css?v=4">
-  <link rel="stylesheet" href="d2_panels.css?v=2">
-  <link rel="stylesheet" href="editor.css">
+  <link rel="stylesheet" href="style.css?v=20261003-wiki">
+  <link rel="stylesheet" href="d2_panels.css?v=20261003-scale">
+  <link rel="stylesheet" href="editor.css?v=20261003-combobox-v2">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700;800;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -25,6 +25,7 @@
     <symbol id="i-class" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M5 21v-1a7 7 0 0114 0v1"/></symbol>
     <symbol id="i-diff" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v12a3 3 0 003 3h6"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="6" r="3"/></symbol>
     <symbol id="i-drop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c4 5 6 8 6 11a6 6 0 11-12 0c0-3 2-6 6-11z"/></symbol>
+    <symbol id="i-chronicle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="8" y1="11" x2="14" y2="11"/></symbol>
   </svg>
 
   <!-- BT-BK Wiki Masthead Navigation Bar -->
@@ -51,6 +52,9 @@
         <button class="nav-tab" data-tab="grail-view">
           <svg class="tab-svg" aria-hidden="true"><use href="#i-skull"/></svg> Holy Grail
         </button>
+        <button class="nav-tab" data-tab="chronicle-view">
+          <svg class="tab-svg" aria-hidden="true"><use href="#i-chronicle"/></svg> The Chronicle
+        </button>
         <button class="nav-tab" data-tab="verifier-view">
           <svg class="tab-svg" aria-hidden="true"><use href="#i-diff"/></svg> Item Verifier
         </button>
@@ -66,6 +70,13 @@
           <select id="profile-select" class="filter-select profile-dropdown"></select>
         </div>
 
+        <div class="profile-selector-wrap">
+          <label for="core-select" class="profile-label">MODE:</label>
+          <select id="core-select" class="filter-select profile-dropdown" aria-label="Save mode">
+            <option value="soft">Softcore only</option>
+            <option value="hard">Hardcore only</option>
+          </select>
+        </div>
         <button id="rescan-btn" class="filter-button btn-rescan" title="Scan and re-parse save files">
           <span id="rescan-icon">🔄</span>
           <span id="rescan-label">Rescan</span>
@@ -350,12 +361,28 @@
         <div class="d2r-toolbar-left">
           <div class="d2r-char-select-wrap">
             <label for="armory-char-select">HERO:</label>
-            <select id="armory-char-select" class="form-select" style="min-width: 230px;"></select>
+            <select id="armory-char-select" class="form-select" style="min-width: 200px;"></select>
           </div>
           <button class="btn btn-secondary btn-sm" onclick="openQuestsModalForCurrentArmoryChar()">📜 Quests &amp; WPs</button>
           <button class="btn btn-secondary btn-sm" onclick="openPackMuleModalForCurrentArmoryChar()">📦 Pack Mule from Stash</button>
+          <div class="d2r-search-box-wrap">
+            <span class="d2r-search-icon">🔍</span>
+            <input type="text" id="d2r-armory-search" class="d2r-search-input" placeholder="Filter item or affix (e.g. Shako, Magic Find)..." autocomplete="off" />
+            <span id="d2r-armory-search-matches" class="d2r-search-matches-badge" style="display:none;"></span>
+            <button id="d2r-armory-search-clear" class="d2r-search-clear-btn" title="Clear filter" style="display:none;">✕</button>
+          </div>
         </div>
         <div class="d2r-toolbar-right">
+          <div class="d2r-zoom-control">
+            <span class="d2r-zoom-label" title="Panel Scale">Scale:</span>
+            <div class="d2r-zoom-btn-group" role="group" aria-label="Scale Armory Panels">
+              <button type="button" class="d2r-zoom-btn" data-scale="auto" onclick="setD2RArmoryScale('auto')" title="Adaptive Auto-Scaling">Auto</button>
+              <button type="button" class="d2r-zoom-btn active" data-scale="100" onclick="setD2RArmoryScale('100')" title="100% Native 32px">100%</button>
+              <button type="button" class="d2r-zoom-btn" data-scale="120" onclick="setD2RArmoryScale('120')" title="120% Medium Scale">120%</button>
+              <button type="button" class="d2r-zoom-btn" data-scale="135" onclick="setD2RArmoryScale('135')" title="135% Large Desktop">135%</button>
+              <button type="button" class="d2r-zoom-btn" data-scale="150" onclick="setD2RArmoryScale('150')" title="150% 1440p / 4K Display">150%</button>
+            </div>
+          </div>
           <button id="d2r-graphics-toggle-btn" class="btn btn-sm btn-primary" onclick="toggleD2RGraphicsMode()" title="Toggle between Resurrected HD and Legacy Classic graphics (Shortcut: G)">✨ Resurrected HD (G)</button>
         </div>
       </div>
@@ -394,6 +421,57 @@
       </div>
 
       <div id="grail-categories" class="grail-categories"></div>
+    </section>
+
+    <!-- VIEW 4.5: THE CHRONICLE (IN-GAME HOLY GRAIL DISCOVERY TRACKER) -->
+    <section id="chronicle-view" class="view-panel">
+      <div class="chronicle-header">
+        <div>
+          <h2>The Chronicle</h2>
+          <p class="section-desc">In-game Holy Grail discovery tracker recorded directly inside Diablo II Resurrected shared stash save files.</p>
+        </div>
+        <div class="chronicle-filters">
+          <div class="chronicle-filter-group">
+            <span class="chronicle-filter-label">MODE:</span>
+            <button class="chip active" data-chronicle-core="both" onclick="setChronicleCore('both')">All Modes</button>
+            <button class="chip" data-chronicle-core="soft" onclick="setChronicleCore('soft')">Softcore</button>
+            <button class="chip" data-chronicle-core="hard" onclick="setChronicleCore('hard')">Hardcore</button>
+          </div>
+          <div class="chronicle-filter-group">
+            <span class="chronicle-filter-label">STATUS:</span>
+            <button class="chip active" data-chronicle-status="all" onclick="setChronicleStatus('all')">All Entries</button>
+            <button class="chip" data-chronicle-status="discovered" onclick="setChronicleStatus('discovered')">Discovered</button>
+            <button class="chip" data-chronicle-status="undiscovered" onclick="setChronicleStatus('undiscovered')">Undiscovered</button>
+          </div>
+          <div class="chronicle-filter-group">
+            <span class="chronicle-filter-label">CATEGORY:</span>
+            <button class="chip active" data-chronicle-cat="all" onclick="setChronicleCategory('all')">All</button>
+            <button class="chip" data-chronicle-cat="uniques" onclick="setChronicleCategory('uniques')">Uniques</button>
+            <button class="chip" data-chronicle-cat="sets" onclick="setChronicleCategory('sets')">Sets</button>
+            <button class="chip" data-chronicle-cat="runewords" onclick="setChronicleCategory('runewords')">Runewords</button>
+          </div>
+          <div class="chronicle-search-wrap">
+            <input type="text" id="chronicle-search" class="form-input chronicle-search-input" placeholder="Search Chronicle items, runes, bases..." autocomplete="off" oninput="onChronicleSearchInput(this.value)" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Overall Chronicle Progress Card -->
+      <div class="grail-progress-card chronicle-progress-card">
+        <div class="grail-progress-header">
+          <span class="grail-score-title">CHRONICLE DISCOVERY PROGRESS</span>
+          <span id="chronicle-overall-score" class="grail-overall-score">0.00%</span>
+        </div>
+        <div class="progress-bar-wrap">
+          <div id="chronicle-overall-bar" class="progress-bar-fill" style="width: 0%;"></div>
+        </div>
+        <div class="grail-progress-counts">
+          <span id="chronicle-count-text">0 / 0 items discovered</span>
+          <div id="chronicle-category-pills" class="chronicle-category-pills"></div>
+        </div>
+      </div>
+
+      <div id="chronicle-categories" class="grail-categories"></div>
     </section>
 
     <!-- VIEW 5: ITEM VERIFIER (OUT-OF-DATE STAT CHECKER) -->
@@ -652,6 +730,7 @@
           </label>
         </div>
 
+        <div id="transfer-destination-summary" role="status" style="font-size:12px; margin-top:10px; padding:6px 8px; border-left:3px solid var(--color-accent); color:var(--text-main);"></div>
         <div id="transfer-status" style="font-size:12px; margin-top:8px; padding:6px; border-radius:4px; display:none;"></div>
       </div>
       <div class="modal-footer">
@@ -801,10 +880,11 @@
   </div>
 
   <script src="item_art.js"></script>
-  <script src="d2_wasm_engine.js?v=1"></script>
+  <script src="d2_wasm_engine.js?v=20261003-core"></script>
   <script src="d2_bank_layout.js?v=1"></script>
-  <script src="d2_armory.js?v=1"></script>
-  <script src="app.js?v=12"></script>
+  <script src="d2_armory.js?v=20261003-scale"></script>
+  <script src="app.js?v=20261003-wiki-cards"></script>
+  <script src="edit_workspace.js?v=20261003-cancel-fix"></script>
   <script src="editor.js"></script>
 
 </body>

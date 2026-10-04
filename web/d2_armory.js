@@ -31,7 +31,12 @@
   let itemImageMappings = { codes: {}, uniques: {}, sets: {} };
   fetch('item_images.json')
     .then(r => r.json())
-    .then(data => { if (data) itemImageMappings = data; })
+    .then(data => {
+      if (data) {
+        itemImageMappings = data;
+        window.itemImageMappings = data;
+      }
+    })
     .catch(() => {});
 
   function resolveJewelSprite() { return null; }
@@ -146,7 +151,13 @@
 
     // Runeword socketed runes banner
     if (item.isRuneword) {
-      const runes = (item.socketedRunes || []).join('');
+      let runes = (item.socketedRunes || []).join('');
+      if (!runes && Array.isArray(item.sockets) && item.sockets.length > 0) {
+        runes = item.sockets.map(s => {
+          const m = s.name?.match(/^(\w+)\s+Rune/i);
+          return m ? m[1] : (s.name || s.code);
+        }).join('');
+      }
       if (runes) {
         html += `<div class="d2r-tooltip-runes">'${escapeHtml(runes)}'</div>`;
       }
@@ -193,29 +204,45 @@
     }
 
     // Affixes & Modifiers (including runeword and socket stats)
-    const affixes = [...(item.stats || []), ...(item.runewordStats || []), ...(item.socketBonuses || [])];
-    if (affixes.length > 0) {
-      affixes.forEach(aff => {
+    // Affixes & Modifiers
+    const statsList = [...(item.stats || []), ...(item.runewordStats || [])];
+    if (statsList.length > 0) {
+      statsList.forEach(aff => {
         const desc = aff.description || '';
-        if (desc) {
-          const isSetBonus = desc.toLowerCase().includes('(set');
-          html += `<div class="d2r-tooltip-affix ${isSetBonus ? 'set-bonus' : ''}">${escapeHtml(desc)}</div>`;
-        }
+        if (desc) html += `<div class="d2r-tooltip-affix">${escapeHtml(desc)}</div>`;
       });
     }
 
-    // Sockets
-    const socketRaw = item.sockets !== undefined ? item.sockets : item.totalSockets;
-    if (socketRaw) {
-      const socketCount = Array.isArray(socketRaw) ? socketRaw.length : (typeof socketRaw === 'number' ? socketRaw : (parseInt(socketRaw, 10) || 0));
-      if (socketCount > 0) {
-        html += `<div class="d2r-tooltip-sockets">Socketed (${socketCount})</div>`;
+    if (item.socketBonuses && item.socketBonuses.length > 0) {
+      item.socketBonuses.forEach(desc => {
+        html += `<div class="d2r-tooltip-affix socket-bonus" style="color:#647eff;">${escapeHtml(desc)}</div>`;
+      });
+    }
+
+    for (let i = 1; i <= 5; i++) {
+      const sbKey = 'setBonus' + i;
+      if (item[sbKey] && item[sbKey].length > 0) {
+        item[sbKey].forEach(aff => {
+          const desc = aff.description || '';
+          if (desc) html += `<div class="d2r-tooltip-affix set-bonus" style="color:#00ff00;">${escapeHtml(desc)}</div>`;
+        });
       }
+    }
+
+    // Sockets
+    const socketCount = item.socketCount || item.totalSockets || 0;
+    if (socketCount > 0) {
+      html += `<div class="d2r-tooltip-sockets">Socketed (${socketCount})</div>`;
     }
 
     // Ethereal
     if (item.isEthereal) {
       html += `<div class="d2r-tooltip-ethereal">Ethereal (Cannot be Repaired)</div>`;
+    }
+
+    // Unidentified
+    if (item.isUnidentified) {
+      html += `<div class="d2r-tooltip-unidentified" style="color:var(--removed);">Unidentified</div>`;
     }
 
     // Perfection
@@ -424,6 +451,7 @@
         if (btn) btn.disabled = false;
         if (res && res.success) {
           window.closeEditStackModal();
+          window.recordEdit?.('stack quantity');
           if (window.showToast) window.showToast(`Updated ${res.code || code} stack quantity to ${qty}.`, 'success');
           if (typeof reloadArmoryData === 'function') await reloadArmoryData();
           if (window.loadSavesAndItems) await window.loadSavesAndItems();
@@ -442,7 +470,7 @@
     }
 
     // Server API mode
-    fetch('/api/stash/stack-quantity', {
+    window.coreFetch('/api/stash/stack-quantity', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -457,6 +485,7 @@
       if (btn) btn.disabled = false;
       if (res && (res.Success || res.success)) {
         window.closeEditStackModal();
+        window.recordEdit?.('stack quantity');
         if (window.showToast) window.showToast(`Updated ${code.toUpperCase()} stack count to ${qty}.`, 'success');
         // Refresh shared stash data and item list
         if (typeof reloadArmoryData === 'function') await reloadArmoryData();
@@ -590,6 +619,7 @@
     const y = item.invY !== undefined ? item.invY : 0;
 
     el.className = `d2r-item-element ${qClass} ${item.isEthereal ? 'is-ethereal' : ''}`;
+    el._d2Item = item;
     el.tabIndex = 0;
     el.setAttribute('role', 'button');
     el.setAttribute('aria-label', `Inspect ${item.displayName || item.name}`);
@@ -687,6 +717,18 @@
         for (let c = 0; c < inRow && sIdx < socketCount; c++) {
           const sNode = document.createElement('div');
           sNode.className = 'd2r-socket-node';
+          const socketItem = item.sockets && item.sockets[sIdx];
+          if (socketItem) {
+            sNode.classList.add('has-socketed-item');
+            const spriteFile = resolveSocketSprite(socketItem);
+            if (spriteFile) {
+              const gemImg = document.createElement('img');
+              gemImg.className = 'd2r-socket-gem';
+              gemImg.src = `assets/items/${spriteFile}`;
+              gemImg.alt = socketItem.name || socketItem.code || 'Socketed Item';
+              sNode.appendChild(gemImg);
+            }
+          }
           rowEl.appendChild(sNode);
           sIdx++;
         }
@@ -777,6 +819,9 @@
     // Populate Stash Tab Ribbon & Viewport
     updateStashTabRibbon();
     renderActiveStashViewport();
+    initD2RArmorySearch();
+    applyD2RArmorySearch();
+    initD2RArmoryScale();
 
     // Enable drag targets
     setupDragDropTargets();
@@ -1041,18 +1086,7 @@
               </div>
             </div>
 
-            <!-- Quick Equipment Breakdown List -->
-            <div class="d2r-merc-gear-summary">
-              <div class="d2r-merc-gear-summary-title">EQUIPPED GEAR (${mercCount} items)</div>
-              <div class="d2r-merc-gear-summary-items">
-                ${(charData.mercenary || []).map(it => `
-                  <div class="d2r-merc-gear-item-line" onclick="inspectD2RItemDetails(${it.id})" onmouseenter="if(window.showD2RItemTooltip) window.showD2RItemTooltip(${JSON.stringify(it).replace(/"/g, '&quot;')}, event)" onmouseleave="if(window.hideD2RItemTooltip) window.hideD2RItemTooltip()">
-                    <span style="color:${getItemQualityColor(it.quality, it.isRuneword)}; font-weight:600;">${escapeHtml(it.displayName || it.name)}</span>
-                    <span style="color:#d8b874; font-size:10px;">${it.perfectionNum != null ? `${it.perfectionNum}%` : ''} ${it.sockets ? `[${it.sockets.length}S]` : ''}</span>
-                  </div>
-                `).join('')}
-              </div>
-            </div>
+
           </div>
         ` : `
           <!-- Hero Attributes Summary -->
@@ -1221,8 +1255,8 @@
     const pStashItems = (d2rState.charData && d2rState.charData.stash) || [];
     const cubeItems = (d2rState.charData && d2rState.charData.cube) || [];
 
-    // Separate regular shared tabs (indices 0..4) from the stacked tab (idx 5)
-    const sharedTabs = tabsMeta.filter((t, idx) => idx !== 5);
+    // Regular shared tabs (indices 0..4 only)
+    const sharedTabs = tabsMeta.slice(0, 5);
     const stackTab = tabsMeta[5] || { name: 'Stackable', itemCount: 0, items: [] };
     const sharedTotalCount = sharedTabs.reduce((sum, t) => sum + (t.itemCount || 0), 0);
 
@@ -1275,20 +1309,42 @@
     }
 
     ribbon.innerHTML = html;
+    if (d2rState.searchQuery && typeof updateTabSearchHighlights === 'function') {
+      updateTabSearchHighlights(d2rState.searchQuery);
+    }
   }
 
   function resolveSlotSprite(code) {
     if (!code) return null;
     code = code.toLowerCase().trim();
-    if (itemImageMappings) {
-      if (itemImageMappings.hd_codes && itemImageMappings.hd_codes[code]) {
-        return itemImageMappings.hd_codes[code];
+    if (code === 'jew' || code.startsWith('jew')) {
+      return 'hd_jewel_1.png';
+    }
+    const mappings = itemImageMappings || window.itemImageMappings;
+    if (mappings) {
+      if (mappings.hd_codes && mappings.hd_codes[code]) {
+        return mappings.hd_codes[code];
       }
-      if (itemImageMappings.codes && itemImageMappings.codes[code]) {
-        return itemImageMappings.codes[code];
+      if (mappings.codes && mappings.codes[code]) {
+        return mappings.codes[code];
       }
     }
     return null;
+  }
+
+  function resolveSocketSprite(socketItem) {
+    if (!socketItem) return null;
+    const code = typeof socketItem === 'string' ? socketItem.toLowerCase().trim() : (socketItem.code || '').toLowerCase().trim();
+    if (!code) return null;
+    let file = resolveSlotSprite(code);
+    if (!file && window.BKItemArt) {
+      const mappings = itemImageMappings || window.itemImageMappings;
+      if (mappings) {
+        const res = window.BKItemArt.resolve({ itemCode: code, quality: 'Normal' }, mappings);
+        if (res?.file) file = res.file;
+      }
+    }
+    return file;
   }
 
   function renderActiveStashViewport() {
@@ -1319,6 +1375,7 @@
       `;
       populateGridWithItems(document.getElementById('d2r-stash-grid'), pStashItems, 'personal');
       setupDragDropTargets();
+    if (window.applyD2RArmorySearch) window.applyD2RArmorySearch();
       return;
     }
 
@@ -1356,6 +1413,7 @@
 
     populateGridWithItems(document.getElementById('d2r-stash-grid'), activeTab.items || [], 'shared');
     setupDragDropTargets();
+    if (window.applyD2RArmorySearch) window.applyD2RArmorySearch();
   }
 
   function renderStackableViewport(container, activeTab) {
@@ -1395,11 +1453,7 @@
           const itEncoded = encodeURIComponent(JSON.stringify(primaryItem));
           slotsHtml += `
             <div class="d2r-mod-slot has-item" style="left: ${sx}px; top: ${sy}px; width: ${sw}px; height: ${sh}px;" data-code="${code}" data-name="${escapeHtml(friendlyName)}" data-qty="${totalQty}" data-tab="5" data-item="${itEncoded}" data-item-id="${primaryItem.id || ''}" title="${escapeHtml(friendlyName)} (Count: ${totalQty} - Click to Edit Stack)">
-              <div style="position: absolute; bottom: 2px; right: 2px; display: flex; gap: 4px; z-index: 10;">
-                <button class="d2r-mod-slot-quick-btn" title="-5" data-delta="-5" style="background: rgba(0,0,0,0.8); color: #ff5555; border: 1px solid #ff5555; padding: 1px 4px; font-size: 10px; cursor: pointer; border-radius: 2px;">-5</button>
-                <button class="d2r-mod-slot-edit-btn" title="Edit Stack Count" style="position: static; padding: 1px 4px; border-radius: 2px;">✏️</button>
-                <button class="d2r-mod-slot-quick-btn" title="+5" data-delta="5" style="background: rgba(0,0,0,0.8); color: #55ff55; border: 1px solid #55ff55; padding: 1px 4px; font-size: 10px; cursor: pointer; border-radius: 2px;">+5</button>
-              </div>
+              <button class="d2r-mod-slot-edit-btn" title="Edit Stack Count">✏️</button>
             </div>
           `;
         } else {
@@ -1419,12 +1473,6 @@
           ${slotsHtml}
         </div>
       `;
-    } else if (currentMode === 'categorized') {
-      bodyHtml = renderCategorizedMaterialsHtml(items);
-    } else {
-      bodyHtml = `
-        <div class="d2r-stash-grid-viewport d2r-stacked-grid-flow" id="d2r-stash-grid" style="width: 492px; min-height: 440px;"></div>
-      `;
     }
 
     container.innerHTML = `
@@ -1432,19 +1480,8 @@
         <div class="d2r-stacked-header-bar">
           <div class="d2r-stacked-info">
             <span class="d2r-stacked-pill">STACKABLE</span>
-            <span class="d2r-stacked-tab-name">Advanced Stash</span>
+            <span class="d2r-stacked-tab-name">Advanced Stash (Mod Layout)</span>
             <span class="d2r-stacked-count-pill">${items.length} items</span>
-          </div>
-          <div class="d2r-stacked-toggles">
-            <button class="d2r-stacked-mode-btn ${currentMode === 'mod_layout' ? 'active' : ''}" onclick="window.setD2RStackedViewMode('mod_layout')">
-              🏛️ Mod Layout
-            </button>
-            <button class="d2r-stacked-mode-btn ${currentMode === 'categorized' ? 'active' : ''}" onclick="window.setD2RStackedViewMode('categorized')">
-              🗂️ Categorized
-            </button>
-            <button class="d2r-stacked-mode-btn ${currentMode === 'grid' ? 'active' : ''}" onclick="window.setD2RStackedViewMode('grid')">
-              🔲 Grid
-            </button>
           </div>
         </div>
 
@@ -1529,6 +1566,7 @@
     }
 
     setupDragDropTargets();
+    if (window.applyD2RArmorySearch) window.applyD2RArmorySearch();
   }
 
   function renderCraftingViewport(container, activeTab) {
@@ -1594,11 +1632,7 @@
           const itEncoded = encodeURIComponent(JSON.stringify(primaryItem));
           slotsHtml += `
             <div class="d2r-mod-slot has-item" style="left: ${sx}px; top: ${sy}px; width: ${sw}px; height: ${sh}px;" data-code="${code}" data-name="${escapeHtml(friendlyName)}" data-qty="${totalQty}" data-tab="5" data-item="${itEncoded}" data-item-id="${primaryItem.id || ''}" title="${escapeHtml(friendlyName)} (Count: ${totalQty} - Click to Edit Stack)">
-              <div style="position: absolute; bottom: 2px; right: 2px; display: flex; gap: 4px; z-index: 10;">
-                <button class="d2r-mod-slot-quick-btn" title="-5" data-delta="-5" style="background: rgba(0,0,0,0.8); color: #ff5555; border: 1px solid #ff5555; padding: 1px 4px; font-size: 10px; cursor: pointer; border-radius: 2px;">-5</button>
-                <button class="d2r-mod-slot-edit-btn" title="Edit Stack Count" style="position: static; padding: 1px 4px; border-radius: 2px;">✏️</button>
-                <button class="d2r-mod-slot-quick-btn" title="+5" data-delta="5" style="background: rgba(0,0,0,0.8); color: #55ff55; border: 1px solid #55ff55; padding: 1px 4px; font-size: 10px; cursor: pointer; border-radius: 2px;">+5</button>
-              </div>
+              <button class="d2r-mod-slot-edit-btn" title="Edit Stack Count">✏️</button>
             </div>
           `;
         } else {
@@ -1625,17 +1659,6 @@
           ${slotsHtml}
         </div>
       `;
-    } else if (currentMode === 'cube') {
-      bodyHtml = `
-        <div class="d2r-cube-container" style="width: 100%; min-height: 440px; height: 440px;">
-          <div class="d2r-cube-grid-viewport" id="d2r-cube-grid" style="width: 192px; height: 192px;"></div>
-          <div style="font-size: 11px; color: var(--d2-color-text-dim); margin-top: 10px;">
-            Horadric Cube: ${cubeItems.length} items loaded.
-          </div>
-        </div>
-      `;
-    } else {
-      bodyHtml = renderCategorizedMaterialsHtml(items);
     }
 
     container.innerHTML = `
@@ -1643,19 +1666,8 @@
         <div class="d2r-stacked-header-bar">
           <div class="d2r-stacked-info">
             <span class="d2r-stacked-pill">CRAFTING</span>
-            <span class="d2r-stacked-tab-name">Horadric Forge</span>
+            <span class="d2r-stacked-tab-name">Horadric Forge (Mod Layout)</span>
             <span class="d2r-stacked-count-pill">${cubeItems.length} in Cube</span>
-          </div>
-          <div class="d2r-stacked-toggles">
-            <button class="d2r-stacked-mode-btn ${currentMode === 'mod_layout' ? 'active' : ''}" onclick="window.setD2RStackedViewMode('mod_layout')">
-              🏛️ Mod Layout
-            </button>
-            <button class="d2r-stacked-mode-btn ${currentMode === 'cube' ? 'active' : ''}" onclick="window.setD2RStackedViewMode('cube')">
-              🔮 Cube Focus
-            </button>
-            <button class="d2r-stacked-mode-btn ${currentMode === 'categorized' ? 'active' : ''}" onclick="window.setD2RStackedViewMode('categorized')">
-              🗂️ Categorized
-            </button>
           </div>
         </div>
 
@@ -1733,6 +1745,7 @@
     }
 
     setupDragDropTargets();
+    if (window.applyD2RArmorySearch) window.applyD2RArmorySearch();
   }
 
   function renderCategorizedMaterialsHtml(items) {
@@ -1872,19 +1885,25 @@
   // -------------------------------------------------------------------------
   window.switchD2RStashTab = function (tabKey) {
     d2rState.activeStashTab = tabKey;
+        // Populate Stash Tab Ribbon & Viewport
     updateStashTabRibbon();
     renderActiveStashViewport();
+    initD2RArmorySearch();
+    applyD2RArmorySearch();
   };
 
   window.switchD2RSharedSubTab = function (idx) {
     d2rState.activeStashTab = `shared_${idx}`;
+        // Populate Stash Tab Ribbon & Viewport
     updateStashTabRibbon();
     renderActiveStashViewport();
+    initD2RArmorySearch();
+    applyD2RArmorySearch();
   };
 
   window.switchD2RSharedRelative = function (delta) {
     const tabsMeta = (d2rState.stashData && d2rState.stashData.tabs) || [];
-    const sharedTabs = tabsMeta.filter((t, idx) => idx !== 5);
+    const sharedTabs = tabsMeta.slice(0, 5);
     if (sharedTabs.length === 0) return;
 
     let currentIdx = 0;
@@ -2039,7 +2058,8 @@
         if (!d2rState.draggedItem) return;
 
         const it = d2rState.draggedItem;
-        window.quickTransferD2RItem(it.id, target.type, target.tab, target.type === 'stash' && isStackedTab ? null : dropCell(e, target.el));
+        const cell = target.type === 'stash' && isStackedTab ? null : dropCell(e, target.el);
+        window.quickTransferD2RItem(it.id, target.type, target.tab, cell);
       });
     });
   }
@@ -2048,41 +2068,43 @@
   // Atomic Item Transfer Executor
   // -------------------------------------------------------------------------
   window.quickTransferD2RItem = async function (itemId, targetContainer, targetTab, cell = null) {
+    if (!window.EditWorkspace?.active) { window.showToast('Turn on Edit mode to move items.', 'info'); return; }
+    if (window.EditWorkspace.busy) return;
+    window.EditWorkspace.busy = true;
     window.closeD2RActionMenu();
     window.hideD2RItemTooltip();
 
     const charName = d2rState.activeCharName;
     if (!charName) {
+      window.EditWorkspace.busy = false;
       if (window.showToast) window.showToast('Please select a character first', 'error');
       return;
     }
 
     try {
       const selected = (window.state?.allWasmItems || window.state?.items || []).find(item => String(item.id) === String(itemId))
+        || ['inventory', 'stash', 'cube'].flatMap(key => d2rState.charData?.[key] || []).find(item => String(item.id) === String(itemId))
         || (d2rState.stashData?.tabs || []).flatMap(tab => tab.items || []).find(item => String(item.id) === String(itemId));
-      const targetSave = (window.state?.saves || []).find(save => targetContainer === 'stash' ? save.file === d2rState.stashData?.save?.file : save.name === charName);
+      const targetSave = (window.state?.saves || []).find(save => targetContainer === 'stash' ? save.file === d2rState.stashData?.save?.file : save.name === charName && !save.is_stash);
       if (!selected || !targetSave) throw new Error('The exact source or destination save is unavailable. Reload and select a matching stash.');
       const payload = {
-        source_revision: selected?.saveRevision,
-        target_revision: targetSave?.saveRevision,
-        source_file: selected?.sourceFile,
-        seed: selected?.itemSeed,
-        code: selected?.itemCode,
-        item_id: itemId,
-        source_container: selected?.isStash ? 'SharedStash' : selected?.location,
-        source_tab: selected?.tabIndex ?? 0,
-        source_x: selected?.invX,
-        source_y: selected?.invY,
-        target_x: cell?.x,
-        target_y: cell?.y,
-        target_character: charName,
-        target_file: targetContainer === 'stash' ? d2rState.stashData?.save?.file : undefined,
-        target_container: targetContainer === 'stash' ? 'SharedStash' : (targetContainer === 'personal_stash' ? 'Stash' : targetContainer),
-        target_tab: targetTab !== undefined ? targetTab : 0,
-        force_live: false
+        SourceRevision: selected?.saveRevision,
+        TargetRevision: targetSave?.saveRevision,
+        SourceFile: selected?.sourceFile,
+        ItemSeed: selected?.itemSeed,
+        ItemCode: selected?.itemCode,
+        SourceContainer: selected?.isStash ? 'SharedStash' : selected?.location,
+        SourceTab: selected?.tabIndex ?? 0,
+        SourceX: selected?.invX,
+        SourceY: selected?.invY,
+        TargetX: cell?.x,
+        TargetY: cell?.y,
+        TargetFile: targetSave.file,
+        TargetContainer: targetContainer === 'stash' ? 'SharedStash' : (targetContainer === 'personal_stash' ? 'Stash' : targetContainer),
+        TargetTab: targetTab !== undefined ? targetTab : 0,
+        ForceLive: true
       };
 
-      if (window.showToast) window.showToast('Executing transfer...', 'info');
 
       if (window.state && window.state.isWasmMode && window.D2Wasm) {
         // In-memory WASM transfer
@@ -2091,32 +2113,16 @@
         if (!it) throw new Error('Item not found in memory');
         const isTargetStash = targetContainer === 'stash';
         const stashSave = d2rState.stashData?.save;
-        const req = {
-          source_file: it.sourceFile,
-          source_container: it.isStash ? 'SharedStash' : it.location,
-          source_tab: it.tabIndex || 0,
-          source_x: it.invX,
-          source_y: it.invY,
-          item_code: it.itemCode,
-          item_seed: it.itemSeed,
-          target_file: isTargetStash ? (stashSave ? stashSave.file : 'ModernSharedStashSoftCoreV2.d2i') : (window.state.saves.find(save => !save.is_stash && save.name === charName)?.file || `${charName}.d2s`),
-          target_container: isTargetStash ? 'SharedStash' : (targetContainer === 'personal_stash' ? 'Stash' : (targetContainer === 'cube' ? 'Cube' : 'Inventory')),
-          target_tab: targetTab !== undefined ? targetTab : 0,
-          source_revision: selected?.saveRevision,
-          target_revision: targetSave?.saveRevision,
-          target_x: cell?.x,
-          target_y: cell?.y,
-          force_live: false
-        };
-        const result = await window.D2Wasm.transferItem(req);
+        const result = await window.D2Wasm.transferItem(payload);
         if (!result.success) throw new Error(result.message);
-        if (window.showToast) window.showToast(`Transferred ${it.displayName || 'item'}! File downloaded.`, 'success');
+        window.EditWorkspace.changed();
+        window.recordEdit?.('item transfer');
         if (window.refreshWasmDataset) await window.refreshWasmDataset();
         await reloadArmoryData();
         return;
       }
 
-      const res = await fetch('/api/item/transfer', {
+      const res = await window.coreFetch('/api/item/transfer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -2127,9 +2133,8 @@
         throw new Error(data.Message || data.message || data.error || 'Transfer failed');
       }
 
-      if (window.showToast) {
-        window.showToast(`Transferred ${data.item_name || 'item'} to ${data.target_container}!`, 'success');
-      }
+      window.EditWorkspace.changed();
+      await window.loadSavesAndItems();
 
       // Live reload armory data
       await reloadArmoryData();
@@ -2138,6 +2143,8 @@
       if (window.showToast) {
         window.showToast('Transfer Error: ' + err.message, 'error');
       }
+    } finally {
+      window.EditWorkspace.busy = false;
     }
   };
 
@@ -2154,11 +2161,11 @@
 
     try {
       const promises = [
-        fetch(`/api/shared-stash?character=${encodeURIComponent(d2rState.activeCharName || '')}`),
-        fetch('/api/container-dimensions')
+        window.coreFetch(`/api/shared-stash?character=${encodeURIComponent(d2rState.activeCharName || '')}`),
+        window.coreFetch('/api/container-dimensions')
       ];
       if (d2rState.activeCharName) {
-        promises.push(fetch(`/api/character/${encodeURIComponent(d2rState.activeCharName)}`));
+        promises.push(window.coreFetch(`/api/character/${encodeURIComponent(d2rState.activeCharName)}`));
       }
       const results = await Promise.all(promises);
       const stashRes = results[0];
@@ -2195,5 +2202,297 @@
   window.toggleD2RMercModal = function() {
     window.switchRightPanelTab(d2rState.rightPanelView === 'mercenary' ? 'hero' : 'mercenary');
   };
+
+
+  // -------------------------------------------------------------------------
+  // In-Game Armory & Stash Real-Time Search & Sheen Dimming
+  // -------------------------------------------------------------------------
+  function itemMatchesSearch(it, query) {
+    if (!query) return true;
+    if (!it) return false;
+    const q = query.trim().toLowerCase();
+    if ((it.displayName || '').toLowerCase().includes(q)) return true;
+    if ((it.name || '').toLowerCase().includes(q)) return true;
+    if ((it.baseName || '').toLowerCase().includes(q)) return true;
+    if ((it.type || '').toLowerCase().includes(q)) return true;
+    if ((it.quality || '').toLowerCase().includes(q)) return true;
+    if (Array.isArray(it.flags) && it.flags.some(f => String(f).toLowerCase().includes(q))) return true;
+    if (Array.isArray(it.stats) && it.stats.some(s => (s.description || s.id || '').toLowerCase().includes(q))) return true;
+    if (Array.isArray(it.runewordStats) && it.runewordStats.some(s => (s.description || s.id || '').toLowerCase().includes(q))) return true;
+    if (Array.isArray(it.socketBonuses) && it.socketBonuses.some(s => String(s).toLowerCase().includes(q))) return true;
+    if (Array.isArray(it.sockets) && it.sockets.some(s => (s.name || s.code || '').toLowerCase().includes(q))) return true;
+    return false;
+  }
+
+  function applyD2RArmorySearch() {
+    const query = (d2rState.searchQuery || '').trim().toLowerCase();
+    const clearBtn = document.getElementById('d2r-armory-search-clear');
+    const badge = document.getElementById('d2r-armory-search-matches');
+
+    if (clearBtn) clearBtn.style.display = query ? 'block' : 'none';
+
+    const itemEls = document.querySelectorAll('.d2r-item-element');
+    const modSlots = document.querySelectorAll('.d2r-mod-slot.has-item');
+
+    if (!query) {
+      if (badge) badge.style.display = 'none';
+      itemEls.forEach(el => {
+        el.classList.remove('d2r-item-dimmed', 'd2r-item-matched');
+      });
+      modSlots.forEach(slot => {
+        slot.classList.remove('d2r-item-dimmed', 'd2r-item-matched');
+      });
+      return;
+    }
+
+    let matchCount = 0;
+
+    itemEls.forEach(el => {
+      if (el.closest('.d2r-mod-slot')) return;
+      const it = el._d2Item;
+      if (itemMatchesSearch(it, query)) {
+        el.classList.add('d2r-item-matched');
+        el.classList.remove('d2r-item-dimmed');
+        matchCount++;
+      } else {
+        el.classList.add('d2r-item-dimmed');
+        el.classList.remove('d2r-item-matched');
+      }
+    });
+
+    modSlots.forEach(slot => {
+      let it = null;
+      const json = slot.getAttribute('data-item');
+      if (json) {
+        try { it = JSON.parse(decodeURIComponent(json)); } catch (e) {}
+      }
+      const innerItemEl = slot.querySelector('.d2r-item-element');
+      if (itemMatchesSearch(it, query)) {
+        slot.classList.add('d2r-item-matched');
+        slot.classList.remove('d2r-item-dimmed');
+        if (innerItemEl) {
+          innerItemEl.classList.add('d2r-item-matched');
+          innerItemEl.classList.remove('d2r-item-dimmed');
+        }
+        matchCount++;
+      } else {
+        slot.classList.add('d2r-item-dimmed');
+        slot.classList.remove('d2r-item-matched');
+        if (innerItemEl) {
+          innerItemEl.classList.add('d2r-item-dimmed');
+          innerItemEl.classList.remove('d2r-item-matched');
+        }
+      }
+    });
+
+    if (badge) {
+      badge.textContent = `${matchCount} found`;
+      badge.style.display = 'inline-block';
+    }
+
+    updateTabSearchHighlights(query);
+  }
+  window.applyD2RArmorySearch = applyD2RArmorySearch;
+
+  function updateTabSearchHighlights(query) {
+    const allTabBtns = document.querySelectorAll('.d2r-main-tabs-row .d2r-tab-btn, .d2r-shared-subtabs-row .d2r-subtab-btn, .d2r-panel-nav-tab, .d2r-merc-toggle-btn');
+    if (!query) {
+      allTabBtns.forEach(btn => btn.classList.remove('d2r-tab-has-matches'));
+      return;
+    }
+
+    // 1. Personal Stash
+    const pStashItems = (d2rState.charData && d2rState.charData.stash) || [];
+    const personalMatches = pStashItems.some(it => it && itemMatchesSearch(it, query));
+
+    // 2. Shared Tabs 0..4
+    const stashTabs = (d2rState.stashData && d2rState.stashData.tabs) || [];
+    const sharedSubMatches = [0, 1, 2, 3, 4].map(idx => {
+      const tab = stashTabs[idx];
+      return !!(tab && (tab.items || []).some(it => it && itemMatchesSearch(it, query)));
+    });
+    const anySharedMatch = sharedSubMatches.some(Boolean);
+
+    // 3. Crafting Tab (Cube items + tab 5 crafting items)
+    const cubeItems = (d2rState.charData && d2rState.charData.cube) || [];
+    const tab5Items = (stashTabs[5] && stashTabs[5].items) || [];
+    const craftingMatches = cubeItems.some(it => it && itemMatchesSearch(it, query)) || tab5Items.some(it => it && it.isCrafting && itemMatchesSearch(it, query));
+
+    // 4. Stackable Tab (tab 5)
+    const stackMatches = tab5Items.some(it => it && itemMatchesSearch(it, query));
+
+    // 5. Hero Gear / Inventory / Mercenary
+    const rawEquipped = (d2rState.charData && d2rState.charData.equipped) || {};
+    const equippedItems = Array.isArray(rawEquipped) ? rawEquipped : Object.values(rawEquipped);
+    const gearMatches = equippedItems.some(it => it && itemMatchesSearch(it, query));
+    const invItems = (d2rState.charData && (d2rState.charData.inventory || []).concat(d2rState.charData.belt || [])) || [];
+    const invMatches = invItems.some(it => it && itemMatchesSearch(it, query));
+    const heroMatches = gearMatches || invMatches;
+
+    const rawMerc = (d2rState.charData && d2rState.charData.mercenary) || [];
+    const mercItems = Array.isArray(rawMerc) ? rawMerc : Object.values(rawMerc);
+    const mercMatches = mercItems.some(it => it && itemMatchesSearch(it, query));
+
+    // Apply classes to Main Stash Tabs
+    const mainTabBtns = document.querySelectorAll('.d2r-main-tabs-row .d2r-tab-btn');
+    mainTabBtns.forEach(btn => {
+      const text = btn.textContent.toLowerCase();
+      if (text.includes('personal')) {
+        btn.classList.toggle('d2r-tab-has-matches', personalMatches);
+      } else if (text.includes('shared')) {
+        btn.classList.toggle('d2r-tab-has-matches', anySharedMatch);
+      } else if (text.includes('crafting')) {
+        btn.classList.toggle('d2r-tab-has-matches', craftingMatches);
+      } else if (text.includes('stackable')) {
+        btn.classList.toggle('d2r-tab-has-matches', stackMatches);
+      }
+    });
+
+    // Apply to Shared Sub-tab buttons
+    const subTabBtns = document.querySelectorAll('.d2r-shared-subtabs-row .d2r-subtab-btn');
+    subTabBtns.forEach((btn, idx) => {
+      if (idx < sharedSubMatches.length) {
+        btn.classList.toggle('d2r-tab-has-matches', sharedSubMatches[idx]);
+      }
+    });
+
+    // Apply to Right Panel Nav Tabs (Hero Inventory vs Mercenary)
+    const panelNavTabs = document.querySelectorAll('.d2r-panel-nav-tab');
+    panelNavTabs.forEach(btn => {
+      const text = btn.textContent.toLowerCase();
+      if (text.includes('hero') || text.includes('inventory')) {
+        btn.classList.toggle('d2r-tab-has-matches', heroMatches);
+      } else if (text.includes('merc')) {
+        btn.classList.toggle('d2r-tab-has-matches', mercMatches);
+      }
+    });
+
+    // Apply to Merc toggle button
+    const mercToggleBtn = document.querySelector('.d2r-merc-toggle-btn');
+    if (mercToggleBtn) {
+      const text = mercToggleBtn.textContent.toLowerCase();
+      if (text.includes('hero')) {
+        mercToggleBtn.classList.toggle('d2r-tab-has-matches', heroMatches);
+      } else {
+        mercToggleBtn.classList.toggle('d2r-tab-has-matches', mercMatches);
+      }
+    }
+  }
+
+  function initD2RArmorySearch() {
+    const input = document.getElementById('d2r-armory-search');
+    const clearBtn = document.getElementById('d2r-armory-search-clear');
+    if (input && !input._hasD2RSearchListener) {
+      input._hasD2RSearchListener = true;
+      input.addEventListener('input', (e) => {
+        d2rState.searchQuery = e.target.value;
+        applyD2RArmorySearch();
+      });
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          input.value = '';
+          d2rState.searchQuery = '';
+          applyD2RArmorySearch();
+        }
+      });
+    }
+    if (clearBtn && !clearBtn._hasD2RSearchListener) {
+      clearBtn._hasD2RSearchListener = true;
+      clearBtn.addEventListener('click', () => {
+        if (input) input.value = '';
+        d2rState.searchQuery = '';
+        applyD2RArmorySearch();
+        if (input) input.focus();
+      });
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Responsive Scale & Zoom Management (100% Default with Cookie Persistence)
+  // -------------------------------------------------------------------------
+  const D2R_ZOOM_LEVELS = {
+    '100': { zoom: '1.0', maxWidth: '1040px' },
+    '120': { zoom: '1.20', maxWidth: '1260px' },
+    '135': { zoom: '1.35', maxWidth: '1450px' },
+    '150': { zoom: '1.50', maxWidth: '1650px' }
+  };
+
+  function getScalePreference() {
+    // 1. Check cookie first
+    const match = document.cookie.match(/(?:^|;\s*)d2r_armory_scale=([^;]+)/);
+    if (match && match[1]) {
+      return decodeURIComponent(match[1]);
+    }
+    // 2. Fall back to localStorage
+    try {
+      const stored = localStorage.getItem('d2r_armory_scale');
+      if (stored) return stored;
+    } catch (e) {}
+    // 3. Default to 100% (user preference: 100% default)
+    return '100';
+  }
+
+  function setScalePreference(scaleKey) {
+    document.cookie = `d2r_armory_scale=${encodeURIComponent(scaleKey)}; path=/; max-age=31536000; SameSite=Lax`;
+    try {
+      localStorage.setItem('d2r_armory_scale', scaleKey);
+    } catch (e) {}
+  }
+
+  window.setD2RArmoryScale = function (scaleKey) {
+    setScalePreference(scaleKey);
+    applyD2RArmoryScale(scaleKey);
+  };
+
+  function applyD2RArmoryScale(scaleKey) {
+    const armoryView = document.getElementById('armory-view');
+    const pc = document.querySelector('.d2r-panels-container');
+    const tb = document.querySelector('.d2r-armory-toolbar');
+    const buttons = document.querySelectorAll('.d2r-zoom-btn');
+
+    buttons.forEach(btn => {
+      if (btn.getAttribute('data-scale') === scaleKey) {
+        btn.classList.add('active');
+      } else {
+        btn.classList.remove('active');
+      }
+    });
+
+    if (!armoryView) return;
+
+    if (scaleKey === 'auto' || !D2R_ZOOM_LEVELS[scaleKey]) {
+      armoryView.style.removeProperty('--d2r-armory-max-width');
+      if (pc) {
+        pc.removeAttribute('data-scale-override');
+        pc.style.zoom = '';
+      }
+      if (tb) {
+        tb.style.maxWidth = '';
+      }
+    } else {
+      const cfg = D2R_ZOOM_LEVELS[scaleKey];
+      armoryView.style.setProperty('--d2r-armory-max-width', cfg.maxWidth);
+      if (pc) {
+        pc.setAttribute('data-scale-override', scaleKey);
+        pc.style.zoom = cfg.zoom;
+      }
+      if (tb) {
+        tb.style.maxWidth = cfg.maxWidth;
+      }
+    }
+  }
+  window.applyD2RArmoryScale = applyD2RArmoryScale;
+
+  function initD2RArmoryScale() {
+    const saved = getScalePreference();
+    applyD2RArmoryScale(saved);
+  }
+  window.initD2RArmoryScale = initD2RArmoryScale;
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initD2RArmoryScale);
+  } else {
+    initD2RArmoryScale();
+  }
 
 })();

@@ -27,6 +27,28 @@
   --d2-color-red-warn: #ff4757;
   --d2-color-text-dim: #888277;
 }
+/* Responsive Layout Breakpoint Variables for Armory */
+#armory-view {
+  --d2r-armory-max-width: 1040px;
+}
+
+@media (min-width: 1360px) {
+  #armory-view {
+    --d2r-armory-max-width: 1220px;
+  }
+}
+
+@media (min-width: 1600px) {
+  #armory-view {
+    --d2r-armory-max-width: 1420px;
+  }
+}
+
+@media (min-width: 2100px) {
+  #armory-view {
+    --d2r-armory-max-width: 1650px;
+  }
+}
 
 /* --------------------------------------------------------------------------
    Top Armory Toolbar & Controls
@@ -36,26 +58,81 @@
   justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
-  gap: 16px;
+  gap: 12px;
   background: linear-gradient(180deg, rgba(26, 23, 19, 0.95) 0%, rgba(16, 14, 11, 0.95) 100%);
   border: 1px solid var(--d2-color-dark-gold);
   border-radius: 6px;
-  padding: 12px 20px;
-  margin-bottom: 20px;
+  padding: 10px 16px;
+  max-width: var(--d2r-armory-max-width, 1040px);
+  margin: 0 auto 20px auto;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.7);
+  transition: max-width 0.2s ease-out;
 }
 
 .d2r-toolbar-left {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
 .d2r-toolbar-right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Armory Scale / Zoom Control */
+.d2r-zoom-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.d2r-zoom-label {
+  font-family: var(--d2-font-title);
+  color: var(--d2-color-gold);
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.d2r-zoom-btn-group {
+  display: inline-flex;
+  border: 1px solid var(--d2-color-dark-gold);
+  border-radius: 4px;
+  overflow: hidden;
+  background: #14110d;
+}
+
+.d2r-zoom-btn {
+  background: #181512;
+  color: #9c9281;
+  border: none;
+  border-right: 1px solid rgba(141, 117, 67, 0.35);
+  padding: 3px 6px;
+  font-family: var(--d2-font-title);
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.d2r-zoom-btn:last-child {
+  border-right: none;
+}
+
+.d2r-zoom-btn:hover {
+  color: #f0dec0;
+  background: #2a2218;
+}
+
+.d2r-zoom-btn.active {
+  background: linear-gradient(180deg, #3d321d 0%, #201a0e 100%);
+  color: #ffd875;
+  box-shadow: inset 0 0 6px rgba(199, 179, 119, 0.4);
 }
 
 .d2r-char-select-wrap {
@@ -104,9 +181,29 @@
   gap: 20px;
   flex-wrap: nowrap;
   width: 100%;
-  max-width: 1040px;
+  max-width: var(--d2r-armory-max-width, 1040px);
   margin: 0 auto;
   padding: 10px 0 30px;
+  transition: zoom 0.2s ease-out, max-width 0.2s ease-out;
+}
+
+/* Adaptive Auto-Scaling for Desktop Screens */
+@media (min-width: 1360px) {
+  .d2r-panels-container:not([data-scale-override]) {
+    zoom: 1.15;
+  }
+}
+
+@media (min-width: 1600px) {
+  .d2r-panels-container:not([data-scale-override]) {
+    zoom: 1.30;
+  }
+}
+
+@media (min-width: 2100px) {
+  .d2r-panels-container:not([data-scale-override]) {
+    zoom: 1.45;
+  }
 }
 
 /* Base In-Game Panel Frame */
@@ -240,23 +337,29 @@
 .d2r-shared-subtabs-row {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 4px;
+  justify-content: space-between;
+  gap: 3px;
   background: rgba(18, 14, 11, 0.95);
   padding: 4px 6px;
   border-radius: 4px;
   border: 1px solid #443725;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .d2r-subtab-arrow {
+  flex-shrink: 0;
   background: #221a13;
   color: #c7b377;
   border: 1px solid #5a472a;
   border-radius: 3px;
-  padding: 3px 8px;
-  font-size: 11px;
+  padding: 2px 5px;
+  font-size: 10px;
   cursor: pointer;
   line-height: 1;
+  transition: all 0.15s ease;
 }
 .d2r-subtab-arrow:hover {
   background: #382c1b;
@@ -265,20 +368,30 @@
 
 .d2r-subtab-pages {
   display: flex;
-  gap: 4px;
+  gap: 2px;
   flex: 1;
+  min-width: 0;
   justify-content: center;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding: 1px 0;
+}
+.d2r-subtab-pages::-webkit-scrollbar {
+  display: none;
 }
 
 .d2r-subtab-btn {
+  flex-shrink: 0;
   background: #191410;
   color: #9c9281;
   border: 1px solid #3d3020;
   border-radius: 3px;
-  padding: 3px 8px;
-  font-size: 11px;
+  padding: 2px 5px;
+  font-size: 10px;
   cursor: pointer;
   white-space: nowrap;
+  transition: all 0.12s ease;
 }
 .d2r-subtab-btn:hover {
   background: #2a2219;
@@ -488,7 +601,7 @@
 
 /* Exact Slot Coordinates matching D2R hd-invchar-noinv */
 .d2r-paperdoll-slot.slot-head   { top: 12px;  left: 128px; width: 64px; height: 64px; }
-.d2r-paperdoll-slot.slot-neck   { top: 48px;  left: 216px; width: 32px; height: 32px; }
+.d2r-paperdoll-slot.slot-neck   { top: 61px;  left: 201px; width: 32px; height: 32px; }
 .d2r-paperdoll-slot.slot-torso  { top: 83px;  left: 128px; width: 64px; height: 96px; }
 .d2r-paperdoll-slot.slot-rhand  { top: 24px;  left: 16px;  width: 64px; height: 128px; }
 .d2r-paperdoll-slot.slot-lhand  { top: 24px;  left: 240px; width: 64px; height: 128px; }
@@ -719,11 +832,23 @@
 }
 
 .d2r-socket-node {
-  width: 14px;
-  height: 14px;
+  width: 22px;
+  height: 22px;
   background: url('assets/gemsocket.png') no-repeat center center;
   background-size: contain;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.9));
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.95));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.d2r-socket-gem {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.95));
 }
 
 /* --------------------------------------------------------------------------
@@ -1586,6 +1711,120 @@
 .d2r-merc-gear-item-line:hover {
   background: rgba(255, 255, 255, 0.06);
 }
+
+/* --------------------------------------------------------------------------
+   ARMORY & STASH REAL-TIME ITEM & AFFIX SEARCH
+   -------------------------------------------------------------------------- */
+.d2r-search-box-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-left: 12px;
+}
+
+.d2r-search-icon {
+  position: absolute;
+  left: 8px;
+  font-size: 11px;
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+.d2r-search-input {
+  background: #0d0b08;
+  border: 1px solid #4a3c26;
+  border-radius: 3px;
+  color: #f3e5c8;
+  font-family: var(--d2-font-text);
+  font-size: 12px;
+  padding: 4px 44px 4px 26px;
+  width: 175px;
+  transition: border-color 0.15s, box-shadow 0.15s, width 0.2s;
+}
+
+.d2r-search-input:focus {
+  outline: none;
+  border-color: var(--d2-color-gold);
+  box-shadow: 0 0 8px rgba(199, 179, 119, 0.35);
+  width: 230px;
+}
+
+.d2r-search-clear-btn {
+  position: absolute;
+  right: 6px;
+  background: transparent;
+  border: none;
+  color: #887b68;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 4px;
+}
+
+.d2r-search-clear-btn:hover {
+  color: #ff5555;
+}
+
+.d2r-search-matches-badge {
+  position: absolute;
+  right: 24px;
+  font-size: 10px;
+  color: var(--d2-color-gold);
+  background: rgba(26, 21, 15, 0.9);
+  padding: 1px 4px;
+  border-radius: 2px;
+  border: 1px solid #4a3c26;
+}
+
+/* Disabled Sheen on Non-Matching Items - clearly visible dark silhouette */
+.d2r-item-element.d2r-item-dimmed,
+.d2r-mod-slot.has-item.d2r-item-dimmed .d2r-item-element {
+  opacity: 0.38 !important;
+  filter: grayscale(100%) contrast(85%) brightness(55%) !important;
+  transition: opacity 0.15s ease, filter 0.15s ease;
+}
+
+.d2r-mod-slot.has-item.d2r-item-dimmed {
+  opacity: 0.45 !important;
+  filter: grayscale(90%) brightness(60%) !important;
+}
+
+/* Matching Items Highlight */
+.d2r-item-element.d2r-item-matched,
+.d2r-mod-slot.has-item.d2r-item-matched .d2r-item-element {
+  opacity: 1 !important;
+  filter: drop-shadow(0 0 6px rgba(255, 215, 0, 0.85)) brightness(110%) !important;
+  z-index: 8 !important;
+  transition: opacity 0.15s ease, filter 0.15s ease;
+}
+
+.d2r-mod-slot.has-item.d2r-item-matched {
+  box-shadow: 0 0 8px rgba(255, 215, 0, 0.9) !important;
+  border-color: #ffd700 !important;
+}
+
+/* Tab Match Illumination */
+.d2r-tab-btn.d2r-tab-has-matches,
+.d2r-stash-ribbon button.d2r-tab-has-matches {
+  border-color: #ffd700 !important;
+  color: #ffd700 !important;
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.75), inset 0 0 6px rgba(255, 215, 0, 0.25) !important;
+  text-shadow: 0 0 8px rgba(255, 215, 0, 0.6) !important;
+  position: relative;
+}
+
+.d2r-tab-btn.d2r-tab-has-matches::after,
+.d2r-stash-ribbon button.d2r-tab-has-matches::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 7px;
+  height: 7px;
+  background: #ffd700;
+  border-radius: 50%;
+  box-shadow: 0 0 6px #ffd700;
+}
+
 
 
 

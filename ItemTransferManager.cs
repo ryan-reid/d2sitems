@@ -82,6 +82,19 @@ public class BulkTransferResult
 
 public static class ItemTransferManager
 {
+    private static bool IsHardcore(D2Save? character, string file)
+    {
+        if (character != null) return character.Character.Flags.HasFlag(CharacterFlags.Hardcore);
+        var name = Path.GetFileName(file);
+        if (name.Contains("SharedStashHardCore", StringComparison.OrdinalIgnoreCase)) return true;
+        if (name.Contains("SharedStashSoftCore", StringComparison.OrdinalIgnoreCase)) return false;
+        throw new ArgumentException("Cannot determine shared stash hardcore/softcore mode from its filename. Use the original game filename.");
+    }
+
+    private static void ValidateCore(bool source, bool target)
+    {
+        if (source != target) throw new ArgumentException("Hardcore and softcore saves cannot exchange items. No items were moved.");
+    }
     private static StorePage ContainerTypeToStorePage(ContainerType ct) => ct switch
     {
         ContainerType.Inventory => StorePage.Inventory,
@@ -132,6 +145,7 @@ public static class ItemTransferManager
             var (newSrcBytes, newDstBytes, result) = TransferItemBytes(srcRawBytes, dstRawBytes, request, request.ExcelDir);
             if (!result.Success)
                 return result;
+
 
             var updates = new List<SaveFileTransaction.Update>
             {
@@ -194,6 +208,9 @@ public static class ItemTransferManager
                 else
                     targetSave = D2Save.Read(targetRawBytes!, externalData);
             }
+
+            if (!isSameFile)
+                ValidateCore(IsHardcore(sourceSave, request.SourceFile), IsHardcore(targetSave, request.TargetFile));
 
             // Find source item
             Item? itemToMove = null;
@@ -415,6 +432,7 @@ public static class ItemTransferManager
             var (newStashBytes, newCharBytes, result) = BulkTransferBytes(stashBytes, charBytes, request, request.ExcelDir);
             if (!result.Success)
                 return result;
+            if (result.ItemsMoved == 0) return result;
 
             var backups = SaveFileTransaction.Commit(
                 new(request.SourceStashFile, stashBytes, newStashBytes!),
@@ -442,14 +460,17 @@ public static class ItemTransferManager
     {
         try
         {
-            SaveFileTransaction.VerifyRevision(sourceStashBytes, request.SourceRevision);
-            SaveFileTransaction.VerifyRevision(targetCharBytes, request.TargetRevision);
+            try { SaveFileTransaction.VerifyRevision(sourceStashBytes, request.SourceRevision); }
+            catch (IOException) { return (null, null, new BulkTransferResult { Success = false, Message = "The source shared stash changed since scanning. Close the game, reopen Pack Mule to refresh the saves, and review your selection before retrying. No items were moved." }); }
+            try { SaveFileTransaction.VerifyRevision(targetCharBytes, request.TargetRevision); }
+            catch (IOException) { return (null, null, new BulkTransferResult { Success = false, Message = "The destination character changed since scanning. Close the game, reopen Pack Mule to refresh the saves, and review your selection before retrying. No items were moved." }); }
             var dims = ContainerDimensions.LoadFromExcel(excelDir);
             var itemDims = ItemDimensionsLookup.LoadFromExcel(excelDir);
             var externalData = new TxtFileExternalData(excelDir, version: 105);
 
             var stash = D2StashSave.Read(sourceStashBytes, externalData);
             var save = D2Save.Read(targetCharBytes, externalData);
+            ValidateCore(IsHardcore(null, request.SourceStashFile), IsHardcore(save, request.TargetCharFile));
 
             if (request.SourceTab < 0 || request.SourceTab >= stash.Count)
                 return (null, null, new BulkTransferResult { Success = false, Message = $"Invalid stash tab {request.SourceTab}" });
@@ -600,30 +621,41 @@ public static class ItemTransferManager
 
         if (subCmd == "transfer-item")
         {
-            var req = new ItemTransferRequest { ExcelDir = excelDir };
-            for (int i = 1; i < args.Length; i++)
+            ItemTransferRequest req;
+            if (args.Length >= 2 && args[1] == "--json-stdin")
             {
-                switch (args[i].ToLowerInvariant())
+                var json = Console.In.ReadToEnd();
+                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true, Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } };
+                req = JsonSerializer.Deserialize<ItemTransferRequest>(json, options) ?? new ItemTransferRequest();
+                req.ExcelDir = excelDir;
+            }
+            else
+            {
+                req = new ItemTransferRequest { ExcelDir = excelDir };
+                for (int i = 1; i < args.Length; i++)
                 {
-                    case "--from-file": req.SourceFile = args[++i]; break;
-                    case "--from-container":
-                        req.SourceContainer = ParseContainerType(args[++i]);
-                        break;
-                    case "--from-tab": req.SourceTab = int.Parse(args[++i]); break;
-                    case "--from-x": req.SourceX = int.Parse(args[++i]); break;
-                    case "--from-y": req.SourceY = int.Parse(args[++i]); break;
-                    case "--seed": req.ItemSeed = uint.Parse(args[++i]); break;
-                    case "--code": req.ItemCode = args[++i]; break;
-                    case "--to-file": req.TargetFile = args[++i]; break;
-                    case "--to-container":
-                        req.TargetContainer = ParseContainerType(args[++i]);
-                        break;
-                    case "--to-tab": req.TargetTab = int.Parse(args[++i]); break;
-                    case "--to-x": req.TargetX = int.Parse(args[++i]); break;
-                    case "--to-y": req.TargetY = int.Parse(args[++i]); break;
-                    case "--source-revision": req.SourceRevision = args[++i]; break;
-                    case "--target-revision": req.TargetRevision = args[++i]; break;
-                    case "--force-live": req.ForceLive = true; break;
+                    switch (args[i].ToLowerInvariant())
+                    {
+                        case "--from-file": req.SourceFile = args[++i]; break;
+                        case "--from-container":
+                            req.SourceContainer = ParseContainerType(args[++i]);
+                            break;
+                        case "--from-tab": req.SourceTab = int.Parse(args[++i]); break;
+                        case "--from-x": req.SourceX = int.Parse(args[++i]); break;
+                        case "--from-y": req.SourceY = int.Parse(args[++i]); break;
+                        case "--seed": req.ItemSeed = uint.Parse(args[++i]); break;
+                        case "--code": req.ItemCode = args[++i]; break;
+                        case "--to-file": req.TargetFile = args[++i]; break;
+                        case "--to-container":
+                            req.TargetContainer = ParseContainerType(args[++i]);
+                            break;
+                        case "--to-tab": req.TargetTab = int.Parse(args[++i]); break;
+                        case "--to-x": req.TargetX = int.Parse(args[++i]); break;
+                        case "--to-y": req.TargetY = int.Parse(args[++i]); break;
+                        case "--source-revision": req.SourceRevision = args[++i]; break;
+                        case "--target-revision": req.TargetRevision = args[++i]; break;
+                        case "--force-live": req.ForceLive = true; break;
+                    }
                 }
             }
 

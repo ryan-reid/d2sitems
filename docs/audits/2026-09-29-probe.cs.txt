@@ -1,0 +1,55 @@
+using System.Reflection;
+using System.Text.Json;
+using D2SItems;
+using D2SSharp.Data;
+using D2SSharp.Enums;
+using D2SSharp.Model;
+var root = @"E:\Games\d2sitems";
+var excel = @"E:\Games\Diablo II Resurrected\Mods\BKDiablo\bkdiablo.mpq\data\global\excel";
+var fixtures = Path.Combine(root,"tests","fixtures","baselines");
+var ext = new TxtFileExternalData(excel, version:105);
+var engine = new SaveInspectorEngine(excel);
+foreach(var field in new[]{"_uniqueStatRanges","_setStatRanges","_runewordStatRanges"}) {
+ var v = (System.Collections.IDictionary)typeof(SaveInspectorEngine).GetField(field,BindingFlags.NonPublic|BindingFlags.Instance)!.GetValue(engine)!;
+ Console.WriteLine($"RANGES {field}: {v.Count}");
+}
+try { JsonSerializer.Deserialize<ItemTransferRequest>("{\"SourceContainer\":\"SharedStash\",\"TargetContainer\":\"Inventory\"}",new JsonSerializerOptions{PropertyNameCaseInsensitive=true}); Console.WriteLine("ENUM accepted"); }
+catch(Exception e){ Console.WriteLine("ENUM REJECTED: "+e.Message); }
+var raw = File.ReadAllBytes(Path.Combine(fixtures,"Amazon_L1.golden.d2s"));
+long Skill(byte[] b)=>D2Save.Read(b,ext).Stats.GetStat(StatId.SkillPoints);
+var (q1,b1,m1)=QuestManager.CompleteQuestsBytes(raw,"normal",1,true,true,excel);
+var (q2,b2,m2)=QuestManager.CompleteQuestsBytes(b1!,"normal",1,true,true,excel);
+Console.WriteLine($"QUEST repeat: success={q1},{q2}; skill={Skill(raw)},{Skill(b1!)},{Skill(b2!)}");
+var stashPath=Path.Combine(fixtures,"ModernSharedStashSoftCoreV2.golden.d2i");
+var stashRaw=File.ReadAllBytes(stashPath);
+var stash=D2StashSave.Read(stashRaw,ext);
+Console.WriteLine($"STASH baseline tabs={stash.Count}; counts={string.Join(',',stash.Select(t=>t.Items.Count))}; roundtrip={stashRaw.SequenceEqual(stash.ToBytes(ext,105))}");
+var (sb,sr)=StackEditorManager.EditStackBytes(stashRaw,new EditStackRequest{TabIndex=0,ItemCode="r01",Quantity=20},excel);
+Console.WriteLine($"STACK normal tab accepted={sr.Success}; message={sr.Message}; returnedBytes={sb?.Length}");
+var changedExcel=Path.Combine(Path.GetTempPath(),"d2sitems-audit-20260929","changed-excel");
+Directory.CreateDirectory(changedExcel);
+foreach(var p in Directory.GetFiles(excel,"*.txt")) File.Copy(p,Path.Combine(changedExcel,Path.GetFileName(p)),true);
+var csPath=Path.Combine(changedExcel,"charstats.txt");
+var lines=File.ReadAllLines(csPath);var headers=lines[0].Split('\t'); var strIndex=Array.IndexOf(headers,"str");
+for(int i=1;i<lines.Length;i++){var cols=lines[i].Split('\t');if(cols[0]=="Amazon"){cols[strIndex]="99";lines[i]=string.Join('\t',cols);}}
+File.WriteAllLines(csPath,lines);
+var (mb,mc,me)=MuleGenerator.CreateMuleBytes("AuditAmazon","Amazon",false,changedExcel,fixtures);
+Console.WriteLine($"MULE charstats str=99 => saved str={D2Save.Read(mb!,new TxtFileExternalData(changedExcel,version:105)).Stats.GetStat(StatId.Strength)}; error={me}");
+var backupFile=Path.Combine(Path.GetTempPath(),"d2sitems-audit-20260929","backup-test.d2s");
+File.WriteAllText(backupFile,"before");var p1=SaveBackup.CreateBackup(backupFile); File.WriteAllText(backupFile,"after");var p2=SaveBackup.CreateBackup(backupFile);
+Console.WriteLine($"BACKUP collision={p1==p2}; firstBackupNow={File.ReadAllText(p1!)}");
+var transferDir=Path.Combine(Path.GetTempPath(),"d2sitems-audit-20260929","transfer");Directory.CreateDirectory(transferDir);
+var srcPath=Path.Combine(transferDir,"Source.d2i");var dstPath=Path.Combine(transferDir,"Target.d2s");
+if(File.Exists(dstPath)) File.SetAttributes(dstPath,FileAttributes.Normal);
+File.WriteAllBytes(srcPath,stashRaw);File.WriteAllBytes(dstPath,raw);
+var picked=stash[0].Items.First(i=>i.ItemCodeString.Trim()=="cm1");
+File.SetAttributes(dstPath,FileAttributes.ReadOnly);
+try{
+ var tr=ItemTransferManager.TransferItem(new ItemTransferRequest{SourceFile=srcPath,TargetFile=dstPath,SourceContainer=ContainerType.SharedStash,TargetContainer=ContainerType.Inventory,SourceTab=0,ItemSeed=picked.ItemSeed,ItemCode=picked.ItemCodeString.Trim(),ExcelDir=excel});
+ var after=D2StashSave.Read(File.ReadAllBytes(srcPath),ext);
+ Console.WriteLine($"PARTIAL WRITE success={tr.Success}; sourceBefore={stash[0].Items.Count}; sourceAfter={after[0].Items.Count}; targetUnchanged={raw.SequenceEqual(File.ReadAllBytes(dstPath))}; error={tr.Message}");
+}finally{File.SetAttributes(dstPath,FileAttributes.Normal);}
+foreach(var fixture in Directory.GetFiles(fixtures,"*_L1.golden.d2s")){
+ var original=File.ReadAllBytes(fixture);var roundtrip=D2Save.Read(original,ext).ToBytes(ext,105);
+ Console.WriteLine($"CHAR ROUNDTRIP {Path.GetFileName(fixture)} exact={original.SequenceEqual(roundtrip)}");
+}

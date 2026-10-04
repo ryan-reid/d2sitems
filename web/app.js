@@ -5,6 +5,7 @@
 // Application State
 const state = {
   isWasmMode: false,
+  core: localStorage.getItem('bk-save-core') === 'hard' ? 'hard' : 'soft',
   allWasmItems: [],
   activeTab: 'search-view',
   profiles: [],
@@ -35,6 +36,35 @@ const state = {
   verifierSearch: ''
 };
 window.state = state;
+window.coreFetch = async function(url, options) {
+  const core = state.core;
+  const scoped = new URL(url, window.location.href);
+  const isRead = !options?.method || options.method.toUpperCase() === 'GET';
+  if (isRead && scoped.pathname.startsWith('/api/')) scoped.searchParams.set('core', core);
+  const response = await fetch(scoped, options);
+  if (isRead && state.core !== core) throw new Error('Save mode changed; previous request discarded.');
+  return response;
+};
+const coreSelect = document.getElementById('core-select');
+coreSelect.value = state.core;
+coreSelect.addEventListener('change', async () => {
+  state.core = coreSelect.value;
+  localStorage.setItem('bk-save-core', state.core);
+  state.selectedChar = null;
+  state.filters.source = 'all';
+  state.saves = []; state.items = []; state.allWasmItems = [];
+  state.grail = null; state.verifier = null;
+  document.querySelectorAll('.modal-overlay').forEach(modal => { modal.style.display = 'none'; });
+  dom.armoryCharSelect.innerHTML = '';
+  dom.armoryContent.innerHTML = '';
+  if (window._d2rState) window._d2rState.activeCharName = null;
+  renderItemsView();
+  if (state.isWasmMode) await refreshWasmDataset();
+  else await loadSavesAndItems();
+  if (state.activeTab === 'grail-view') await loadGrailView();
+  if (state.activeTab === 'chronicle-view') await loadChronicleView();
+  if (state.activeTab === 'verifier-view') await loadVerifierView();
+});
 
 // DOM Elements
 const dom = {
@@ -74,6 +104,12 @@ const dom = {
   grailOverallBar: document.getElementById('grail-overall-bar'),
   grailCountText: document.getElementById('grail-count-text'),
   grailCategories: document.getElementById('grail-categories'),
+  chronicleOverallScore: document.getElementById('chronicle-overall-score'),
+  chronicleOverallBar: document.getElementById('chronicle-overall-bar'),
+  chronicleCountText: document.getElementById('chronicle-count-text'),
+  chronicleCategoryPills: document.getElementById('chronicle-category-pills'),
+  chronicleCategories: document.getElementById('chronicle-categories'),
+  chronicleSearchInput: document.getElementById('chronicle-search'),
   verifierRefreshBtn: document.getElementById('verifier-refresh-btn'),
   verifierTotalChecked: document.getElementById('verifier-total-checked'),
   verifierTotalUpToDate: document.getElementById('verifier-total-up-to-date'),
@@ -209,6 +245,8 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
       loadArmoryView();
     } else if (state.activeTab === 'grail-view') {
       loadGrailView();
+    } else if (state.activeTab === 'chronicle-view') {
+      loadChronicleView();
     } else if (state.activeTab === 'verifier-view') {
       loadVerifierView();
     }
@@ -220,7 +258,7 @@ async function loadProfiles() {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 1800);
-    const res = await fetch('/api/profiles', { signal: controller.signal });
+    const res = await window.coreFetch('/api/profiles', { signal: controller.signal });
     clearTimeout(timeoutId);
 
     if (!res.ok) throw new Error('API returned status ' + res.status);
@@ -292,9 +330,9 @@ async function refreshWasmDataset() {
 
   try {
     const dataset = await window.D2Wasm.buildDataset();
-    state.saves = dataset.saves;
-    state.allWasmItems = dataset.items;
-    state.items = dataset.items;
+    state.saves = dataset.saves.filter(save => save.core === state.core);
+    state.allWasmItems = dataset.items.filter(item => item.sourceCore === state.core);
+    state.items = state.allWasmItems;
 
     updateCharacterFilterDropdown();
     await executeSearch();
@@ -305,6 +343,8 @@ async function refreshWasmDataset() {
       loadArmoryView();
     } else if (state.activeTab === 'grail-view') {
       loadGrailView();
+    } else if (state.activeTab === 'chronicle-view') {
+      loadChronicleView();
     }
   } catch (err) {
     showToast('Error processing saves in WebAssembly: ' + err.message, 'error');
@@ -437,7 +477,7 @@ function setupWasmEvents() {
 dom.profileSelect.addEventListener('change', async (e) => {
   const newProfileId = e.target.value;
   try {
-    const res = await fetch('/api/profiles/select', {
+    const res = await window.coreFetch('/api/profiles/select', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ profile_id: newProfileId })
@@ -456,7 +496,7 @@ dom.profileSelect.addEventListener('change', async (e) => {
 // Load Saves and Items
 async function loadSavesAndItems() {
   try {
-    const res = await fetch('/api/saves');
+    const res = await window.coreFetch('/api/saves');
     const data = await res.json();
     state.saves = data.saves || [];
     
@@ -508,7 +548,14 @@ function updateCharacterFilterDropdown() {
     dom.characterFilter.appendChild(stashGroup);
   }
 
-  dom.characterFilter.value = currentVal || 'all';
+  const wanted = (state.filters.source && state.filters.source !== 'all') ? state.filters.source : (currentVal || 'all');
+  if ([...dom.characterFilter.options].some(o => o.value === wanted)) {
+    dom.characterFilter.value = wanted;
+    state.filters.source = wanted;
+  } else {
+    dom.characterFilter.value = 'all';
+    state.filters.source = 'all';
+  }
 }
 
 // Rescan Button
@@ -524,7 +571,7 @@ dom.rescanBtn.addEventListener('click', async () => {
   dom.rescanBtn.disabled = true;
 
   try {
-    const res = await fetch('/api/scan', { method: 'POST' });
+    const res = await window.coreFetch('/api/scan', { method: 'POST' });
     const data = await res.json();
     if (data.success) {
       showToast(`Scan complete! Loaded ${data.saves_count} saves and ${data.items_count} items.`, 'success');
@@ -642,7 +689,7 @@ async function executeSearch() {
   if (state.filters.sort) params.set('sort', state.filters.sort);
 
   try {
-    const res = await fetch('/api/items?' + params.toString());
+    const res = await window.coreFetch('/api/items?' + params.toString());
     const data = await res.json();
     state.items = data.items || [];
     const totalCount = data.total || 0;
@@ -656,17 +703,10 @@ async function executeSearch() {
 
 // Render Items Grid & Table
 function renderItemsView() {
-  if (state.renderedItems !== state.items) { state.renderedItems = state.items; state.visibleItemLimit = 100; }
-  let more = document.getElementById('load-more-items');
-  if (!more) {
-    more = document.createElement('button'); more.id = 'load-more-items'; more.className = 'btn btn-secondary';
-    dom.itemsTableWrap.after(more);
-    more.addEventListener('click', () => { state.visibleItemLimit += 100; renderItemsView(); });
-  }
-  const shown = Math.min(state.visibleItemLimit, state.items.length);
-  dom.resultsCountBadge.textContent = `${shown} of ${state.items.length} items shown`;
-  more.hidden = shown >= state.items.length;
-  more.textContent = `Show next ${Math.min(100, state.items.length - shown)} items`;
+  const more = document.getElementById('load-more-items');
+  if (more) more.remove();
+
+  dom.resultsCountBadge.textContent = `${state.items.length.toLocaleString()} items found`;
 
   if (state.items.length === 0) {
     dom.itemsGrid.style.display = 'none';
@@ -690,7 +730,7 @@ function renderItemsView() {
 
 function renderItemsGrid() {
   dom.itemsGrid.innerHTML = '';
-  state.items.slice(0, state.visibleItemLimit).forEach(it => {
+  state.items.forEach(it => {
     const card = createItemCardElement(it);
     dom.itemsGrid.appendChild(card);
   });
@@ -775,9 +815,11 @@ function createItemCardElement(it, showVerifierDetails = false) {
     tagsHtml += `<span class="tag warning" title="Differs from current patch definitions">⚠️ Out of Date</span>`;
   }
 
-  // Base Stats and Properties (for Detailed mode or Verifier)
+  // Base Stats and Properties. Wiki-style cards always show a compact property
+  // preview; Detailed mode and the verifier expand the list.
   let extraContentHtml = '';
-  if (state.viewMode === 'detailed' || showVerifierDetails) {
+  {
+    const expanded = state.viewMode === 'detailed' || showVerifierDetails;
     let baseStatsItems = [];
     if (it.defense) baseStatsItems.push(`<span>Def: <strong>${it.defense}</strong></span>`);
     if (it.twoHandedDamage) baseStatsItems.push(`<span>2H: <strong>${it.twoHandedDamage}</strong></span>`);
@@ -790,7 +832,7 @@ function createItemCardElement(it, showVerifierDetails = false) {
     const statList = (it.runewordStats || []).concat(it.stats || []);
     if (statList.length > 0) {
       statsListHtml = '<ul class="property-list">';
-      const maxDisplay = 6;
+      const maxDisplay = expanded ? 8 : 3;
       statList.slice(0, maxDisplay).forEach(s => {
         const desc = escapeHtml(s.description || s.id || '');
         const isCorruptStat = (s.description || s.id || '').toLowerCase().includes('corrupt');
@@ -815,23 +857,37 @@ function createItemCardElement(it, showVerifierDetails = false) {
       `;
     }
 
-    extraContentHtml = baseStatsHtml + statsListHtml + outOfDateHtml;
+    extraContentHtml = (expanded ? baseStatsHtml : '') + statsListHtml + outOfDateHtml;
   }
 
+  const statRows = (it.runewordStats || []).concat(it.stats || []);
+  const statRowsHtml = statRows.slice(0, state.viewMode === 'detailed' ? 12 : 8)
+    .map(s => {
+      const description = s.description || s.id || '';
+      let range = s.range || (s.expectedMin != null && s.expectedMax != null
+        ? (s.expectedMin === s.expectedMax ? `${s.expectedMin}` : `${s.expectedMin}-${s.expectedMax}`)
+        : '');
+      if (range) {
+        const parts = String(range).split('-');
+        if (parts.length === 2 && parts[0] === parts[1]) range = parts[0];
+      }
+      const rangeSuffix = range && !description.includes(`[${range}]`) ? ` <span class="stat-range">[${escapeHtml(range)}]</span>` : '';
+      return `<div class="sp-row sp-row-single"><span class="sp-cell is-same">${escapeHtml(description)}${rangeSuffix}</span></div>`;
+    }).join('');
+  const moreCount = Math.max(0, statRows.length - (state.viewMode === 'detailed' ? 12 : 8));
+  card.className = `base-item-card item-index-card ${qClass} ${outOfDateClass}`.trim();
   card.innerHTML = `
-    <div class="loot-icon item-card-icon-box">
+    <div class="sp-head">
       ${iconMarkup}
-    </div>
-    <div class="loot-body">
-      <div class="loot-main">
-        <span class="loot-name">${cleanTitle}</span>
-        <span class="loot-base">${baseLineText}</span>
-      </div>
-      ${extraContentHtml}
-      <div class="loot-foot">
+      <div class="sp-head-text">
+        <span class="set-th-name">${cleanTitle}</span>
+        <span class="set-th-meta">${baseLineText}</span>
         ${tagsHtml}
       </div>
     </div>
+    ${statRowsHtml}
+    ${moreCount ? `<div class="sp-row sp-row-single"><span class="sp-cell is-same">+ ${moreCount} more properties…</span></div>` : ''}
+    ${it.isOutOfDate && it.outOfDateIssues?.length ? `<div class="sp-sep">Patch mismatches</div><div class="sp-row sp-row-single"><span class="sp-cell is-changed">${it.outOfDateIssues.slice(0, 3).map(escapeHtml).join('<br>')}</span></div>` : ''}
   `;
 
   card.addEventListener('click', () => openItemDetailModal(it));
@@ -840,7 +896,7 @@ function createItemCardElement(it, showVerifierDetails = false) {
 
 function renderItemsTable() {
   dom.itemsTableBody.innerHTML = '';
-  state.items.slice(0, state.visibleItemLimit).forEach(it => {
+  state.items.forEach(it => {
     const tr = document.createElement('tr');
     const qColorClass = getQualityColorClass(it.quality, it.isRuneword);
     const displayName = escapeHtml(it.displayName);
@@ -908,7 +964,8 @@ function openItemDetailModal(it) {
   else if (it.oneHandedDamage) ttMetaRows.push(`<li class="meta"><strong>One-Hand Damage:</strong> ${it.oneHandedDamage}</li>`);
   if (it.durability && it.maxDurability) ttMetaRows.push(`<li class="meta"><strong>Durability:</strong> ${it.durability}/${it.maxDurability}</li>`);
   if (it.itemLevel != null) ttMetaRows.push(`<li class="meta"><strong>Item Level:</strong> ${it.itemLevel}</li>`);
-  ttMetaRows.push(`<li class="meta req"><strong>Required Level:</strong> ${it.requiredLevel ?? "Not calculated"}</li>`);
+  const reqLvl = it.requiredLevel ?? it.lvlReq;
+  if (reqLvl != null) ttMetaRows.push(`<li class="meta req"><strong>Required Level:</strong> ${reqLvl}</li>`);
   if (it.requiredStrength) ttMetaRows.push(`<li class="meta req"><strong>Required Strength:</strong> ${it.requiredStrength}</li>`);
   if (it.requiredDexterity) ttMetaRows.push(`<li class="meta req"><strong>Required Dexterity:</strong> ${it.requiredDexterity}</li>`);
   if (it.socketCount > 0) ttMetaRows.push(`<li class="meta"><strong>Sockets:</strong> ${it.socketCount} (${it.openSockets || 0} open)</li>`);
@@ -919,11 +976,23 @@ function openItemDetailModal(it) {
     ttMetaRows.push(`<li class="meta" style="color: #ffd700;"><strong>Stack Quantity:</strong> ${stackQty}</li>`);
   }
 
-  const allStats = (it.runewordStats || []).concat(it.stats || []);
-  let ttStatsRows = allStats.map(s => {
-    const isCorrupt = (s.description || s.id || '').toLowerCase().includes('corrupt');
-    return `<li class="${isCorrupt ? 'req' : ''}">${escapeHtml(s.description || s.id)}</li>`;
-  }).join('');
+  let ttStatsRows = '';
+  const intrinsicStats = (it.runewordStats || []).concat(it.stats || []).map(s => typeof s === 'string' ? { description: s } : s);
+  if (intrinsicStats.length > 0) {
+    ttStatsRows += intrinsicStats.map(s => {
+      const isCorrupt = (s.description || s.id || '').toLowerCase().includes('corrupt');
+      return `<li class="${isCorrupt ? 'req' : ''}">${escapeHtml(s.description || s.id)}</li>`;
+    }).join('');
+  }
+  if (it.socketBonuses && it.socketBonuses.length > 0) {
+    ttStatsRows += it.socketBonuses.map(sb => `<li style="color:#647eff;">${escapeHtml(sb)}</li>`).join('');
+  }
+  for (let i = 1; i <= 5; i++) {
+    const sbKey = 'setBonus' + i;
+    if (it[sbKey] && it[sbKey].length > 0) {
+      ttStatsRows += it[sbKey].map(sb => `<li style="color:var(--q-set);">${escapeHtml(sb.description || sb.id)}</li>`).join('');
+    }
+  }
 
   const tooltipHtml = `
     <aside class="tooltip q-${qKey}" aria-label="${cleanTitle} item tooltip">
@@ -946,10 +1015,18 @@ function openItemDetailModal(it) {
           ${it.isEthereal ? '<span class="pill ethereal">Ethereal</span>' : ''}
           ${it.isCorrupted ? '<span class="pill corrupted">💥 Corrupted</span>' : ''}
           ${it.socketCount > 0 ? `<span class="pill socket">${it.socketCount} Sockets</span>` : ''}
+          ${it.isUnidentified ? '<span class="pill req">Unidentified</span>' : ''}
         </div>
-        <p class="muted">
-          Owned by <strong>${escapeHtml(it.sourceName)}</strong> · Location: <strong>${escapeHtml(it.location || 'Unknown')}</strong>
-        </p>
+        ${it.isChronicleItem ? `
+          <p class="muted" style="margin-top:6px;">
+            Chronicle Status: <strong style="color: ${it.tracked ? '#4ade80' : '#f87171'}">${it.tracked ? '✔ Discovered' : '✖ Undiscovered'}</strong>
+            ${it.isManual ? ' <span class="badge" style="background:rgba(234,179,8,0.2);color:#facc15;border:1px solid #ca8a04;">Manual</span>' : ''}
+          </p>
+        ` : `
+          <p class="muted">
+            Owned by <strong>${escapeHtml(it.sourceName || 'Unknown')}</strong> · Location: <strong>${escapeHtml(it.location || 'Unknown')}</strong>
+          </p>
+        `}
       </div>
   `;
 
@@ -984,14 +1061,49 @@ function openItemDetailModal(it) {
     `;
   }
 
+  // Intrinsic Stats
+  if (intrinsicStats.length > 0) {
+    detailMainHtml += `
+      <section class="panel">
+        <h2><svg aria-hidden="true"><use href="#i-magic"/></svg> Item Properties</h2>
+        <ul class="property-list">
+          ${intrinsicStats.map(s => {
+            const isCorrupt = (s.description || s.id || '').toLowerCase().includes('corrupt');
+            return `<li class="property-entry ${isCorrupt ? 'req' : ''}">${escapeHtml(s.description || s.id)}</li>`;
+          }).join('')}
+        </ul>
+      </section>
+    `;
+  }
+
+  // Set Bonuses
+  for (let i = 1; i <= 5; i++) {
+    const sbKey = 'setBonus' + i;
+    if (it[sbKey] && it[sbKey].length > 0) {
+      detailMainHtml += `
+        <section class="panel">
+          <h2 style="color:var(--q-set);"><svg aria-hidden="true"><use href="#i-magic"/></svg> Set Bonus (${i})</h2>
+          <ul class="property-list">
+            ${it[sbKey].map(sb => `<li class="property-entry" style="color:var(--q-set);">${escapeHtml(sb.description || sb.id)}</li>`).join('')}
+          </ul>
+        </section>
+      `;
+    }
+  }
+
   // Socketed items & socket bonuses
   if ((it.sockets && it.sockets.length > 0) || (it.socketBonuses && it.socketBonuses.length > 0)) {
     detailMainHtml += `
       <section class="panel">
-        <h2><svg aria-hidden="true"><use href="#i-gem"/></svg> Socket Details</h2>
+        <h2><svg aria-hidden="true"><use href="#i-gem"/></svg> Socket Details (${it.socketCount} Sockets, ${it.openSockets || 0} Open)</h2>
         ${it.sockets && it.sockets.length > 0 ? `
           <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom: 8px;">
-            ${it.sockets.map(sk => `<span class="socket-pill">💎 ${escapeHtml(sk.name)}</span>`).join('')}
+            ${it.sockets.map(sk => {
+              const code = (sk.code || '').toLowerCase().trim();
+              const sprite = (window.itemImageMappings && (window.itemImageMappings.hd_codes?.[code] || window.itemImageMappings.codes?.[code])) || (code.startsWith('jew') ? 'hd_jewel_1.png' : null);
+              const imgHtml = sprite ? `<img src="assets/items/${sprite}" style="width:16px;height:16px;object-fit:contain;vertical-align:middle;margin-right:6px;">` : '💎 ';
+              return `<span class="socket-pill" style="display:inline-flex;align-items:center;">${imgHtml}${escapeHtml(sk.name)}</span>`;
+            }).join('')}
           </div>
         ` : ''}
         ${it.socketBonuses && it.socketBonuses.length > 0 ? `
@@ -1003,12 +1115,6 @@ function openItemDetailModal(it) {
     `;
   }
 
-  // Comparison placeholder for eligible items
-  const isEligible = it.quality === 'Unique' || it.quality === 'Set' || it.isRuneword;
-  if (isEligible) {
-    detailMainHtml += `<div id="modal-comparison-container" class="comparison-section"><div style="padding: 10px; color: var(--muted); font-size:0.86rem;">Loading game file comparison…</div></div>`;
-  }
-
   // Transfer and Edit Stack item action panel
   const editStackBtnHtml = it.isStash && it.isAdvancedStack ? `
     <button class="filter-button" onclick="if (window.openEditStackModalByCode) { window.openEditStackModalFromItem(${it.id}); }" style="border-color: var(--gold); color: #ffd700; font-weight: 600; font-size: 0.85rem; margin-right: 8px;">
@@ -1016,21 +1122,40 @@ function openItemDetailModal(it) {
     </button>
   ` : '';
 
+  const safeItemName = escapeHtml(it.name || '');
+  const managementSectionHtml = it.isChronicleItem ? `
+    <section class="panel" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+      <div>
+        <strong style="color:var(--text); font-size:0.92rem;">The Chronicle Tracker</strong>
+        <p class="muted" style="margin:2px 0 0; font-size:0.8rem;">
+          Toggle this item's completion status in your Chronicle collection.
+        </p>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <button class="filter-button" onclick="window.toggleChronicleItem('${safeItemName}', ${!it.tracked}); window.closeItemDetailModal();" style="border-color: ${it.tracked ? '#ef4444' : 'var(--gold)'}; color: ${it.tracked ? '#f87171' : '#ffd700'}; font-weight: 600; font-size: 0.85rem;">
+          ${it.tracked ? '✖ Mark as Undiscovered' : '✔ Mark as Completed in Chronicle'}
+        </button>
+      </div>
+    </section>
+  ` : `
+    <section class="panel" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+      <div>
+        <strong style="color:var(--text); font-size:0.92rem;">Item Management</strong>
+        <p class="muted" style="margin:2px 0 0; font-size:0.8rem;">
+          ${isStack ? `Current Stack: <strong style="color:#ffd700;">${stackQty}</strong> &bull; ` : ''}Transfer this item or adjust its stack quantity.
+        </p>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center;">
+        ${editStackBtnHtml}
+        <button class="filter-button" onclick="openTransferModalForItemId(${it.id})" style="border-color: var(--gold-deep); color: var(--gold); font-weight: 600; font-size: 0.85rem;">
+          📦 Transfer Item →
+        </button>
+      </div>
+    </section>
+  `;
+
   detailMainHtml += `
-      <section class="panel" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-        <div>
-          <strong style="color:var(--text); font-size:0.92rem;">Item Management</strong>
-          <p class="muted" style="margin:2px 0 0; font-size:0.8rem;">
-            ${isStack ? `Current Stack: <strong style="color:#ffd700;">${stackQty}</strong> &bull; ` : ''}Transfer this item or adjust its stack quantity.
-          </p>
-        </div>
-        <div style="display:flex; gap:8px; align-items:center;">
-          ${editStackBtnHtml}
-          <button class="filter-button" onclick="openTransferModalForItemId(${it.id})" style="border-color: var(--gold-deep); color: var(--gold); font-weight: 600; font-size: 0.85rem;">
-            📦 Transfer Item →
-          </button>
-        </div>
-      </section>
+      ${managementSectionHtml}
     </div>
   `;
 
@@ -1042,35 +1167,21 @@ function openItemDetailModal(it) {
   `;
   dom.itemModal.style.display = 'flex';
 
-  if (isEligible) {
-    (state.isWasmMode ? Promise.resolve({
-      is_out_of_date: it.isOutOfDate, issues: it.outOfDateIssues || [], catalogRevision: it.catalogRevision,
-      stats_comparison: [...(it.runewordStats || []), ...(it.stats || [])].map(s => ({
-        ...s, actualValue: s.value, status: s.outOfRange || (s.expectedMin != null ? 'ok' : 'unknown')
-      }))
-    }) : fetch(`/api/item-compare/${it.id}`).then(res => res.json()))
-      .then(comp => {
-        const container = document.getElementById('modal-comparison-container');
-        if (container) {
-          container.outerHTML = renderComparisonSection(comp);
-        }
-      })
-      .catch(err => {
-        const container = document.getElementById('modal-comparison-container');
-        if (container) {
-          container.innerHTML = `<div style="font-size: 12px; color: var(--muted);">Could not load comparison data: ${escapeHtml(err.message)}</div>`;
-        }
-      });
-  }
+  window.closeItemDetailModal = function() {
+    dom.itemModal.style.display = 'none';
+  };
 
   // Copy item info handler
   dom.itemModalCopyBtn.onclick = () => {
-    let copyText = `${cleanTitle} (${it.baseName || ''})\n`;
-    copyText += `Location: ${it.sourceName} - ${it.location}\n`;
+    let copyText = `${cleanTitle} (${it.baseName || it.base || ''})\n`;
+    if (it.sourceName) copyText += `Location: ${it.sourceName} - ${it.location || ''}\n`;
+    if (it.requiredLevel || it.lvlReq) copyText += `Required Level: ${it.requiredLevel || it.lvlReq}\n`;
     if (typeof it.perfectionNum === 'number' && !isNaN(it.perfectionNum)) copyText += `Perfection: ${it.perfectionNum.toFixed(1)}%\n`;
-    allStats.forEach(s => copyText += `${s.description || s.id}\n`);
+    intrinsicStats.forEach(s => copyText += `${s.description || s.id}\n`);
     navigator.clipboard.writeText(copyText).then(() => {
       showToast('Item details copied to clipboard!', 'success');
+    }).catch(() => {
+      showToast('Failed to copy to clipboard', 'error');
     });
   };
 }
@@ -1509,22 +1620,27 @@ async function loadArmoryView() {
     return;
   }
 
+  const preferredChar = state.selectedChar || window._d2rState?.activeCharName || dom.armoryCharSelect.value;
   dom.armoryCharSelect.innerHTML = '';
   chars.forEach(c => {
     const opt = document.createElement('option');
     opt.value = c.name;
     opt.textContent = `${c.name} (Lvl ${c.level} ${c.class})`;
-    if (state.selectedChar && c.name.toLowerCase() === state.selectedChar.toLowerCase()) {
+    if (preferredChar && c.name.toLowerCase() === preferredChar.toLowerCase()) {
       opt.selected = true;
     }
     dom.armoryCharSelect.appendChild(opt);
   });
 
   const activeChar = dom.armoryCharSelect.value || chars[0].name;
+  state.selectedChar = activeChar;
+  if (window._d2rState) window._d2rState.activeCharName = activeChar;
   await renderArmoryForChar(activeChar);
 }
 
 dom.armoryCharSelect.addEventListener('change', async (e) => {
+  state.selectedChar = e.target.value;
+  if (window._d2rState) window._d2rState.activeCharName = e.target.value;
   await renderArmoryForChar(e.target.value);
 });
 
@@ -1548,9 +1664,9 @@ async function renderArmoryForChar(charName) {
     }
 
     const [charRes, stashRes, dimsRes] = await Promise.all([
-      fetch(`/api/character/${encodeURIComponent(charName)}`),
-      fetch(`/api/shared-stash?character=${encodeURIComponent(charName)}`),
-      fetch('/api/container-dimensions')
+      window.coreFetch(`/api/character/${encodeURIComponent(charName)}`),
+      window.coreFetch(`/api/shared-stash?character=${encodeURIComponent(charName)}`),
+      window.coreFetch('/api/container-dimensions')
     ]);
 
     if (!charRes.ok) throw new Error('Character not found');
@@ -1586,7 +1702,7 @@ window.openItemDetailModalById = function(itemId) {
   if (item) {
     openItemDetailModal(item);
   } else {
-    fetch(`/api/item/${itemId}`)
+    window.coreFetch(`/api/item/${itemId}`)
       .then(r => r.ok ? r.json() : null)
       .then(it => {
         if (it) openItemDetailModal(it);
@@ -1634,7 +1750,7 @@ async function loadGrailView() {
   dom.grailCategories.innerHTML = '<div class="empty-state"><h3>Calculating Holy Grail progress...</h3></div>';
 
   try {
-    const res = await fetch('/api/grail');
+    const res = await window.coreFetch('/api/grail');
     const data = await res.json();
     if (data.error) {
       dom.grailCategories.innerHTML = `<div class="empty-state"><h3>Grail Error: ${escapeHtml(data.error)}</h3></div>`;
@@ -1662,31 +1778,49 @@ function renderGrailView() {
     const card = document.createElement('div');
     card.className = 'grail-category-card';
 
-    let itemsHtml = '<div class="grail-items-grid">';
+    const header = document.createElement('div');
+    header.className = 'grail-category-header';
+    header.innerHTML = `
+      <div class="grail-cat-title-group">
+        <h3>${escapeHtml(cat.category)}</h3>
+        <span class="badge badge-perf">${cat.owned} / ${cat.total} (${cat.percent}%)</span>
+      </div>
+      <div class="progress-bar-wrap" style="max-width: 260px; width: 100%; height: 6px;">
+        <div class="progress-bar-fill" style="width: ${cat.percent}%;"></div>
+      </div>
+    `;
+    card.appendChild(header);
+
+    const grid = document.createElement('div');
+    grid.className = 'grail-items-grid';
+
+    let matchCount = 0;
     (cat.items || []).forEach(it => {
       if (it.is_group) {
-        // Group of set items
-        it.items.forEach(subItem => {
+        (it.items || []).forEach(subItem => {
           if (shouldShowGrailItem(subItem.collected)) {
-            itemsHtml += createGrailItemRow(subItem, it.group_name);
+            grid.appendChild(createGrailItemCard(subItem, cat.category, it.group_name));
+            matchCount++;
           }
         });
       } else {
         if (shouldShowGrailItem(it.collected)) {
-          itemsHtml += createGrailItemRow(it);
+          grid.appendChild(createGrailItemCard(it, cat.category));
+          matchCount++;
         }
       }
     });
-    itemsHtml += '</div>';
 
-    card.innerHTML = `
-      <div class="grail-category-header">
-        <h3>${escapeHtml(cat.category)}</h3>
-        <span class="badge badge-perf">${cat.owned} / ${cat.total} (${cat.percent}%)</span>
-      </div>
-      ${itemsHtml}
-    `;
+    if (matchCount === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.style.gridColumn = '1 / -1';
+      empty.style.padding = '20px 0';
+      empty.innerHTML = `<p style="color: var(--muted);">No ${state.grailFilter === 'collected' ? 'collected' : 'missing'} items in this category.</p>`;
+      grid.appendChild(empty);
+    }
 
+    card.appendChild(grid);
     dom.grailCategories.appendChild(card);
   });
 }
@@ -1697,25 +1831,98 @@ function shouldShowGrailItem(collected) {
   return true;
 }
 
-function createGrailItemRow(it, groupName) {
-  const isCollected = it.collected;
-  const holders = (it.holders || []).map(h => h.source).join(', ');
-  const baseLabel = it.base ? ` <small style="color: var(--text-dim);">(${escapeHtml(it.base)})</small>` : '';
-  const runesLabel = it.runes && it.runes.length > 0 ? ` <small style="color: var(--color-rune);">[${it.runes.join('+')}]</small>` : '';
-  const groupLabel = groupName ? `<small style="color: var(--color-set);">[${escapeHtml(groupName)}] </small>` : '';
+function createGrailItemCard(it, categoryName, groupName) {
+  const isCollected = !!it.collected;
+  const isSet = (categoryName && categoryName.includes('Set')) || !!groupName;
+  const isRuneword = (categoryName && categoryName.includes('Runeword')) || (it.runes && it.runes.length > 0);
 
-  return `
-    <div class="grail-item-row ${isCollected ? 'collected' : ''}">
-      <div>
-        ${groupLabel}
-        <span class="grail-item-name ${isCollected ? 'color-unique' : ''}">${escapeHtml(it.name)}</span>
-        ${baseLabel}
-        ${runesLabel}
-        ${holders ? `<div style="font-size: 11px; color: var(--color-accent); margin-top: 2px;">📍 ${escapeHtml(holders)}</div>` : ''}
+  const qClass = isRuneword ? 'q-runeword' : (isSet ? 'q-set' : 'q-unique');
+  const qColorClass = isRuneword ? 'color-runeword' : (isSet ? 'color-set' : 'color-unique');
+  const cleanTitle = escapeHtml(it.name || '');
+
+  // Look up matching item in state.items for sprite / inspection
+  const nameLower = (it.name || '').toLowerCase();
+  const ownedMatch = (state.items || []).find(x => {
+    const xName = (x.name || '').toLowerCase();
+    const xDisp = (x.displayName || '').toLowerCase();
+    return xName === nameLower || xDisp === nameLower || xDisp.startsWith(nameLower);
+  });
+
+  const invFile = (ownedMatch && ownedMatch.invFile) ? ownedMatch.invFile : (it.invFile || null);
+  const typeIconHref = getItemTypeIconHref(ownedMatch || { type: it.base, baseName: it.base });
+
+  const iconMarkup = invFile ? `
+    <img class="wiki-item-icon item-card-icon" src="assets/items/${invFile}" alt="${cleanTitle}" loading="lazy" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='grid';" />
+    <span class="fallback-icon-box" style="display:none;"><svg aria-hidden="true"><use href="${typeIconHref}"/></svg></span>
+  ` : `
+    <span class="fallback-icon-box"><svg aria-hidden="true"><use href="${typeIconHref}"/></svg></span>
+  `;
+
+  // Meta line (runes, base, set)
+  let metaParts = [];
+  if (isRuneword && it.runes && it.runes.length > 0) {
+    metaParts.push(it.runes.join(' · '));
+  }
+  if (it.base) metaParts.push(escapeHtml(it.base));
+  if (groupName) metaParts.push(`<span style="color:var(--q-set); font-weight:600;">${escapeHtml(groupName)}</span>`);
+  const metaLine = metaParts.join(' · ');
+
+  // Status tag
+  const statusBadge = isCollected
+    ? `<span class="tag tag-found">✔ Found</span>`
+    : `<span class="tag tag-missing">✖ Missing</span>`;
+
+  let extraTags = '';
+  // Perfection if available
+  if (isCollected && it.holders && it.holders.length > 0) {
+    const perfs = it.holders.map(h => h.perfectionNum).filter(p => typeof p === 'number' && !isNaN(p));
+    if (perfs.length > 0) {
+      const best = Math.max(...perfs);
+      const isPerf100 = best >= 100;
+      extraTags += `<span class="tag perf ${isPerf100 ? 'perf-100' : ''}">★ ${best.toFixed(0)}%</span>`;
+    }
+  }
+
+  // Location badge if collected
+  if (isCollected && it.holders && it.holders.length > 0) {
+    const first = it.holders[0];
+    const holderCount = it.holders.length;
+    const ownerName = escapeHtml(first.source || '');
+    const loc = escapeHtml(first.location || '');
+    if (holderCount === 1) {
+      extraTags += `<span class="tag owner" title="${ownerName} (${loc})">👤 ${ownerName}</span>`;
+    } else {
+      const allOwners = it.holders.map(h => `${h.source} (${h.location})`).join(', ');
+      extraTags += `<span class="tag owner" title="${escapeHtml(allOwners)}">📍 x${holderCount} (${ownerName}…)</span>`;
+    }
+  }
+
+  const card = document.createElement('div');
+  const collectedClass = isCollected ? 'is-collected' : 'is-missing';
+  card.className = `base-item-card item-index-card grail-item-card ${qClass} ${collectedClass}`.trim();
+  card.tabIndex = 0;
+  card.setAttribute('role', 'button');
+  card.setAttribute('aria-label', `${it.name} (${isCollected ? 'Found' : 'Missing'})`);
+
+  card.innerHTML = `
+    <div class="sp-head">
+      ${iconMarkup}
+      <div class="sp-head-text">
+        <span class="set-th-name ${qColorClass}">${cleanTitle}</span>
+        <span class="set-th-meta">${metaLine}</span>
+        <div class="loot-foot">
+          ${statusBadge}
+          ${extraTags}
+        </div>
       </div>
-      <span class="grail-item-status">${isCollected ? '✅' : '❌'}</span>
     </div>
   `;
+
+  if (ownedMatch) {
+    card.addEventListener('click', () => openItemDetailModal(ownedMatch));
+  }
+
+  return card;
 }
 
 document.querySelectorAll('[data-grail-filter]').forEach(btn => {
@@ -1726,6 +1933,405 @@ document.querySelectorAll('[data-grail-filter]').forEach(btn => {
     renderGrailView();
   });
 });
+
+// ==========================================================================
+// VIEW 4.5: THE CHRONICLE (IN-GAME DISCOVERY TRACKER)
+// ==========================================================================
+
+state.chronicle = null;
+state.chronicleFilter = 'all'; // 'all', 'discovered', 'undiscovered'
+state.chronicleCategory = 'all'; // 'all', 'uniques', 'sets', 'runewords'
+state.chronicleSearch = '';
+state.chronicleCore = 'both'; // 'both', 'soft', 'hard'
+
+async function loadChronicleView() {
+  if (state.isWasmMode && window.D2Wasm && typeof window.D2Wasm.getChronicleProgress === 'function') {
+    state.chronicle = window.D2Wasm.getChronicleProgress(state.saves, state.chronicleCore);
+    mergeLocalChronicleCompletions();
+    renderChronicleView();
+    return;
+  }
+
+  if (dom.chronicleCategories) {
+    dom.chronicleCategories.innerHTML = '<div class="empty-state"><h3>Reading in-game Chronicle discoveries from shared stashes...</h3></div>';
+  }
+
+  try {
+    const res = await window.coreFetch(`/api/chronicle?core=${encodeURIComponent(state.chronicleCore)}`);
+    const data = await res.json();
+    if (data.error) {
+      if (dom.chronicleCategories) {
+        dom.chronicleCategories.innerHTML = `<div class="empty-state"><h3>Chronicle Error: ${escapeHtml(data.error)}</h3></div>`;
+      }
+      return;
+    }
+
+    state.chronicle = data;
+    mergeLocalChronicleCompletions();
+    renderChronicleView();
+  } catch (err) {
+    if (dom.chronicleCategories) {
+      dom.chronicleCategories.innerHTML = `<div class="empty-state"><h3>Failed to load Chronicle report: ${err.message}</h3></div>`;
+    }
+  }
+}
+window.loadChronicleView = loadChronicleView;
+
+function mergeLocalChronicleCompletions() {
+  if (!state.chronicle || !state.chronicle.categories) return;
+  let manual = {};
+  try {
+    manual = JSON.parse(localStorage.getItem('bk-chronicle-manual') || '{}');
+  } catch (e) {
+    manual = {};
+  }
+  if (!manual || Object.keys(manual).length === 0) return;
+
+  state.chronicle.categories.forEach(cat => {
+    (cat.items || []).forEach(it => {
+      if (it.is_group) {
+        (it.items || []).forEach(sub => {
+          const k = (sub.name || '').toLowerCase();
+          if (k in manual) {
+            sub.tracked = manual[k];
+            sub.collected = manual[k];
+            sub.isManual = true;
+          }
+        });
+        it.owned_count = (it.items || []).filter(x => x.tracked).length;
+      } else {
+        const k = (it.name || '').toLowerCase();
+        if (k in manual) {
+          it.tracked = manual[k];
+          it.collected = manual[k];
+          it.isManual = true;
+        }
+      }
+    });
+    let catTracked = 0;
+    (cat.items || []).forEach(it => {
+      if (it.is_group) catTracked += it.owned_count;
+      else if (it.tracked) catTracked += 1;
+    });
+    cat.owned = catTracked;
+    cat.percent = cat.total > 0 ? Math.round((cat.owned / cat.total) * 1000) / 10 : 0;
+  });
+
+  let totalTracked = 0;
+  state.chronicle.categories.forEach(cat => totalTracked += cat.owned);
+  state.chronicle.total_owned = totalTracked;
+  state.chronicle.percent = state.chronicle.total_items > 0
+    ? Math.round((totalTracked / state.chronicle.total_items) * 10000) / 100
+    : 0;
+}
+
+async function toggleChronicleItem(itemName, newStatus) {
+  if (!itemName) return;
+  const nameLower = itemName.toLowerCase();
+
+  // Update in-memory state
+  if (state.chronicle && state.chronicle.categories) {
+    state.chronicle.categories.forEach(cat => {
+      (cat.items || []).forEach(it => {
+        if (it.is_group) {
+          (it.items || []).forEach(sub => {
+            if ((sub.name || '').toLowerCase() === nameLower) {
+              sub.tracked = newStatus;
+              sub.collected = newStatus;
+              sub.isManual = true;
+            }
+          });
+          it.owned_count = (it.items || []).filter(x => x.tracked).length;
+        } else {
+          if ((it.name || '').toLowerCase() === nameLower) {
+            it.tracked = newStatus;
+            it.collected = newStatus;
+            it.isManual = true;
+          }
+        }
+      });
+      let catTracked = 0;
+      (cat.items || []).forEach(it => {
+        if (it.is_group) catTracked += it.owned_count;
+        else if (it.tracked) catTracked += 1;
+      });
+      cat.owned = catTracked;
+      cat.percent = cat.total > 0 ? Math.round((cat.owned / cat.total) * 1000) / 10 : 0;
+    });
+
+    let totalTracked = 0;
+    state.chronicle.categories.forEach(cat => totalTracked += cat.owned);
+    state.chronicle.total_owned = totalTracked;
+    state.chronicle.percent = state.chronicle.total_items > 0
+      ? Math.round((totalTracked / state.chronicle.total_items) * 10000) / 100
+      : 0;
+  }
+
+  // Persist in localStorage
+  try {
+    const manual = JSON.parse(localStorage.getItem('bk-chronicle-manual') || '{}');
+    manual[nameLower] = newStatus;
+    localStorage.setItem('bk-chronicle-manual', JSON.stringify(manual));
+  } catch (e) {}
+
+  renderChronicleView();
+
+  // If server mode, persist to backend
+  if (!state.isWasmMode) {
+    try {
+      await window.coreFetch('/api/chronicle/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: itemName, tracked: newStatus })
+      });
+    } catch (err) {
+      console.warn('Failed to save chronicle toggle to backend:', err);
+    }
+  }
+
+  showToast(`${itemName} marked as ${newStatus ? 'discovered' : 'undiscovered'}!`, 'success');
+}
+window.toggleChronicleItem = toggleChronicleItem;
+
+function setChronicleCore(core) {
+  state.chronicleCore = core;
+  document.querySelectorAll('[data-chronicle-core]').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-chronicle-core') === core);
+  });
+  loadChronicleView();
+}
+window.setChronicleCore = setChronicleCore;
+
+function setChronicleStatus(status) {
+  state.chronicleFilter = status;
+  document.querySelectorAll('[data-chronicle-status]').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-chronicle-status') === status);
+  });
+  renderChronicleView();
+}
+window.setChronicleStatus = setChronicleStatus;
+
+function setChronicleCategory(cat) {
+  state.chronicleCategory = cat;
+  document.querySelectorAll('[data-chronicle-cat]').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-chronicle-cat') === cat);
+  });
+  renderChronicleView();
+}
+window.setChronicleCategory = setChronicleCategory;
+
+function onChronicleSearchInput(val) {
+  state.chronicleSearch = (val || '').trim().toLowerCase();
+  renderChronicleView();
+}
+window.onChronicleSearchInput = onChronicleSearchInput;
+
+function renderChronicleView() {
+  if (!state.chronicle || !dom.chronicleCategories) return;
+
+  const c = state.chronicle;
+  const pct = (typeof c.percent === 'number' && !isNaN(c.percent)) ? c.percent.toFixed(2) : '0.00';
+  if (dom.chronicleOverallScore) dom.chronicleOverallScore.textContent = `${pct}%`;
+  if (dom.chronicleOverallBar) dom.chronicleOverallBar.style.width = `${pct}%`;
+  if (dom.chronicleCountText) dom.chronicleCountText.textContent = `${c.total_owned || 0} / ${c.total_items || 0} items discovered`;
+
+  // Render category summary pills
+  if (dom.chronicleCategoryPills) {
+    dom.chronicleCategoryPills.innerHTML = (c.categories || []).map(cat => {
+      return `<span class="chronicle-cat-pill"><strong>${escapeHtml(cat.category)}:</strong> ${cat.owned} / ${cat.total} (${cat.percent}%)</span>`;
+    }).join('');
+  }
+
+  dom.chronicleCategories.innerHTML = '';
+
+  const activeCategoryFilter = state.chronicleCategory;
+  const query = state.chronicleSearch;
+
+  (c.categories || []).forEach(cat => {
+    // Check category filter
+    if (activeCategoryFilter === 'uniques' && !cat.category.toLowerCase().includes('unique')) return;
+    if (activeCategoryFilter === 'sets' && !cat.category.toLowerCase().includes('set')) return;
+    if (activeCategoryFilter === 'runewords' && !cat.category.toLowerCase().includes('runeword')) return;
+
+    const card = document.createElement('div');
+    card.className = 'grail-category-card';
+
+    const header = document.createElement('div');
+    header.className = 'grail-category-header';
+    header.innerHTML = `
+      <div class="grail-cat-title-group">
+        <h3>${escapeHtml(cat.category)}</h3>
+        <span class="badge badge-perf">${cat.owned} / ${cat.total} (${cat.percent}%)</span>
+      </div>
+      <div class="progress-bar-wrap" style="max-width: 260px; width: 100%; height: 6px;">
+        <div class="progress-bar-fill" style="width: ${cat.percent}%;"></div>
+      </div>
+    `;
+    card.appendChild(header);
+
+    const grid = document.createElement('div');
+    grid.className = 'grail-items-grid';
+
+    let matchCount = 0;
+    (cat.items || []).forEach(it => {
+      if (it.is_group) {
+        (it.items || []).forEach(subItem => {
+          if (shouldShowChronicleItem(subItem, query)) {
+            grid.appendChild(createChronicleItemCard(subItem, cat.category, it.group_name));
+            matchCount++;
+          }
+        });
+      } else {
+        if (shouldShowChronicleItem(it, query)) {
+          grid.appendChild(createChronicleItemCard(it, cat.category));
+          matchCount++;
+        }
+      }
+    });
+
+    if (matchCount === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.style.gridColumn = '1 / -1';
+      empty.style.padding = '20px 0';
+      empty.innerHTML = `<p style="color: var(--muted);">No matching items found in ${escapeHtml(cat.category)}.</p>`;
+      grid.appendChild(empty);
+    }
+
+    card.appendChild(grid);
+    dom.chronicleCategories.appendChild(card);
+  });
+}
+
+function shouldShowChronicleItem(it, query) {
+  const isTracked = !!it.tracked;
+  if (state.chronicleFilter === 'discovered' && !isTracked) return false;
+  if (state.chronicleFilter === 'undiscovered' && isTracked) return false;
+
+  if (query) {
+    const nameMatch = (it.name || '').toLowerCase().includes(query);
+    const baseMatch = (it.base || '').toLowerCase().includes(query);
+    const runesMatch = (it.runes || []).some(r => r.toLowerCase().includes(query));
+    if (!nameMatch && !baseMatch && !runesMatch) return false;
+  }
+  return true;
+}
+
+function createChronicleItemCard(it, categoryName, groupName) {
+  const isTracked = !!it.tracked;
+  const isSet = (categoryName && categoryName.includes('Set')) || !!groupName;
+  const isRuneword = (categoryName && categoryName.includes('Runeword')) || (it.runes && it.runes.length > 0);
+
+  const qClass = isRuneword ? 'q-runeword' : (isSet ? 'q-set' : 'q-unique');
+  const qColorClass = isRuneword ? 'color-runeword' : (isSet ? 'color-set' : 'color-unique');
+  const cleanTitle = escapeHtml(it.name || '');
+
+  // Look up matching item in state.items for sprite / inspection (strict quality check)
+  const nameLower = (it.name || '').toLowerCase();
+  const ownedMatch = (state.items || []).find(x => {
+    const xName = (x.name || '').toLowerCase();
+    const xDisp = (x.displayName || '').toLowerCase();
+    const nameMatches = xName === nameLower || xDisp === nameLower;
+    if (!nameMatches) return false;
+    if (isRuneword) return !!x.isRuneword;
+    if (isSet) return x.quality === 'Set';
+    return x.quality === 'Unique' && !x.isRuneword;
+  });
+
+  const invFile = it.invFile || (ownedMatch && ownedMatch.invFile) || null;
+  const typeIconHref = getItemTypeIconHref(ownedMatch || { type: it.base, baseName: it.base });
+
+  const iconMarkup = invFile ? `
+    <img class="wiki-item-icon item-card-icon" src="assets/items/${invFile}" alt="${cleanTitle}" loading="lazy" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='grid';" />
+    <span class="fallback-icon-box" style="display:none;"><svg aria-hidden="true"><use href="${typeIconHref}"/></svg></span>
+  ` : `
+    <span class="fallback-icon-box"><svg aria-hidden="true"><use href="${typeIconHref}"/></svg></span>
+  `;
+
+  // Meta line (runes, base, set)
+  let metaParts = [];
+  if (isRuneword && it.runes && it.runes.length > 0) {
+    metaParts.push(it.runes.join(' · '));
+  }
+  if (it.base) metaParts.push(escapeHtml(it.base));
+  if (groupName) metaParts.push(`<span style="color:var(--q-set); font-weight:600;">${escapeHtml(groupName)}</span>`);
+  const metaLine = metaParts.join(' · ');
+
+  // Status badge
+  const statusBadge = isTracked
+    ? `<span class="tag tag-chronicle-found">✔ In Chronicle</span>`
+    : `<span class="tag tag-chronicle-missing">✖ Undiscovered</span>`;
+
+  let extraTags = '';
+  if (isTracked && it.core) {
+    const coreLabel = it.core === 'hard' ? 'Hardcore' : 'Softcore';
+    const coreClass = it.core === 'hard' ? 'badge-hardcore' : 'badge-softcore';
+    extraTags += `<span class="badge ${coreClass}">${coreLabel}</span>`;
+  }
+  if (it.isManual) {
+    extraTags += `<span class="badge" style="background:rgba(234,179,8,0.2);color:#facc15;border:1px solid #ca8a04;">Manual</span>`;
+  }
+
+  const toggleBtnMarkup = `
+    <button type="button" class="chronicle-toggle-btn ${isTracked ? 'is-completed' : ''}" title="${isTracked ? 'Mark as Undiscovered' : 'Mark as Completed in Chronicle'}">
+      ${isTracked ? '✔' : '+'}
+    </button>
+  `;
+
+  const card = document.createElement('div');
+  const discoveredClass = isTracked ? 'is-discovered' : 'is-undiscovered';
+  card.className = `base-item-card item-index-card grail-item-card chronicle-item-card ${qClass} ${discoveredClass}`.trim();
+  card.tabIndex = 0;
+  card.setAttribute('role', 'button');
+  card.setAttribute('aria-label', `${it.name} (${isTracked ? 'Discovered in Chronicle' : 'Undiscovered'})`);
+
+  card.innerHTML = `
+    <div class="sp-head">
+      ${iconMarkup}
+      <div class="sp-head-text">
+        <span class="set-th-name ${qColorClass}">${cleanTitle}</span>
+        <span class="set-th-meta">${metaLine}</span>
+        <div class="loot-foot">
+          ${statusBadge}
+          ${extraTags}
+          ${toggleBtnMarkup}
+        </div>
+      </div>
+    </div>
+  `;
+
+  card.addEventListener('click', (e) => {
+    const btn = e.target.closest('.chronicle-toggle-btn');
+    if (btn) {
+      e.stopPropagation();
+      toggleChronicleItem(it.name, !isTracked);
+      return;
+    }
+    if (ownedMatch) {
+      openItemDetailModal(ownedMatch);
+    } else {
+      openItemDetailModal({
+        name: it.name,
+        displayName: it.name,
+        quality: isRuneword ? 'Runeword' : (isSet ? 'Set' : 'Unique'),
+        baseName: it.base || '',
+        invFile: invFile,
+        isRuneword: isRuneword,
+        requiredLevel: it.lvlReq || null,
+        lvlReq: it.lvlReq || null,
+        stats: (it.stats || []).map(s => typeof s === 'string' ? { description: s } : s),
+        isChronicleItem: true,
+        isUnowned: true,
+        tracked: isTracked,
+        isManual: !!it.isManual,
+        categoryName: categoryName,
+        groupName: groupName
+      });
+    }
+  });
+
+  return card;
+}
 
 // ==========================================================================
 // ADD CUSTOM PROFILE MODAL
@@ -1748,7 +2354,7 @@ dom.modalSaveBtn.addEventListener('click', async () => {
   }
 
   try {
-    const res = await fetch('/api/profiles/add', {
+    const res = await window.coreFetch('/api/profiles/add', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: name || 'Custom Profile', save_dir: saveDir, excel_dir: excelDir })
@@ -1780,7 +2386,7 @@ async function loadVerifierView() {
     state.verifier = {
       total_checked: all.length,
       total_out_of_date: outOfDate.length,
-      total_up_to_date: all.filter(it => it.verificationStatus === 'verified').length,
+      total_up_to_date: all.filter(it => !it.isOutOfDate && it.verificationStatus !== 'unknown').length,
       percent_out_of_date: all.length > 0 ? Math.round((outOfDate.length / all.length) * 100) : 0,
       counts_by_issue: { below_min: belowMin, above_max: aboveMax, missing_stats: missing },
       items: outOfDate
@@ -1793,7 +2399,7 @@ async function loadVerifierView() {
   dom.verifierAllClean.style.display = 'none';
 
   try {
-    const res = await fetch('/api/verifier');
+    const res = await window.coreFetch('/api/verifier');
     const data = await res.json();
     if (data.error) {
       dom.verifierItemsList.innerHTML = `<div class="empty-state"><h3>Verifier Error: ${escapeHtml(data.error)}</h3></div>`;
@@ -1897,6 +2503,9 @@ document.querySelectorAll('[data-verifier-issue]').forEach(btn => {
 
 // Create Mule Modal Logic
 function openCreateMuleModal() {
+  const coreCheck = document.getElementById('mule-hardcore-check');
+  coreCheck.checked = state.core === 'hard';
+  coreCheck.disabled = true;
   const modal = document.getElementById('create-mule-modal');
   const nameInput = document.getElementById('mule-name-input');
   const statusEl = document.getElementById('mule-create-status');
@@ -1982,7 +2591,7 @@ async function submitCreateMule() {
   }
 
   try {
-    const res = await fetch('/api/mules/create', {
+    const res = await window.coreFetch('/api/mules/create', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, class: charClass, hardcore })
@@ -2158,7 +2767,7 @@ async function submitCompleteQuests() {
   }
 
   try {
-    const res = await fetch('/api/character/quests/complete', {
+    const res = await window.coreFetch('/api/character/quests/complete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2451,6 +3060,7 @@ async function submitItemTransfer() {
           statusEl.textContent = (data.message || 'Item transferred!') + ' Save file downloaded.';
         }
         showToast('Item transferred! Save file downloaded.', 'success');
+        window.recordEdit?.('item transfer');
         setTimeout(async () => {
           closeTransferItemModal();
           if (dom.itemModal) dom.itemModal.style.display = 'none';
@@ -2472,7 +3082,7 @@ async function submitItemTransfer() {
       return;
     }
 
-    const res = await fetch('/api/item/transfer', {
+    const res = await window.coreFetch('/api/item/transfer', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -2486,6 +3096,7 @@ async function submitItemTransfer() {
         statusEl.textContent = data.Message || 'Item transferred successfully!';
       }
       showToast('Item transferred successfully!', 'success');
+      window.recordEdit?.('item transfer');
       setTimeout(async () => {
         closeTransferItemModal();
         if (dom.itemModal) dom.itemModal.style.display = 'none';
@@ -2514,7 +3125,30 @@ async function submitItemTransfer() {
   }
 }
 
-function openPackMuleModal() {
+let packMuleRefreshing = false;
+async function openPackMuleModal() {
+  if (packMuleRefreshing) return;
+  packMuleRefreshing = true;
+  try {
+    if (state.isWasmMode && window.D2Wasm) {
+      await refreshWasmDataset();
+    } else {
+      showToast('Refreshing saves before packing a mule…', 'info');
+      const scanResponse = await window.coreFetch('/api/scan', { method: 'POST' });
+      const scan = await scanResponse.json();
+      if (!scanResponse.ok || !scan.success) throw new Error(scan.error || 'Save scan failed.');
+      const savesResponse = await window.coreFetch('/api/saves', { cache: 'no-store' });
+      if (!savesResponse.ok) throw new Error('Could not load refreshed saves.');
+      const refreshed = await savesResponse.json();
+      if (!Array.isArray(refreshed.saves)) throw new Error('Invalid save list.');
+      state.saves = refreshed.saves;
+    }
+  } catch (err) {
+    showToast('Cannot open Pack Mule: ' + err.message, 'error');
+    return;
+  } finally {
+    packMuleRefreshing = false;
+  }
   const stashSelect = document.getElementById('pack-stash-select');
   const tabSelect = document.getElementById('pack-tab-select');
   const charSelect = document.getElementById('pack-target-char-select');
@@ -2529,7 +3163,7 @@ function openPackMuleModal() {
   stashes.forEach(s => {
     const opt = document.createElement('option');
     opt.value = s.file;
-    opt.textContent = s.name;
+    opt.textContent = `${s.name} — ${s.core === 'hard' ? 'Hardcore' : 'Softcore'} (${s.file})`;
     opt.dataset.tabs = JSON.stringify(s.tabs || []);
     stashSelect.appendChild(opt);
   });
@@ -2540,7 +3174,7 @@ function openPackMuleModal() {
     const opt = document.createElement('option');
     opt.value = c.file;
     opt.dataset.charName = c.name;
-    opt.textContent = `${c.name} (${c.class} Lvl ${c.level})`;
+    opt.textContent = `${c.name} (${c.class} Lvl ${c.level}) — ${c.core === 'hard' ? 'Hardcore' : 'Softcore'}`;
     charSelect.appendChild(opt);
   });
 
@@ -2667,7 +3301,7 @@ async function submitPackMule() {
   }
 
   try {
-    const res = await fetch('/api/mule/fill', {
+    const res = await window.coreFetch('/api/mule/fill', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

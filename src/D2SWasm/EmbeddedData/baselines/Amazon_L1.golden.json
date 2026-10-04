@@ -1,0 +1,110 @@
+{
+  "file": "Amazon_L1.golden.d2s",
+  "character": {
+    "name": "TestAmazon",
+    "level": 1,
+    "class": "Amazon",
+    "gameVersion": "ReignOfTheWarlock",
+    "core": "soft"
+  },
+  "stats": {
+    "strength": 20,
+    "dexterity": 25,
+    "vitality": 20,
+    "energy": 15,
+    "life": 50,
+    "mana": 15,
+    "stamina": 115
+  },
+  "items": [
+    {
+      "name": "Game Modifers (Charm Modifiers)",
+      "baseName": "Charm Modifiers",
+      "itemCode": "mfc",
+      "itemLevel": 1,
+      "type": "Charms",
+      "tier": null,
+      "quality": "Unique",
+      "set": null,
+      "baseDefenseRange": null,
+      "defenseRange": null,
+      "location": "Inventory",
+      "stats": [
+        {
+          "id": "FireResist",
+          "description": "Fire Resist -30%",
+          "value": -30,
+          "range": "-30--30",
+          "expectedMin": -30,
+          "expectedMax": -30
+        },
+        {
+          "id": "LightningResist",
+          "description": "Lightning Resist -30%",
+          "value": -30,
+          "range": "-30--30",
+          "expectedMin": -30,
+          "expectedMax": -30
+        },
+        {
+          "id": "ColdResist",
+          "description": "Cold Resist -30%",
+          "value": -30,
+          "range": "-30--30",
+          "expectedMin": -30,
+          "expectedMax": -30
+        },
+        {
+          "id": "PoisonResist",
+          "description": "Poison Resist -30%",
+          "value": -30,
+          "range": "-30--30",
+          "expectedMin": -30,
+          "expectedMax": -30
+        },
+        {
+          "id": "MagicFind",
+          "description": "-199% Better Chance of Getting Magic Items",
+          "value": -199,
+          "range": "-199--199",
+          "expectedMin": -199,
+          "expectedMax": -199
+        },
+        {
+          "id": "MagicFindPerLevel",
+          "description": "+0.5 Magic Find% (per level)",
+          "value": 4
+        }
+      ],
+      "isOutOfDate": false
+    },
+    {
+      "name": "Horadric Cube",
+      "baseName": "Horadric Cube",
+      "itemCode": "box",
+      "itemLevel": 1,
+      "type": "Quest",
+      "tier": null,
+      "quality": "Normal",
+      "set": null,
+      "baseDefenseRange": null,
+      "defenseRange": null,
+      "location": "Inventory",
+      "isOutOfDate": false
+    },
+    {
+      "name": "TP",
+      "baseName": "TP",
+      "itemCode": "tsc",
+      "itemLevel": 1,
+      "type": "Scroll",
+      "tier": null,
+      "quality": "Normal",
+      "set": null,
+      "baseDefenseRange": null,
+      "defenseRange": null,
+      "location": "Inventory",
+      "isOutOfDate": false
+    }
+  ]
+}

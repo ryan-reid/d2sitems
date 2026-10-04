@@ -1,8 +1,8 @@
 # .NET build artifacts
 bin/
 obj/
-tests/**/bin/
-tests/**/obj/
+**/bin/
+**/obj/
 runtimes/
 *.deps.json
 *.runtimeconfig.json
@@ -31,3 +31,33 @@ venv/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Temporary scratch files, screenshots, and local data
+screenshot_*.png
+test_*.png
+*.tmp
+invgswe_decoded.png
+backups/
+temp.json
+sorc_api.json
+user_chronicle.json
+test.html
+refactor_*.js
+scratch_*.py
+analyze_*.py
+check_*.py
+inspect_*.py
+print_*.py
+find_jewels.py
+export_bank_layout.py
+build_catalog.py
+update_jewel_mappings.py
+test_categorization.py
+test_jewel_resolution.py
+test_zoom.js
+
+# Generated WebAssembly output
+web/wasm/
+web/_framework/
+
+

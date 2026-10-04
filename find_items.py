@@ -218,11 +218,269 @@ def clean_item_name(name):
     name = re.sub(r"\s+", " ", name)
     return name.strip()
 
+QUEST_CODES = {
+    'ass', 'bbb', 'bkd', 'bks', 'box', 'd33', 'g33', 'g34', 'hdm', 'hfh', 'hst',
+    'ice', 'j34', 'luv', 'msf', 'mss', 'qbr', 'qey', 'qf1', 'qf2', 'qhr', 'tr1',
+    'tr2', 'vip', 'xyz'
+}
+
+RUNE_LVL_REQS = {
+    'r01': 11, 'r02': 11, 'r03': 13, 'r04': 13, 'r05': 15, 'r06': 15,
+    'r07': 17, 'r08': 17, 'r09': 19, 'r10': 19, 'r11': 21, 'r12': 21,
+    'r13': 23, 'r14': 25, 'r15': 27, 'r16': 29, 'r17': 29, 'r18': 31,
+    'r19': 35, 'r20': 37, 'r21': 41, 'r22': 43, 'r23': 45, 'r24': 47,
+    'r25': 49, 'r26': 53, 'r27': 57, 'r28': 59, 'r29': 61, 'r30': 63,
+    'r31': 65, 'r32': 67, 'r33': 69
+}
+
+CLASS_MAP = {
+    'ama': 'Amazon', 'sor': 'Sorceress', 'nec': 'Necromancer', 'pal': 'Paladin',
+    'bar': 'Barbarian', 'dru': 'Druid', 'ass': 'Assassin', 'war': 'Warlock'
+}
+
+SKILL_TABS = {
+    '0': 'Bow and Crossbow Skills (Amazon Only)',
+    '1': 'Passive and Magic Skills (Amazon Only)',
+    '2': 'Javelin and Spear Skills (Amazon Only)',
+    '8': 'Fire Spells (Sorceress Only)',
+    '9': 'Lightning Spells (Sorceress Only)',
+    '10': 'Cold Spells (Sorceress Only)',
+    '16': 'Curses (Necromancer Only)',
+    '17': 'Poison and Bone Skills (Necromancer Only)',
+    '18': 'Summoning Skills (Necromancer Only)',
+    '24': 'Combat Skills (Paladin Only)',
+    '25': 'Offensive Auras (Paladin Only)',
+    '26': 'Defensive Auras (Paladin Only)',
+    '32': 'Combat Skills (Barbarian Only)',
+    '33': 'Combat Masteries (Barbarian Only)',
+    '34': 'Warcries (Barbarian Only)',
+    '40': 'Summoning Skills (Druid Only)',
+    '41': 'Shape Shifting Skills (Druid Only)',
+    '42': 'Elemental Skills (Druid Only)',
+    '48': 'Traps (Assassin Only)',
+    '49': 'Shadow Disciplines (Assassin Only)',
+    '50': 'Martial Arts (Assassin Only)',
+    '56': 'Eldritch Spells (Warlock Only)',
+    '57': 'Demonic Arts (Warlock Only)',
+    '58': 'Chaos Magic (Warlock Only)'
+}
+
+def format_stat_property(prop, param, mn, mx, strings=None):
+    if not prop:
+        return None
+    strings = strings or {}
+    p_low = prop.lower().strip()
+    param_str = (param or '').strip()
+
+    try:
+        mn_val = int(mn.strip()) if mn and str(mn).strip() else 0
+        mx_val = int(mx.strip()) if mx and str(mx).strip() else mn_val
+    except ValueError:
+        mn_val = 0
+        mx_val = 0
+
+    range_str = f"{mn_val}" if mn_val == mx_val else f"{mn_val}-{mx_val}"
+
+    # Skills & Class Skills
+    if p_low in ('allskills', 'all-skills'):
+        return f"+{range_str} to All Skills"
+    if p_low in CLASS_MAP:
+        return f"+{range_str} to {CLASS_MAP[p_low]} Skill Levels"
+    if p_low in ('skilltab', 'skilltab-war'):
+        tab_name = SKILL_TABS.get(param_str, f"Skill Tab {param_str}")
+        return f"+{range_str} to {tab_name}"
+    if p_low == 'oskill':
+        s_name = strings.get(param_str, param_str)
+        return f"+{range_str} to {s_name} (oskill)"
+    if p_low == 'skill':
+        s_name = strings.get(param_str, param_str)
+        return f"+{range_str} to {s_name}"
+    if p_low in ('aura', 'Aura'):
+        a_name = strings.get(param_str, param_str)
+        return f"Level {range_str} {a_name} Aura When Equipped"
+    if p_low == 'charged':
+        s_name = strings.get(param_str, param_str)
+        return f"Level {mn_val} {s_name} ({mx_val} Charges)"
+    if p_low in ('hit-skill', 'hitskill'):
+        s_name = strings.get(param_str, param_str)
+        return f"{mn_val}% Chance to cast Level {mx_val} {s_name} on striking"
+    if p_low in ('att-skill', 'attskill'):
+        s_name = strings.get(param_str, param_str)
+        return f"{mn_val}% Chance to cast Level {mx_val} {s_name} on attack"
+    if p_low == 'gethit-skill':
+        s_name = strings.get(param_str, param_str)
+        return f"{mn_val}% Chance to cast Level {mx_val} {s_name} when struck"
+    if p_low == 'kill-skill':
+        s_name = strings.get(param_str, param_str)
+        return f"{mn_val}% Chance to cast Level {mx_val} {s_name} when you Kill an Enemy"
+    if p_low == 'death-skill':
+        s_name = strings.get(param_str, param_str)
+        return f"{mn_val}% Chance to cast Level {mx_val} {s_name} when you Die"
+    if p_low == 'levelup-skill':
+        s_name = strings.get(param_str, param_str)
+        return f"{mn_val}% Chance to cast Level {mx_val} {s_name} when you Level Up"
+
+    # Element Skills
+    if p_low == 'fireskill': return f"+{range_str} to Fire Skills"
+    if p_low == 'ltngskill': return f"+{range_str} to Lightning Skills"
+    if p_low == 'coldskill': return f"+{range_str} to Cold Skills"
+    if p_low == 'poisskill': return f"+{range_str} to Poison Skills"
+    if p_low == 'magskill': return f"+{range_str} to Magic Skills"
+
+    # Static Formats
+    STAT_FORMATS = {
+        'ac%': f"+{range_str}% Enhanced Defense",
+        'ac': f"+{range_str} Defense",
+        'ac-miss': f"+{range_str} Defense vs. Missile",
+        'ac-hth': f"+{range_str} Defense vs. Melee",
+        'ac/lvl': f"+{mn_val * 0.125:.1f}-{mn_val * 1.5:.1f} Defense (Based on Character Level)",
+        'dmg%': f"+{range_str}% Enhanced Damage",
+        'dmg': f"+{range_str} Damage",
+        'dmg-norm': f"+{range_str} Damage",
+        'dmg-min': f"+{range_str} to Minimum Damage",
+        'dmg-max': f"+{range_str} to Maximum Damage",
+        'dmg/lvl': f"+{mn_val * 0.125:.1f}-{mn_val * 1.5:.1f} to Maximum Damage (Based on Character Level)" if mn_val > 0 else f"+{mn_val} to Maximum Damage (Based on Character Level)",
+        'dmg-dem/lvl': f"+{mn_val * 0.125:.1f}-{mn_val * 1.5:.1f}% Damage to Demons (Based on Character Level)",
+        'dmg-demon': f"+{range_str}% Damage to Demons",
+        'dmg-und/lvl': f"+{mn_val * 0.125:.1f}-{mn_val * 1.5:.1f}% Damage to Undead (Based on Character Level)",
+        'dmg-undead': f"+{range_str}% Damage to Undead",
+        'dmg-to-mana': f"{range_str}% Damage Taken Goes to Mana",
+        'dmg-elem': f"Adds {mn_val}-{mx_val} Elemental Damage",
+        'dmg-fire': f"Adds {mn_val}-{mx_val} Fire Damage",
+        'dmg-ltng': f"Adds {mn_val}-{mx_val} Lightning Damage",
+        'dmg-cold': f"Adds {mn_val}-{mx_val} Cold Damage",
+        'dmg-mag': f"Adds {mn_val}-{mx_val} Magic Damage",
+        'dmg-pois': f"+{mn_val} Poison Damage Over {max(1, mx_val // 25)} Seconds",
+        'res-all': f"All Resistances +{range_str}",
+        'res-all-max': f"+{range_str}% to Maximum All Resistances",
+        'res-fire': f"Fire Resist +{range_str}%",
+        'res-fire-max': f"+{range_str}% to Maximum Fire Resist",
+        'res-ltng': f"Lightning Resist +{range_str}%",
+        'res-ltng-max': f"+{range_str}% to Maximum Lightning Resist",
+        'res-cold': f"Cold Resist +{range_str}%",
+        'res-cold-max': f"+{range_str}% to Maximum Cold Resist",
+        'res-pois': f"Poison Resist +{range_str}%",
+        'res-pois-max': f"+{range_str}% to Maximum Poison Resist",
+        'res-pois-len': f"Poison Length Reduced by {range_str}%",
+        'res-curse': f"Curse Resistance +{range_str}%",
+        'res-mag': f"Magic Resist +{range_str}%",
+        'hp': f"+{range_str} to Life",
+        'hp%': f"Increase Maximum Life {range_str}%",
+        'hp/lvl': f"+{mn_val * 0.125:.1f}-{mn_val * 1.5:.1f} to Life (Based on Character Level)",
+        'mana': f"+{range_str} to Mana",
+        'mana%': f"Increase Maximum Mana {range_str}%",
+        'mana/lvl': f"+{mn_val * 0.125:.1f}-{mn_val * 1.5:.1f} to Mana (Based on Character Level)",
+        'str': f"+{range_str} to Strength",
+        'str%': f"+{range_str}% to Strength",
+        'str/lvl': f"+{mn_val * 0.125:.1f}-{mn_val * 1.5:.1f} to Strength (Based on Character Level)",
+        'dex': f"+{range_str} to Dexterity",
+        'dex%': f"+{range_str}% to Dexterity",
+        'dex/lvl': f"+{mn_val * 0.125:.1f}-{mn_val * 1.5:.1f} to Dexterity (Based on Character Level)",
+        'vit': f"+{range_str} to Vitality",
+        'vit%': f"+{range_str}% to Vitality",
+        'vit/lvl': f"+{mn_val * 0.125:.1f}-{mn_val * 1.5:.1f} to Vitality (Based on Character Level)",
+        'enr': f"+{range_str} to Energy",
+        'enr%': f"+{range_str}% to Energy",
+        'all-stats': f"+{range_str} to All Attributes",
+        'cast1': f"+{range_str}% Faster Cast Rate",
+        'cast2': f"+{range_str}% Faster Cast Rate",
+        'cast3': f"+{range_str}% Faster Cast Rate",
+        'swing1': f"+{range_str}% Increased Attack Speed",
+        'swing2': f"+{range_str}% Increased Attack Speed",
+        'swing3': f"+{range_str}% Increased Attack Speed",
+        'move1': f"+{range_str}% Faster Run/Walk",
+        'move2': f"+{range_str}% Faster Run/Walk",
+        'move3': f"+{range_str}% Faster Run/Walk",
+        'balance1': f"+{range_str}% Faster Hit Recovery",
+        'balance2': f"+{range_str}% Faster Hit Recovery",
+        'balance3': f"+{range_str}% Faster Hit Recovery",
+        'block': f"+{range_str}% Faster Block Rate",
+        'block1': f"+{range_str}% Increased Chance of Blocking",
+        'block2': f"+{range_str}% Increased Chance of Blocking",
+        'block3': f"+{range_str}% Increased Chance of Blocking",
+        'lifesteal': f"{range_str}% Life Stolen Per Hit",
+        'manasteal': f"{range_str}% Mana Stolen Per Hit",
+        'crush': f"{range_str}% Chance of Crushing Blow",
+        'openwounds': f"{range_str}% Chance of Open Wounds",
+        'deadly': f"{range_str}% Deadly Strike",
+        'deadly/lvl': f"+{mn_val * 0.125:.1f}-{mn_val * 1.5:.1f}% Deadly Strike (Based on Character Level)",
+        'pierce': f"Piercing Attack (+{range_str})",
+        'red-dmg': f"Damage Reduced by {range_str}",
+        'red-dmg%': f"Damage Reduced by {range_str}%",
+        'red-mag': f"Magic Damage Reduced by {range_str}",
+        'abs-fire': f"+{range_str} Fire Absorption",
+        'abs-fire%': f"+{range_str}% Fire Absorption",
+        'abs-ltng': f"+{range_str} Lightning Absorption",
+        'abs-ltng%': f"+{range_str}% Lightning Absorption",
+        'abs-cold': f"+{range_str} Cold Absorption",
+        'abs-cold%': f"+{range_str}% Cold Absorption",
+        'abs-mag': f"+{range_str} Magic Absorption",
+        'abs-mag%': f"+{range_str}% Magic Absorption",
+        'half-freeze': "Half Freeze Duration",
+        'nofreeze': "Cannot Be Frozen",
+        'regen': f"Replenish Life +{range_str}",
+        'regen-mana': f"Regenerate Mana {range_str}%",
+        'regen-stam': f"Heal Stamina Plus {range_str}%",
+        'stam': f"+{range_str} Maximum Stamina",
+        'mana-kill': f"+{range_str} to Mana After Each Kill",
+        'heal-kill': f"+{range_str} to Life After Each Kill",
+        'ignore-ac': "Ignore Target's Defense",
+        'reduce-ac': f"-{range_str} Target Defense",
+        'knock': "Knockback",
+        'blind': "Hit Blinds Target",
+        'freeze': f"Freezes Target +{range_str}",
+        'slow': f"Slows Target by {range_str}%",
+        'ease': f"Requirements -{abs(mn_val)}%" if mn_val < 0 else f"Requirements +{mn_val}%",
+        'indestruct': "Indestructible",
+        'sock': f"Socketed ({range_str})",
+        'mag%': f"{range_str}% Better Chance of Getting Magic Items",
+        'mag%/lvl': f"+{mn_val * 0.125:.1f}-{mn_val * 1.5:.1f}% Better Chance of Getting Magic Items (Based on Character Level)",
+        'gold%': f"{range_str}% Extra Gold from Monsters",
+        'gold%/lvl': f"+{mn_val * 0.125:.1f}-{mn_val * 1.5:.1f}% Extra Gold from Monsters (Based on Character Level)",
+        'att': f"+{range_str} to Attack Rating",
+        'att%': f"+{range_str}% Bonus to Attack Rating",
+        'att/lvl': f"+{mn_val * 5}-{mn_val * 45} to Attack Rating (Based on Character Level)",
+        'att-demon': f"+{range_str} to Attack Rating against Demons",
+        'att-undead': f"+{range_str} to Attack Rating against Undead",
+        'thorns': f"Attacker Takes Damage of {range_str}",
+        'light': f"+{range_str} to Light Radius",
+        'noheal': "Prevent Monster Heal",
+        'rip': "Slain Monsters Rest In Peace",
+        'addxp': f"+{range_str}% to Experience Gained",
+        'splash': "Melee Attacks Deal Splash Damage",
+        'ethereal': "Ethereal (Cannot Be Repaired)",
+        'rep-dur': f"Repairs 1 Durability in {max(1, mn_val)} Seconds",
+        'rep-quant': "Replenishes Quantity",
+        'pierce-cold': f"-{range_str}% to Enemy Cold Resistance",
+        'pierce-fire': f"-{range_str}% to Enemy Fire Resistance",
+        'pierce-ltng': f"-{range_str}% to Enemy Lightning Resistance",
+        'pierce-pois': f"-{range_str}% to Enemy Poison Resistance",
+        'extra-fire': f"+{range_str}% to Fire Skill Damage",
+        'extra-ltng': f"+{range_str}% to Lightning Skill Damage",
+        'extra-cold': f"+{range_str}% to Cold Skill Damage",
+        'extra-pois': f"+{range_str}% to Poison Skill Damage",
+        'extra-mag': f"+{range_str}% to Magic Skill Damage",
+        'pierce-immunity-cold': "Pierces Cold Immunity",
+        'pierce-immunity-fire': "Pierces Fire Immunity",
+        'pierce-immunity-light': "Pierces Lightning Immunity",
+        'pierce-immunity-poison': "Pierces Poison Immunity",
+        'pierce-immunity-magic': "Pierces Magic Immunity",
+        'pierce-immunity-damage': "Pierces Physical Immunity",
+    }
+
+    if p_low in STAT_FORMATS:
+        return STAT_FORMATS[p_low]
+
+    clean_p = prop.replace('-', ' ').title()
+    if mn_val or mx_val:
+        return f"+{range_str} to {clean_p}"
+    return clean_p
+
 def load_string_table(excel_dir):
     """Load Key -> enUS mapping from the localization files."""
     table = {}
     strings_dir = os.path.normpath(os.path.join(excel_dir, "..", "..", "local", "lng", "strings"))
-    for filename in ("item-names.json", "item-runes.json"):
+    for filename in ("item-names.json", "item-runes.json", "skills.json", "item-modifiers.json"):
         path = os.path.join(strings_dir, filename)
         if not os.path.exists(path):
             continue
@@ -259,48 +517,122 @@ def load_grail_items(excel_dir, exclude=None):
         rows = [dict(zip(header, line.split("\t"))) for line in lines[1:]]
         return rows
 
-    unique_item_bases = {}  # item_name -> base_name
+    unique_item_bases = {}
+    unique_item_codes = {}
+    unique_item_lvlreqs = {}
+    unique_item_stats = {}
+    unique_item_ids = {}
+
     uniques = read_tsv(os.path.join(excel_dir, "uniqueitems.txt"))
     if uniques:
         seen = set()
         for row in uniques:
-            name = localize(row.get("index", "").strip())
-            base_code = row.get("code", "").strip()
+            uid = row.get("*ID", "").strip()
+            base_code = row.get("code", "").strip().lower()
+            dc = row.get("disableChronicle", "").strip()
+            enabled = row.get("enabled", "1").strip()
+            if not uid.isdigit() or not base_code or dc == "1" or enabled == "0" or base_code in QUEST_CODES:
+                continue
+
+            raw_name = row.get("index", "").strip()
+            name = localize(raw_name)
             base_fallback = row.get("*ItemName", "").strip()
             base_name = strings.get(base_code, base_fallback)
+
             if name and name not in seen and name not in exclude:
                 seen.add(name)
                 grail["Unique Items"].append(name)
                 unique_item_bases[name] = base_name
-    grail["_uniqueItemBases"] = unique_item_bases
+                unique_item_codes[name] = base_code
+                try:
+                    lvl_req = int(row.get("lvl req", "0").strip() or "0")
+                except ValueError:
+                    lvl_req = 0
+                unique_item_lvlreqs[name] = lvl_req
+                unique_item_ids[name] = int(uid)
 
-    # Set items: track each item's parent set name and base type so we can group later
-    sets_by_set = {}  # set_name -> [(item_name, base_name), ...]
-    set_order = []  # preserve insertion order
-    set_item_bases = {}  # item_name -> base_name
+                st_list = []
+                for i in range(1, 13):
+                    p = row.get(f"prop{i}", "").strip()
+                    if p:
+                        par = row.get(f"par{i}", "").strip()
+                        mn = row.get(f"min{i}", "").strip()
+                        mx = row.get(f"max{i}", "").strip()
+                        fmt = format_stat_property(p, par, mn, mx, strings)
+                        if fmt:
+                            st_list.append(fmt)
+                unique_item_stats[name] = st_list
+
+    grail["_uniqueItemBases"] = unique_item_bases
+    grail["_uniqueItemCodes"] = unique_item_codes
+    grail["_uniqueItemLvlReqs"] = unique_item_lvlreqs
+    grail["_uniqueItemStats"] = unique_item_stats
+    grail["_uniqueItemIds"] = unique_item_ids
+
+    # Set items
+    sets_by_set = {}
+    set_order = []
+    set_item_bases = {}
+    set_item_codes = {}
+    set_item_lvlreqs = {}
+    set_item_stats = {}
+    set_item_ids = {}
+
     sets = read_tsv(os.path.join(excel_dir, "setitems.txt"))
     if sets:
         seen = set()
         for row in sets:
-            name = localize(row.get("index", "").strip())
+            uid = row.get("*ID", "").strip()
+            base_code = row.get("item", "").strip().lower()
+            dc = row.get("disableChronicle", "").strip()
+            if not uid.isdigit() or not base_code or dc == "1" or base_code in QUEST_CODES:
+                continue
+
+            raw_name = row.get("index", "").strip()
+            name = localize(raw_name)
             set_name = localize(row.get("set", "").strip())
-            base_code = row.get("item", "").strip()
             base_fallback = row.get("*ItemName", "").strip()
             base_name = strings.get(base_code, base_fallback)
+
             if name and name not in seen and name not in exclude:
                 seen.add(name)
                 grail["Set Items"].append(name)
                 set_item_bases[name] = base_name
+                set_item_codes[name] = base_code
+                try:
+                    lvl_req = int(row.get("lvl req", "0").strip() or "0")
+                except ValueError:
+                    lvl_req = 0
+                set_item_lvlreqs[name] = lvl_req
+                set_item_ids[name] = int(uid)
+
+                st_list = []
+                for i in range(1, 10):
+                    p = row.get(f"prop{i}", "").strip()
+                    if p:
+                        par = row.get(f"par{i}", "").strip()
+                        mn = row.get(f"min{i}", "").strip()
+                        mx = row.get(f"max{i}", "").strip()
+                        fmt = format_stat_property(p, par, mn, mx, strings)
+                        if fmt:
+                            st_list.append(fmt)
+                set_item_stats[name] = st_list
+
                 if set_name:
                     if set_name not in sets_by_set:
                         sets_by_set[set_name] = []
                         set_order.append(set_name)
                     sets_by_set[set_name].append(name)
+
     grail["_setsByName"] = sets_by_set
     grail["_setOrder"] = set_order
     grail["_setItemBases"] = set_item_bases
+    grail["_setItemCodes"] = set_item_codes
+    grail["_setItemLvlReqs"] = set_item_lvlreqs
+    grail["_setItemStats"] = set_item_stats
+    grail["_setItemIds"] = set_item_ids
 
-    # Build rune code -> rune name map from misc.txt (no string table; it has color codes)
+    # Build rune code -> rune name map from misc.txt
     rune_names = {}
     misc = read_tsv(os.path.join(excel_dir, "misc.txt"))
     if misc:
@@ -310,30 +642,57 @@ def load_grail_items(excel_dir, exclude=None):
             if re.match(r"^r\d+$", code) and name:
                 rune_names[code] = name
 
-    runeword_runes = {}  # runeword_name -> [rune name, ...]
+    runeword_runes = {}
+    runeword_lvlreqs = {}
+    runeword_stats = {}
+    runeword_types = {}
+    runeword_first_runes = {}
+
     runewords = read_tsv(os.path.join(excel_dir, "runes.txt"))
     if runewords:
         seen = set()
         for row in runewords:
-            if row.get("complete", "").strip() != "1":
+            if row.get("complete", "").strip() != "1" or not row.get("Rune1", "").strip():
                 continue
-            # Runewords use the "Name" column (e.g. "Runeword33") as the key, with "*Rune Name" as fallback
             raw_key = row.get("Name", "").strip()
             fallback = row.get("*Rune Name", "").strip()
             name = strings.get(raw_key, fallback)
             if name and name not in seen and name not in exclude:
                 seen.add(name)
                 grail["Runewords"].append(name)
+                runeword_types[name] = row.get("itype1", "").strip().lower()
+                runeword_first_runes[name] = row.get("Rune1", "").strip().lower()
                 runes = []
+                max_rune_lvl = 0
                 for i in range(1, 7):
                     rune = row.get(f"Rune{i}", "").strip()
                     if rune:
-                        # Strip "Rune" suffix from display name for brevity
                         rn = rune_names.get(rune, rune)
                         rn = re.sub(r"\s+Rune$", "", rn)
                         runes.append(rn)
+                        rune_lvl = RUNE_LVL_REQS.get(rune.lower(), 0)
+                        if rune_lvl > max_rune_lvl:
+                            max_rune_lvl = rune_lvl
                 runeword_runes[name] = runes
+                runeword_lvlreqs[name] = max_rune_lvl
+
+                st_list = []
+                for i in range(1, 8):
+                    p = row.get(f"T1Code{i}", "").strip()
+                    if p:
+                        par = row.get(f"T1Param{i}", "").strip()
+                        mn = row.get(f"T1Min{i}", "").strip()
+                        mx = row.get(f"T1Max{i}", "").strip()
+                        fmt = format_stat_property(p, par, mn, mx, strings)
+                        if fmt:
+                            st_list.append(fmt)
+                runeword_stats[name] = st_list
+
     grail["_runewordRunes"] = runeword_runes
+    grail["_runewordLvlReqs"] = runeword_lvlreqs
+    grail["_runewordStats"] = runeword_stats
+    grail["_runewordTypes"] = runeword_types
+    grail["_runewordFirstRunes"] = runeword_first_runes
 
     return grail
 

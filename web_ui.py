@@ -6,6 +6,11 @@ characters, shared stashes, and Holy Grail progression.
 """
 
 import shutil
+import copy
+from pathlib import Path
+import tempfile
+import uuid
+import base64
 import argparse
 import glob
 import hashlib
@@ -43,7 +48,22 @@ def catalog_revision(directory):
         return None
     manifest = "".join(os.path.basename(path).lower() + ":" + hashlib.sha256(open(path, "rb").read()).hexdigest().upper() + "\n"
                        for path in sorted(glob.glob(os.path.join(directory, "*.txt")), key=lambda path: os.path.basename(path).lower()))
-    return hashlib.sha256(manifest.encode("utf-8")).hexdigest().upper()
+    defs_hash = hashlib.sha256(manifest.encode("utf-8")).hexdigest().upper()
+    
+    layout_hash = ""
+    try:
+        with open(os.path.join(WEB_DIR, "bank_expansion_layout.json"), "r") as f:
+            layout_hash = json.load(f).get("revision", "")
+    except Exception: pass
+
+    artwork_hash = ""
+    try:
+        with open(SPRITE_MAPPINGS_FILE, "r") as f:
+            artwork_hash = json.load(f).get("revision", "")
+    except Exception: pass
+
+    combined = f"{defs_hash}:{layout_hash}:{artwork_hash}"
+    return hashlib.sha256(combined.encode("utf-8")).hexdigest().upper()
 
 def get_sprite_mappings():
     if os.path.isfile(SPRITE_MAPPINGS_FILE):
@@ -68,8 +88,38 @@ def resolve_item_art(item, catalog, classic=False):
         identity = kind + ":" + key
         tier = {"Normal": "normal", "Exceptional": "uber", "Elite": "ultra"}.get(item.get("tier"), "normal")
         file = (catalog.get("classic_" + kind, {}).get(key) or fallback) if classic else catalog.get("variants", {}).get(identity, {}).get(tier, fallback)
+        if file == "invchm.png" or key == "438" or code == "mfc":
+            file = "hd_charm_charm_modifiers.png"
         return {"file": file, "identity": identity, **catalog.get("provenance", {}).get(identity, {})}
+    if code == "mfc" or identifier == 438:
+        return {"file": "hd_charm_charm_modifiers.png", "identity": "uniques:438", "source": "BKDiablo"}
     return {"file": None, "source": "unmatched"}
+
+RUNEWORD_TYPE_BASES = {
+    'shld': 'hd_shield_kite_shield.png',
+    'head': 'hd_shield_bone_shield.png',
+    'tors': 'hd_armor_ancient_armor.png',
+    'helm': 'hd_helmet_bone_helm.png',
+    'phlm': 'hd_helmet_avenger_guard.png',
+    'pelt': 'hd_helmet_bone_helm.png',
+    'swor': 'hd_sword_crystal_sword.png',
+    'axe': 'hd_axe_double_axe.png',
+    'mele': 'hd_axe_double_axe.png',
+    'weap': 'hd_axe_double_axe.png',
+    'club': 'hd_mace_flail.png',
+    'hamm': 'hd_mace_flail.png',
+    'mace': 'hd_mace_flail.png',
+    'pole': 'hd_polearm_halberd.png',
+    'spea': 'hd_polearm_halberd.png',
+    'miss': 'hd_bow_short_war_bow.png',
+    'bow': 'hd_bow_short_war_bow.png',
+    'xbow': 'hd_bow_short_war_bow.png',
+    'scep': 'hd_scepter_grand_scepter.png',
+    'wand': 'hd_wand_grim_wand.png',
+    'knif': 'hd_knife_dagger.png',
+    'claw': 'hd_h2h_katar.png',
+    'h2h': 'hd_h2h_katar.png'
+}
 
 # Find d2sitems executable or dotnet project
 D2S_EXE_CANDIDATES = [
@@ -78,8 +128,39 @@ D2S_EXE_CANDIDATES = [
     os.path.join(SCRIPT_DIR, "d2sitems.exe"),
 ]
 
+def is_binary_fresh(binary_path):
+    """Check if compiled binary is newer than all root C# source files."""
+    try:
+        bin_mtime = os.path.getmtime(binary_path)
+    except OSError:
+        return False
+    ignored = {"bin", "obj", ".git", "web", "tests", ".agents", "src", "docs", "scripts"}
+    for root, dirs, files in os.walk(SCRIPT_DIR):
+        if any(ign in root for ign in ignored):
+            continue
+        for f in files:
+            if f.endswith((".cs", ".csproj")):
+                try:
+                    if os.path.getmtime(os.path.join(root, f)) > bin_mtime:
+                        return False
+                except OSError:
+                    pass
+    return True
+
 def runner_command(runner_type, runner_path):
-    return [runner_path] if runner_type == "exe" else ["dotnet", "run", "--project", runner_path, "--no-launch-profile", "--"]
+    if runner_type == "exe":
+        return [runner_path]
+    if runner_type == "dll":
+        return ["dotnet", runner_path]
+    if runner_type == "dotnet":
+        dll_candidates = [
+            os.path.join(SCRIPT_DIR, "bin", "Release", "net10.0", "d2sitems.dll"),
+            os.path.join(SCRIPT_DIR, "bin", "Debug", "net10.0", "d2sitems.dll"),
+        ]
+        for dll in dll_candidates:
+            if os.path.isfile(dll) and is_binary_fresh(dll):
+                return ["dotnet", dll]
+    return ["dotnet", "run", "--project", runner_path, "--no-launch-profile", "--"]
 
 def find_d2s_runner():
     """Returns (runner_type, path/command)."""
@@ -148,6 +229,19 @@ def detect_profiles():
 
     return profiles
 
+EDIT_WORKSPACES = {}
+EDIT_WORKSPACE_LOCK = threading.RLock()
+
+def workspace_command(action, payload, excel):
+    kind, runner = find_d2s_runner()
+    proc = subprocess.run([*runner_command(kind, runner), action, "--excel", excel],
+                          input=json.dumps(payload), cwd=SCRIPT_DIR, capture_output=True, text=True)
+    result = json.loads(proc.stdout)
+    if proc.returncode or not result.get("success"):
+        raise ValueError(result.get("error") or proc.stderr or "Workspace operation failed")
+    return result
+
+
 class SaveDataManager:
     def __init__(self):
         self.lock = threading.Lock()
@@ -160,6 +254,14 @@ class SaveDataManager:
         self._hire_lookup = None
         self._merc_strings = None
         self.reload()
+
+    def scoped_to_core(self, core):
+        if core not in ("hard", "soft"):
+            raise ValueError("Mode must be hardcore or softcore.")
+        scoped = copy.copy(self)
+        scoped.saves = [save for save in self.saves if save.get("core") == core]
+        scoped.items = [item for item in self.items if item.get("sourceCore") == core]
+        return scoped
 
     def get_active_profile(self):
         for p in self.profiles:
@@ -249,12 +351,14 @@ class SaveDataManager:
                     }
 
                     if is_stash:
+                        save_entry["type"] = "SharedStash"
                         save_entry["name"] = "Shared Stash"
                         save_entry["core"] = data.get("core", "soft")
                         save_entry["gameVersion"] = data.get("gameVersion", "")
                         save_entry["tabs"] = data.get("tabs", [])
                         total_gold = sum(t.get("gold", 0) for t in data.get("tabs", []))
                         save_entry["total_gold"] = total_gold
+                        save_entry["chronicle"] = data.get("chronicle")
                     else:
                         save_entry["name"] = char_info.get("name", os.path.splitext(file_name)[0])
                         save_entry["level"] = char_info.get("level", 1)
@@ -275,6 +379,7 @@ class SaveDataManager:
                         it_norm["profile"] = profile_label
                         it_norm["sourceName"] = source_name
                         it_norm["sourceFile"] = file_name
+                        it_norm["sourceCore"] = save_entry["core"]
                         it_norm["saveRevision"] = data.get("saveRevision")
                         it_norm["catalogRevision"] = data.get("catalogRevision")
                         it_norm["catalogStale"] = not current_revision or data.get("catalogRevision") != current_revision
@@ -289,6 +394,7 @@ class SaveDataManager:
                         # Helper flags
                         flags = it_norm.get("flags") or []
                         it_norm["isEthereal"] = any("ethereal" in str(f).lower() for f in flags)
+                        it_norm["isUnidentified"] = any("unidentified" in str(f).lower() for f in flags)
                         it_norm["isRuneword"] = any("runeword" in str(f).lower() for f in flags)
                         it_norm["isCorrupted"] = bool(it_norm.get("isCorrupted")) or any("corrupt" in str(f).lower() for f in flags) or any(s.get("id") == "corrupted" for s in it_norm.get("stats", []))
 
@@ -349,14 +455,10 @@ class SaveDataManager:
         logs = []
         success = True
         for excel_dir, save_dir in dirs_to_scan:
-            cmd = []
-            if runner_type == "exe":
-                cmd = [runner_path]
-            else:
-                cmd = ["dotnet", "run", "--project", runner_path, "--"]
+            cmd = list(runner_command(runner_type, runner_path))
 
             if excel_dir and os.path.isdir(excel_dir):
-                cmd.extend(["--excel", excel_dir])
+                cmd.extend(["--excel", excel_dir, "--catalog-revision", catalog_revision(excel_dir)])
             cmd.append(save_dir)
 
             try:
@@ -369,6 +471,28 @@ class SaveDataManager:
 
         self.reload()
         return {"success": success, "log": "\n---\n".join(logs), "saves_count": len(self.saves), "items_count": len(self.items)}
+
+    def rescan_files(self, file_paths, excel_dir=None):
+        """Rescan specific updated save files and reload in-memory cache without full folder re-scan."""
+        runner_type, runner_path = find_d2s_runner()
+        if not runner_type or not file_paths:
+            return self.run_scan()
+
+        excel = excel_dir or (self.get_active_profile().get("excel_dir") if self.profiles else None)
+        cmd = list(runner_command(runner_type, runner_path))
+        if excel and os.path.isdir(excel):
+            cmd.extend(["--excel", excel, "--catalog-revision", catalog_revision(excel)])
+        cmd.extend(file_paths)
+
+        try:
+            proc = subprocess.run(cmd, cwd=SCRIPT_DIR, capture_output=True, text=True, timeout=30)
+            if proc.returncode != 0:
+                return self.run_scan()
+        except Exception:
+            return self.run_scan()
+
+        self.reload()
+        return {"success": True, "saves_count": len(self.saves), "items_count": len(self.items)}
 
     def search_items(self, query_params):
         """Filter items in memory with rich criteria."""
@@ -393,7 +517,7 @@ class SaveDataManager:
             # Out of date filter
             if out_of_date == "yes" and not it.get("isOutOfDate"):
                 continue
-            if out_of_date == "no" and it.get("verificationStatus") != "verified":
+            if out_of_date == "no" and (it.get("isOutOfDate") or it.get("verificationStatus") == "unknown"):
                 continue
 
             # Corrupted filter
@@ -844,6 +968,41 @@ class SaveDataManager:
             set_item_bases = grail.pop("_setItemBases", {})
             unique_item_bases = grail.pop("_uniqueItemBases", {})
             runeword_runes = grail.pop("_runewordRunes", {})
+            runeword_types = grail.pop("_runewordTypes", {})
+            runeword_first_runes = grail.pop("_runewordFirstRunes", {})
+            unique_item_codes = grail.pop("_uniqueItemCodes", {})
+            set_item_codes = grail.pop("_setItemCodes", {})
+            unique_item_lvlreqs = grail.pop("_uniqueItemLvlReqs", {})
+            set_item_lvlreqs = grail.pop("_setItemLvlReqs", {})
+            runeword_lvlreqs = grail.pop("_runewordLvlReqs", {})
+            unique_item_stats = grail.pop("_uniqueItemStats", {})
+            set_item_stats = grail.pop("_setItemStats", {})
+            runeword_stats = grail.pop("_runewordStats", {})
+            for k in list(grail.keys()):
+                if k.startswith("_"):
+                    grail.pop(k, None)
+
+            img_map = {}
+            img_file = os.path.join(SCRIPT_DIR, "web", "item_images.json")
+            if os.path.isfile(img_file):
+                try:
+                    with open(img_file, "r", encoding="utf-8") as f:
+                        img_map = json.load(f)
+                except Exception:
+                    pass
+
+            def get_inv_file(name, code, is_set=False, is_unique=False):
+                name_low = (name or "").strip().lower()
+                code_low = (code or "").strip().lower()
+                if is_set:
+                    inv = img_map.get("sets", {}).get(name_low)
+                    if inv: return inv
+                if is_unique or not is_set:
+                    inv = img_map.get("uniques", {}).get(name_low)
+                    if inv: return inv
+                hd = img_map.get("hd_codes", {}).get(code_low)
+                if hd: return hd
+                return img_map.get("codes", {}).get(code_low)
 
             categories = []
             total_items = 0
@@ -863,9 +1022,15 @@ class SaveDataManager:
                             if is_have:
                                 set_sub_owned += 1
                                 cat_owned_count += 1
+                            code = set_item_codes.get(iname, "")
+                            inv_f = get_inv_file(iname, code, is_set=True)
                             set_sub_items.append({
                                 "name": iname,
                                 "base": set_item_bases.get(iname, ""),
+                                "code": code,
+                                "lvlReq": set_item_lvlreqs.get(iname, 0),
+                                "stats": set_item_stats.get(iname, []),
+                                "invFile": inv_f,
                                 "collected": is_have,
                                 "holders": holders
                             })
@@ -879,15 +1044,30 @@ class SaveDataManager:
                 else:
                     bases = unique_item_bases if cat_name == "Unique Items" else {}
                     runes_map = runeword_runes if cat_name == "Runewords" else {}
+                    codes_map = unique_item_codes if cat_name == "Unique Items" else {}
+                    lvlreqs_map = unique_item_lvlreqs if cat_name == "Unique Items" else runeword_lvlreqs
+                    stats_map = unique_item_stats if cat_name == "Unique Items" else runeword_stats
                     for iname in sorted(item_names):
                         holders = owned.get(iname, [])
                         is_have = len(holders) > 0
                         if is_have:
                             cat_owned_count += 1
+                        code = codes_map.get(iname, "")
+                        if cat_name == "Unique Items":
+                            inv_f = get_inv_file(iname, code, is_unique=True)
+                        elif cat_name == "Runewords":
+                            rw_type = runeword_types.get(iname, "")
+                            inv_f = RUNEWORD_TYPE_BASES.get(rw_type) or img_map.get("hd_codes", {}).get(runeword_first_runes.get(iname, ""))
+                        else:
+                            inv_f = None
                         cat_items.append({
                             "name": iname,
                             "base": bases.get(iname, ""),
+                            "code": code,
+                            "lvlReq": lvlreqs_map.get(iname, 0),
+                            "stats": stats_map.get(iname, []),
                             "runes": runes_map.get(iname, []),
+                            "invFile": inv_f,
                             "collected": is_have,
                             "holders": holders
                         })
@@ -915,12 +1095,229 @@ class SaveDataManager:
         except Exception as ex:
             return {"error": f"Failed to compute grail report: {str(ex)}"}
 
+    def get_chronicle_report(self, core="both"):
+        """Generate in-game Chronicle discovery checklist and statistics."""
+        active_p = self.get_active_profile()
+        excel_dir = active_p.get("excel_dir")
+        if not excel_dir or not os.path.isdir(excel_dir):
+            return {"error": f"Game excel directory not found: {excel_dir}"}
+
+        try:
+            sys.path.insert(0, SCRIPT_DIR)
+            import find_items
+            exclude_names = set(n.strip() for n in load_conf().get("exclude_items", "").split(",") if n.strip())
+            grail = find_items.load_grail_items(excel_dir, exclude=exclude_names)
+
+            tracked_uniques = {}
+            tracked_sets = {}
+            tracked_runewords = {}
+
+            with self.lock:
+                for save in self.saves:
+                    if save.get("type") != "SharedStash":
+                        continue
+                    save_core = save.get("core", "soft")
+                    if core != "both" and save_core != core:
+                        continue
+                    chronicle = save.get("chronicle")
+                    if not chronicle:
+                        continue
+
+                    for u in chronicle.get("uniques", []):
+                        uname = (u.get("name") or "").strip()
+                        if uname:
+                            tracked_uniques[uname.lower()] = {
+                                "id": u.get("id"),
+                                "name": uname,
+                                "source": u.get("source"),
+                                "timestamp": u.get("timestamp"),
+                                "core": save_core
+                            }
+
+                    for s in chronicle.get("sets", []):
+                        sname = (s.get("name") or "").strip()
+                        if sname:
+                            tracked_sets[sname.lower()] = {
+                                "id": s.get("id"),
+                                "name": sname,
+                                "source": s.get("source"),
+                                "timestamp": s.get("timestamp"),
+                                "core": save_core
+                            }
+
+                    for r in chronicle.get("runewords", []):
+                        rname = (r.get("name") or "").strip()
+                        if rname:
+                            tracked_runewords[rname.lower()] = {
+                                "id": r.get("id"),
+                                "name": rname,
+                                "source": r.get("source"),
+                                "timestamp": r.get("timestamp"),
+                                "core": save_core
+                            }
+
+            img_map = {}
+            img_file = os.path.join(SCRIPT_DIR, "web", "item_images.json")
+            if os.path.isfile(img_file):
+                try:
+                    with open(img_file, "r", encoding="utf-8") as f:
+                        img_map = json.load(f)
+                except Exception:
+                    pass
+
+            def get_inv_file(name, code, is_set=False, is_unique=False):
+                name_low = (name or "").strip().lower()
+                code_low = (code or "").strip().lower()
+                if is_set:
+                    inv = img_map.get("sets", {}).get(name_low)
+                    if inv: return inv
+                if is_unique or not is_set:
+                    inv = img_map.get("uniques", {}).get(name_low)
+                    if inv: return inv
+                hd = img_map.get("hd_codes", {}).get(code_low)
+                if hd: return hd
+                return img_map.get("codes", {}).get(code_low)
+
+            manual_file = os.path.join(SCRIPT_DIR, "user_chronicle.json")
+            manual_completions = {}
+            if os.path.isfile(manual_file):
+                try:
+                    with open(manual_file, "r", encoding="utf-8") as f:
+                        manual_completions = json.load(f)
+                except Exception:
+                    pass
+
+            sets_by_set = grail.pop("_setsByName", {})
+            set_order = grail.pop("_setOrder", [])
+            set_item_bases = grail.pop("_setItemBases", {})
+            unique_item_bases = grail.pop("_uniqueItemBases", {})
+            runeword_runes = grail.pop("_runewordRunes", {})
+            runeword_types = grail.pop("_runewordTypes", {})
+            runeword_first_runes = grail.pop("_runewordFirstRunes", {})
+            unique_item_codes = grail.pop("_uniqueItemCodes", {})
+            set_item_codes = grail.pop("_setItemCodes", {})
+            unique_item_lvlreqs = grail.pop("_uniqueItemLvlReqs", {})
+            set_item_lvlreqs = grail.pop("_setItemLvlReqs", {})
+            runeword_lvlreqs = grail.pop("_runewordLvlReqs", {})
+            unique_item_stats = grail.pop("_uniqueItemStats", {})
+            set_item_stats = grail.pop("_setItemStats", {})
+            runeword_stats = grail.pop("_runewordStats", {})
+            for k in list(grail.keys()):
+                if k.startswith("_"):
+                    grail.pop(k, None)
+
+            categories = []
+            total_items = 0
+            total_tracked = 0
+
+            for cat_name, item_names in grail.items():
+                cat_tracked_count = 0
+                cat_items = []
+
+                if cat_name == "Set Items" and sets_by_set:
+                    for s_name in sorted(set_order):
+                        set_sub_items = []
+                        set_sub_tracked = 0
+                        for iname in sorted(sets_by_set.get(s_name, [])):
+                            iname_low = iname.lower()
+                            t_info = tracked_sets.get(iname_low)
+                            is_tracked = t_info is not None
+                            if iname_low in manual_completions:
+                                is_tracked = bool(manual_completions[iname_low])
+                            if is_tracked:
+                                set_sub_tracked += 1
+                                cat_tracked_count += 1
+                            code = set_item_codes.get(iname, "")
+                            inv_f = get_inv_file(iname, code, is_set=True)
+                            set_sub_items.append({
+                                "name": iname,
+                                "base": set_item_bases.get(iname, ""),
+                                "code": code,
+                                "lvlReq": set_item_lvlreqs.get(iname, 0),
+                                "stats": set_item_stats.get(iname, []),
+                                "collected": is_tracked,
+                                "tracked": is_tracked,
+                                "invFile": inv_f,
+                                "source": t_info.get("source") if t_info else ("Manual" if is_tracked else None),
+                                "timestamp": t_info.get("timestamp") if t_info else None,
+                                "core": t_info.get("core") if t_info else None,
+                                "isManual": iname_low in manual_completions
+                            })
+                        cat_items.append({
+                            "is_group": True,
+                            "group_name": s_name,
+                            "owned_count": set_sub_tracked,
+                            "total_count": len(sets_by_set.get(s_name, [])),
+                            "items": set_sub_items
+                        })
+                else:
+                    bases = unique_item_bases if cat_name == "Unique Items" else {}
+                    runes_map = runeword_runes if cat_name == "Runewords" else {}
+                    codes_map = unique_item_codes if cat_name == "Unique Items" else {}
+                    lvlreqs_map = unique_item_lvlreqs if cat_name == "Unique Items" else runeword_lvlreqs
+                    stats_map = unique_item_stats if cat_name == "Unique Items" else runeword_stats
+                    tracked_map = tracked_uniques if cat_name == "Unique Items" else tracked_runewords
+                    for iname in sorted(item_names):
+                        iname_low = iname.lower()
+                        t_info = tracked_map.get(iname_low)
+                        is_tracked = t_info is not None
+                        if iname_low in manual_completions:
+                            is_tracked = bool(manual_completions[iname_low])
+                        if is_tracked:
+                            cat_tracked_count += 1
+                        code = codes_map.get(iname, "")
+                        if cat_name == "Unique Items":
+                            inv_f = get_inv_file(iname, code, is_unique=True)
+                        elif cat_name == "Runewords":
+                            rw_type = runeword_types.get(iname, "")
+                            inv_f = RUNEWORD_TYPE_BASES.get(rw_type) or img_map.get("hd_codes", {}).get(runeword_first_runes.get(iname, ""))
+                        else:
+                            inv_f = None
+                        cat_items.append({
+                            "name": iname,
+                            "base": bases.get(iname, ""),
+                            "code": code,
+                            "lvlReq": lvlreqs_map.get(iname, 0),
+                            "stats": stats_map.get(iname, []),
+                            "runes": runes_map.get(iname, []),
+                            "collected": is_tracked,
+                            "tracked": is_tracked,
+                            "invFile": inv_f,
+                            "source": t_info.get("source") if t_info else ("Manual" if is_tracked else None),
+                            "timestamp": t_info.get("timestamp") if t_info else None,
+                            "core": t_info.get("core") if t_info else None,
+                            "isManual": iname_low in manual_completions
+                        })
+
+                cat_total = len(item_names)
+                cat_percent = round(100.0 * cat_tracked_count / cat_total, 2) if cat_total > 0 else 0.0
+                categories.append({
+                    "category": cat_name,
+                    "owned": cat_tracked_count,
+                    "total": cat_total,
+                    "percent": cat_percent,
+                    "items": cat_items
+                })
+                total_items += cat_total
+                total_tracked += cat_tracked_count
+
+            overall_percent = round(100.0 * total_tracked / total_items, 2) if total_items > 0 else 0.0
+            return {
+                "core": core,
+                "total_items": total_items,
+                "total_owned": total_tracked,
+                "percent": overall_percent,
+                "categories": categories
+            }
+        except Exception as ex:
+            return {"error": f"Failed to compute chronicle report: {str(ex)}"}
+
     def get_verifier_report(self):
         """Returns statistics and list of all out-of-date items."""
         with self.lock:
             eligible_items = [it for it in self.items if it.get("quality") in ("Unique", "Set") or it.get("isRuneword")]
             out_of_date_items = [it for it in eligible_items if it.get("isOutOfDate")]
-            up_to_date_items = [it for it in eligible_items if it.get("verificationStatus") == "verified"]
+            up_to_date_items = [it for it in eligible_items if not it.get("isOutOfDate") and it.get("verificationStatus") != "unknown"]
 
             by_char = {}
             for it in out_of_date_items:
@@ -1035,24 +1432,38 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         path = parsed.path
         params = dict(urllib.parse.parse_qsl(parsed.query))
 
+        manager = DATA_MANAGER
+        if params.get("edit_session"):
+            workspace = EDIT_WORKSPACES.get(params["edit_session"])
+            if not workspace:
+                self.send_error(409, "Edit session expired; reload saves")
+                return
+            manager = workspace["manager"]
+        if "core" in params and params["core"] != "both":
+            try:
+                manager = manager.scoped_to_core(params["core"])
+            except ValueError:
+                self.send_error(400, "Invalid save mode")
+                return
+
         # API Routes
         if path == "/api/profiles":
             self.send_json({
-                "profiles": DATA_MANAGER.profiles,
-                "active_id": DATA_MANAGER.active_profile_id
+                "profiles": manager.profiles,
+                "active_id": manager.active_profile_id
             })
             return
 
         if path == "/api/saves":
             self.send_json({
-                "profile": DATA_MANAGER.get_active_profile(),
-                "saves": DATA_MANAGER.saves,
-                "total_items": len(DATA_MANAGER.items)
+                "profile": manager.get_active_profile(),
+                "saves": manager.saves,
+                "total_items": len(manager.items)
             })
             return
 
         if path == "/api/items":
-            items = DATA_MANAGER.search_items(params)
+            items = manager.search_items(params)
             self.send_json({
                 "total": len(items),
                 "items": items # Return every match; counts must reflect reachable results.
@@ -1060,14 +1471,14 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if path == "/api/verifier":
-            report = DATA_MANAGER.get_verifier_report()
+            report = manager.get_verifier_report()
             self.send_json(report)
             return
 
         if path.startswith("/api/item-compare/"):
             try:
                 item_id = int(path[len("/api/item-compare/"):])
-                comp = DATA_MANAGER.get_item_comparison(item_id)
+                comp = manager.get_item_comparison(item_id)
                 if comp:
                     self.send_json(comp)
                 else:
@@ -1079,7 +1490,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         if path.startswith("/api/item/"):
             try:
                 item_id = int(path[len("/api/item/"):])
-                item = next((it for it in DATA_MANAGER.items if it.get("id") == item_id), None)
+                item = next((it for it in manager.items if it.get("id") == item_id), None)
                 if item:
                     self.send_json(item)
                 else:
@@ -1090,7 +1501,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
         if path.startswith("/api/character/"):
             char_name = urllib.parse.unquote(path[len("/api/character/"):])
-            detail = DATA_MANAGER.get_character_detail(char_name)
+            detail = manager.get_character_detail(char_name)
             if detail:
                 self.send_json(detail)
             else:
@@ -1098,7 +1509,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if path == "/api/shared-stash":
-            stash_detail = DATA_MANAGER.get_shared_stash_detail(params.get("character"))
+            stash_detail = manager.get_shared_stash_detail(params.get("character"))
             if stash_detail:
                 self.send_json(stash_detail)
             else:
@@ -1106,12 +1517,18 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if path == "/api/grail":
-            report = DATA_MANAGER.get_grail_report()
+            report = manager.get_grail_report()
+            self.send_json(report)
+            return
+
+        if path == "/api/chronicle":
+            core = params.get("core", "both")
+            report = manager.get_chronicle_report(core=core)
             self.send_json(report)
             return
 
         if path == "/api/container-dimensions":
-            active_p = DATA_MANAGER.get_active_profile()
+            active_p = manager.get_active_profile()
             excel_dir = active_p.get("excel_dir") or DEFAULT_D2R_EXCEL_DIR
             dims = {
                 "inventory": {"width": 11, "height": 8},
@@ -1157,7 +1574,8 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"success": False, "error": "Save changes must originate from this local editor."})
             return
         try:
-            self.handle_post()
+            with EDIT_WORKSPACE_LOCK:
+                self.handle_post()
         except (ValueError, TypeError, KeyError, IndexError, OSError, subprocess.SubprocessError) as error:
             self.send_json({"success": False, "error": str(error)})
 
@@ -1168,7 +1586,116 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         body = self.rfile.read(content_len) if content_len > 0 else b""
         data = json.loads(body.decode("utf-8")) if body else {}
 
-        if path in ("/api/item/transfer", "/api/mule/fill", "/api/stash/stack-quantity", "/api/character/quests/complete") and DATA_MANAGER.get_active_profile().get("id") == "all":
+        manager = DATA_MANAGER
+        token = data.get("edit_session")
+        workspace = EDIT_WORKSPACES.get(token) if token else None
+        if token and not workspace:
+            raise ValueError("Edit session expired; reload saves.")
+        if workspace:
+            manager = workspace["manager"]
+            if path == "/api/item/transfer":
+                allowed = {save["file"] for save in manager.scoped_to_core(workspace["core"]).saves}
+                for key in ("SourceFile", "TargetFile"):
+                    if data.get(key) not in allowed or os.path.basename(data[key]) != data[key]:
+                        raise ValueError("Draft transfers must use saves in this edit session and mode.")
+            if path not in ("/api/item/transfer", "/api/item/create", "/api/edit/save", "/api/edit/discard", "/api/edit/pack"):
+                raise ValueError("Save or discard Edit mode before using this operation.")
+
+        if path == "/api/edit/start":
+            profile = dict(manager.get_active_profile())
+            if profile["id"] == "all":
+                raise ValueError("Select one profile before editing.")
+            core = data.get("core")
+            if core not in ("hard", "soft"):
+                raise ValueError("Select Hardcore or Softcore.")
+            temporary = tempfile.TemporaryDirectory(prefix="bk-edit-")
+            originals = {}
+            for filename in os.listdir(profile["save_dir"]):
+                ext = os.path.splitext(filename)[1].lower()
+                src_path = os.path.join(profile["save_dir"], filename)
+                if ext in (".d2s", ".d2i", ".ctl"):
+                    original = Path(src_path).read_bytes()
+                    originals[filename] = original
+                    Path(temporary.name, filename).write_bytes(original)
+                elif ext == ".json":
+                    content = Path(src_path).read_bytes()
+                    Path(temporary.name, filename).write_bytes(content)
+            draft = copy.copy(manager)
+            draft.lock = threading.Lock()
+            draft.profiles = [dict(profile, save_dir=temporary.name)]
+            draft.reload()
+            if not draft.saves:
+                result = draft.run_scan()
+                if not result.get("success"):
+                    temporary.cleanup()
+                    raise ValueError(result.get("error", "Could not parse edit copies"))
+            token = uuid.uuid4().hex
+            EDIT_WORKSPACES[token] = dict(manager=draft, temporary=temporary, originals=originals,
+                                          root=profile["save_dir"], excel=profile["excel_dir"], core=core)
+            self.send_json(dict(success=True, edit_session=token))
+            return
+
+        if path == "/api/item/create":
+            if not workspace:
+                raise ValueError("Start Edit mode before creating an item.")
+            source = str(data.get("source", "")).strip()
+            if source not in {s["file"] for s in manager.scoped_to_core(workspace["core"]).saves}:
+                raise ValueError("Select a save from the active edit session.")
+            runner_type, runner_path = find_d2s_runner()
+            if not runner_path:
+                raise ValueError("d2sitems runner not found.")
+            payload = dict(data)
+            payload.pop("source", None)
+            cmd = runner_command(runner_type, runner_path) + ["create-item", "--source", source, "--target", source, "--excel", workspace["excel"]]
+            proc = subprocess.run(cmd, input=json.dumps(payload), cwd=workspace["temporary"].name, capture_output=True, text=True)
+            try:
+                result = json.loads(proc.stdout or "{}")
+            except ValueError:
+                result = {"success": False, "error": proc.stderr.strip() or proc.stdout.strip()}
+            if proc.returncode == 0 and result.get("success"):
+                staged_path = os.path.join(workspace["temporary"].name, source)
+                manager.rescan_files([staged_path], excel_dir=workspace["excel"])
+            self.send_json(result)
+            return
+
+        if path in ("/api/edit/save", "/api/edit/discard", "/api/edit/pack"):
+            if not workspace:
+                raise ValueError("Start Edit mode first.")
+            if path == "/api/edit/pack":
+                plan = data["plan"]
+                allowed = {s["file"] for s in manager.scoped_to_core(workspace["core"]).saves}
+                if plan.get("source") not in allowed or any(n not in allowed for n in plan.get("assignments", {})):
+                    raise ValueError("Packing choices must belong to the selected save mode.")
+                result = workspace_command("pack-workspace", {"folder": workspace["temporary"].name, "plan": plan}, workspace["excel"])
+                scanned = manager.run_scan()
+                if not scanned.get("success"):
+                    raise ValueError("Draft packed but rescan failed. Discard or reload this session.")
+                self.send_json(result)
+                return
+            if path == "/api/edit/save":
+                updates = []
+                for staged in Path(workspace["temporary"].name).iterdir():
+                    if staged.suffix.lower() not in (".d2s", ".d2i", ".ctl"):
+                        continue
+                    original = workspace["originals"].get(staged.name)
+                    if original == staged.read_bytes():
+                        continue
+                    updates.append(dict(path=str(Path(workspace["root"], staged.name)), staged=str(staged),
+                                        original=base64.b64encode(original).decode() if original is not None else None))
+                result = workspace_command("commit-workspace", {"updates": updates}, workspace["excel"])
+                if updates:
+                    updated_paths = [u["path"] for u in updates]
+                    DATA_MANAGER.rescan_files(updated_paths, excel_dir=workspace["excel"])
+                else:
+                    DATA_MANAGER.run_scan()
+            else:
+                result = {"success": True}
+            del EDIT_WORKSPACES[token]
+            workspace["temporary"].cleanup()
+            self.send_json(result)
+            return
+
+        if path in ("/api/item/transfer", "/api/mule/fill", "/api/stash/stack-quantity", "/api/character/quests/complete") and manager.get_active_profile().get("id") == "all":
             self.send_json({"success": False, "error": "Select one save profile before editing."})
             return
 
@@ -1177,8 +1704,8 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         if path == "/api/profiles/select":
             pid = data.get("profile_id")
             if pid:
-                DATA_MANAGER.set_active_profile(pid)
-                self.send_json({"success": True, "active_id": DATA_MANAGER.active_profile_id})
+                manager.set_active_profile(pid)
+                self.send_json({"success": True, "active_id": manager.active_profile_id})
                 return
 
         if path == "/api/profiles/add":
@@ -1186,7 +1713,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             s_dir = data.get("save_dir", "")
             e_dir = data.get("excel_dir", "")
             if os.path.isdir(s_dir):
-                pid = DATA_MANAGER.add_custom_profile(name, s_dir, e_dir)
+                pid = manager.add_custom_profile(name, s_dir, e_dir)
                 self.send_json({"success": True, "profile_id": pid})
                 return
             else:
@@ -1194,20 +1721,47 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
         if path == "/api/scan":
-            result = DATA_MANAGER.run_scan()
+            result = manager.run_scan()
             self.send_json(result)
+            return
+
+        if path == "/api/chronicle/toggle":
+            name = (data.get("name") or "").strip()
+            tracked = bool(data.get("tracked", True))
+            if not name:
+                self.send_json({"success": False, "error": "Item name is required."})
+                return
+
+            manual_file = os.path.join(SCRIPT_DIR, "user_chronicle.json")
+            manual_completions = {}
+            if os.path.isfile(manual_file):
+                try:
+                    with open(manual_file, "r", encoding="utf-8") as f:
+                        manual_completions = json.load(f)
+                except Exception:
+                    pass
+
+            name_key = name.lower()
+            manual_completions[name_key] = tracked
+
+            try:
+                with open(manual_file, "w", encoding="utf-8") as f:
+                    json.dump(manual_completions, f, indent=2)
+                self.send_json({"success": True, "name": name, "tracked": tracked})
+            except Exception as ex:
+                self.send_json({"success": False, "error": f"Failed to save chronicle completion: {str(ex)}"})
             return
 
         if path == "/api/mules/create":
             name = data.get("name", "").strip()
             char_class = data.get("class", "").strip()
             hardcore = bool(data.get("hardcore", False))
-            active_p = DATA_MANAGER.get_active_profile()
+            active_p = manager.get_active_profile()
             save_dir = active_p.get("save_dir")
             excel_dir = active_p.get("excel_dir")
 
             if save_dir == "all":
-                non_all = [p for p in DATA_MANAGER.profiles if p.get("save_dir") != "all"]
+                non_all = [p for p in manager.profiles if p.get("save_dir") != "all"]
                 if non_all:
                     save_dir = non_all[0].get("save_dir")
                     excel_dir = non_all[0].get("excel_dir") or excel_dir
@@ -1225,11 +1779,11 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             if hardcore:
                 cmd.append("--hardcore")
             if excel_dir and os.path.isdir(excel_dir):
-                cmd.extend(["--excel", excel_dir])
+                cmd.extend(["--excel", excel_dir, "--catalog-revision", catalog_revision(excel_dir)])
 
             proc = subprocess.run(cmd, cwd=SCRIPT_DIR, capture_output=True, text=True)
             if proc.returncode == 0:
-                DATA_MANAGER.run_scan()
+                manager.run_scan()
                 self.send_json({"success": True, "message": proc.stdout.strip()})
             else:
                 self.send_json({"success": False, "error": proc.stdout.strip() or proc.stderr.strip()})
@@ -1247,13 +1801,13 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json({"success": False, "error": "Character name is required."})
                 return
 
-            active_p = DATA_MANAGER.get_active_profile()
+            active_p = manager.get_active_profile()
             save_dir = active_p.get("save_dir")
             excel_dir = active_p.get("excel_dir")
 
             if save_dir == "all":
                 found_save_dir = None
-                for prof in DATA_MANAGER.profiles:
+                for prof in manager.profiles:
                     if prof.get("save_dir") and prof["save_dir"] != "all":
                         candidate = os.path.join(prof["save_dir"], char_name + ".d2s" if not char_name.endswith(".d2s") else char_name)
                         if os.path.isfile(candidate):
@@ -1263,7 +1817,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 if found_save_dir:
                     save_dir = found_save_dir
                 else:
-                    non_all = [p for p in DATA_MANAGER.profiles if p.get("save_dir") != "all"]
+                    non_all = [p for p in manager.profiles if p.get("save_dir") != "all"]
                     if non_all:
                         save_dir = non_all[0].get("save_dir")
                         excel_dir = non_all[0].get("excel_dir") or excel_dir
@@ -1293,12 +1847,12 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             if force_live:
                 cmd.append("--force-live")
             if excel_dir and os.path.isdir(excel_dir):
-                cmd.extend(["--excel", excel_dir])
+                cmd.extend(["--excel", excel_dir, "--catalog-revision", catalog_revision(excel_dir)])
 
             proc = subprocess.run(cmd, cwd=SCRIPT_DIR, capture_output=True, text=True)
             out = proc.stdout.strip() or proc.stderr.strip()
             if proc.returncode == 0:
-                DATA_MANAGER.run_scan()
+                manager.run_scan()
                 self.send_json({"success": True, "message": out})
             elif proc.returncode == 2:
                 # Safety guard refusal
@@ -1308,109 +1862,49 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if path == "/api/item/transfer":
-            active_p = DATA_MANAGER.get_active_profile()
-            save_dir = active_p.get("save_dir")
-            excel_dir = active_p.get("excel_dir") or DEFAULT_D2R_EXCEL_DIR
-
-            item_id = data.get("item_id")
-            if item_id is not None:
-                it = next((x for x in DATA_MANAGER.items if x.get("id") == item_id), None)
-                if it:
-                    if not data.get("source_file"):
-                        data["source_file"] = it.get("sourceFile", "")
-                    if not data.get("source_container"):
-                        loc = it.get("location", "SharedStash")
-                        data["source_container"] = "sharedstash" if it.get("isStash") else loc
-                    if "source_tab" not in data:
-                        data["source_tab"] = it.get("tabIndex", 0)
-                    if "source_x" not in data:
-                        data["source_x"] = it.get("invX", 0)
-                    if "source_y" not in data:
-                        data["source_y"] = it.get("invY", 0)
-                    if not data.get("seed"):
-                        data["seed"] = it.get("itemSeed")
-                    if not data.get("code"):
-                        data["code"] = it.get("itemCode")
-
-            source_file = data.get("source_file", "").strip()
-            source_container = data.get("source_container", "sharedstash").strip()
-            source_tab = int(data.get("source_tab", 0))
-            source_x = data.get("source_x")
-            source_y = data.get("source_y")
-            item_seed = data.get("seed")
-            item_code = data.get("code")
-
-            target_file = data.get("target_file", "").strip()
-            target_char = data.get("target_character", "").strip()
-            if not target_file and target_char:
-                target_file = f"{target_char}.d2s"
-
-            target_container = data.get("target_container", "inventory").strip()
-            target_tab = int(data.get("target_tab", 0))
-            target_x = data.get("target_x")
-            target_y = data.get("target_y")
-            force_live = bool(data.get("force_live", False))
-
-            if save_dir == "all":
-                for f_name in (source_file, target_file):
-                    if f_name and not os.path.isabs(f_name):
-                        for prof in DATA_MANAGER.profiles:
-                            if prof.get("save_dir") and prof["save_dir"] != "all":
-                                cand = os.path.join(prof["save_dir"], f_name)
-                                if os.path.isfile(cand):
-                                    save_dir = prof["save_dir"]
-                                    excel_dir = prof.get("excel_dir") or excel_dir
-                                    break
-
-            if not os.path.isabs(source_file) and save_dir and save_dir != "all":
-                source_file = os.path.join(save_dir, source_file)
-            if not os.path.isabs(target_file) and save_dir and save_dir != "all":
-                target_file = os.path.join(save_dir, target_file)
-
             runner_type, runner_path = find_d2s_runner()
             if not runner_path:
                 self.send_json({"success": False, "error": "d2sitems runner not found."})
                 return
 
-            cmd = [
-                *runner_command(runner_type, runner_path), "transfer-item",
-                "--from-file", source_file,
-                "--from-container", source_container,
-                "--from-tab", str(source_tab),
-                "--to-file", target_file,
-                "--to-container", target_container,
-                "--to-tab", str(target_tab),
-                "--excel", excel_dir
-            ]
-            if not data.get("source_revision") or not data.get("target_revision"):
-                self.send_json({"success": False, "error": "Rescan saves before transferring; save revisions are required."})
-                return
-            cmd.extend(["--source-revision", data["source_revision"], "--target-revision", data["target_revision"]])
-            if source_x is not None and source_y is not None:
-                cmd.extend(["--from-x", str(source_x), "--from-y", str(source_y)])
-            if item_seed is not None:
-                cmd.extend(["--seed", str(item_seed)])
-            if item_code:
-                cmd.extend(["--code", str(item_code)])
-            if target_x is not None and target_y is not None:
-                cmd.extend(["--to-x", str(target_x), "--to-y", str(target_y)])
-            if force_live:
-                cmd.append("--force-live")
+            active_p = manager.get_active_profile()
+            excel_dir = active_p.get("excel_dir") or DEFAULT_D2R_EXCEL_DIR
 
-            proc = subprocess.run(cmd, cwd=SCRIPT_DIR, capture_output=True, text=True)
+            # Ensure all paths in data are absolute (resolving against save_dir)
+            save_dir = active_p.get("save_dir")
+            if save_dir and save_dir != "all":
+                if data.get("SourceFile") and not os.path.isabs(data["SourceFile"]):
+                    data["SourceFile"] = os.path.join(save_dir, data["SourceFile"])
+                if data.get("TargetFile") and not os.path.isabs(data["TargetFile"]):
+                    data["TargetFile"] = os.path.join(save_dir, data["TargetFile"])
+            elif save_dir == "all":
+                for key in ("SourceFile", "TargetFile"):
+                    f_name = data.get(key)
+                    if f_name and not os.path.isabs(f_name):
+                        for prof in manager.profiles:
+                            if prof.get("save_dir") and prof["save_dir"] != "all":
+                                cand = os.path.join(prof["save_dir"], f_name)
+                                if os.path.isfile(cand):
+                                    data[key] = cand
+                                    break
+
+            cmd = [*runner_command(runner_type, runner_path), "transfer-item", "--json-stdin"]
+
+            proc = subprocess.run(cmd, input=json.dumps(data), cwd=SCRIPT_DIR, capture_output=True, text=True)
             try:
                 res = json.loads(proc.stdout)
                 if proc.returncode != 0:
                     res["Success"] = False
                 if res.get("Success"):
-                    DATA_MANAGER.run_scan()
+                    affected = [f for f in (data.get("SourceFile"), data.get("TargetFile")) if f]
+                    manager.rescan_files(affected, excel_dir=excel_dir)
                 self.send_json(res)
             except (ValueError, TypeError):
                 self.send_json({"success": False, "error": "Invalid editor response: " + (proc.stderr.strip() or proc.stdout.strip())})
             return
 
         if path == "/api/mule/fill":
-            active_p = DATA_MANAGER.get_active_profile()
+            active_p = manager.get_active_profile()
             save_dir = active_p.get("save_dir")
             excel_dir = active_p.get("excel_dir") or DEFAULT_D2R_EXCEL_DIR
 
@@ -1424,7 +1918,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             if save_dir == "all":
                 for f_name in (stash_file, char_file):
                     if f_name and not os.path.isabs(f_name):
-                        for prof in DATA_MANAGER.profiles:
+                        for prof in manager.profiles:
                             if prof.get("save_dir") and prof["save_dir"] != "all":
                                 cand = os.path.join(prof["save_dir"], f_name)
                                 if os.path.isfile(cand):
@@ -1464,14 +1958,14 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 if proc.returncode != 0:
                     res["Success"] = False
                 if res.get("Success"):
-                    DATA_MANAGER.run_scan()
+                    manager.run_scan()
                 self.send_json(res)
             except (ValueError, TypeError):
                 self.send_json({"success": False, "error": "Invalid editor response: " + (proc.stderr.strip() or proc.stdout.strip())})
             return
 
         if path == "/api/stash/stack-quantity":
-            active_p = DATA_MANAGER.get_active_profile()
+            active_p = manager.get_active_profile()
             save_dir = active_p.get("save_dir")
             excel_dir = active_p.get("excel_dir") or DEFAULT_D2R_EXCEL_DIR
 
@@ -1490,7 +1984,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
             if save_dir == "all":
-                for prof in DATA_MANAGER.profiles:
+                for prof in manager.profiles:
                     if prof.get("save_dir") and prof["save_dir"] != "all":
                         cand = os.path.join(prof["save_dir"], stash_file)
                         if os.path.isfile(cand):
@@ -1527,7 +2021,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 if proc.returncode != 0:
                     res["Success"] = False
                 if res.get("Success"):
-                    DATA_MANAGER.run_scan()
+                    manager.run_scan()
                 self.send_json(res)
             except (ValueError, TypeError):
                 self.send_json({"success": False, "error": "Invalid editor response: " + (proc.stderr.strip() or proc.stdout.strip())})

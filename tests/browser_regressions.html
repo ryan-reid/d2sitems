@@ -1,0 +1,77 @@
+<!doctype html><html><head><meta charset="utf-8"><base href="../web/"><title>BKDiablo browser regression checks</title></head>
+<body style="background:#141518;color:#eee;font:16px system-ui;padding:30px"><h1>Browser regression checks</h1><pre id="results">Starting…</pre>
+<script src="item_art.js"></script><script src="d2_wasm_engine.js?v=20261003-edit"></script><script>
+(async () => {
+ const output = document.getElementById('results'); output.textContent = '';
+ const check = (ok, message) => { if (!ok) throw new Error(message); output.textContent += 'PASS ' + message + '\n'; };
+ try {
+  const engine = window.D2Wasm;
+  await engine.clearDB();
+  engine.downloadFile = () => {};
+  const fixture = async name => new Uint8Array(await (await fetch('../tests/fixtures/baselines/' + name)).arrayBuffer());
+  const character = await fixture('Amazon_L1.golden.d2s');
+  const stash = await fixture('ModernSharedStashSoftCoreV2.golden.d2i');
+  await engine.ingestFiles([{name:'TestAmazon.d2s',bytes:character},{name:'ModernSharedStashSoftCoreV2.d2i',bytes:stash}]);
+  let dataset = await engine.buildDataset();
+  check(dataset.saves.length === 2 && dataset.items.length > 300, 'offline engine parses fixtures');
+  const grail = engine.getGrailProgress(dataset.items);
+  output.textContent += 'Catalog totals: ' + JSON.stringify(grail.categories.map(category => [category.category, category.total])) + '\n';
+  check(Array.isArray(grail.categories) && grail.total_items > 600 && grail.categories.every(category => category.items.length === category.total), 'collection totals and rows come from embedded mod definitions');
+  const art = window.BKItemArt.resolve({itemCode:'bgn'}, engine.spriteMappings, false);
+  check(art.file === 'hd_key_bigdinn_key.png', 'Bigdinn key resolves to BKDiablo artwork');
+
+  const item = dataset.items.find(item => item.isStash && item.tabIndex === 0 && item.itemCode === 'cm1');
+  engine.editOriginals = new Map(engine.loadedFiles);
+  const draftMove = await engine.transferItem({source_file:item.sourceFile,source_container:'SharedStash',source_tab:0,item_seed:item.itemSeed,item_code:item.itemCode,target_file:'TestAmazon.d2s',target_container:'Inventory'});
+  check(draftMove.success, 'draft move accepted');
+  const draftRows = await engine.loadAllFilesFromDB();
+  check(draftRows.find(row => row.name === 'TestAmazon.d2s').bytes.every((v,i) => v === character[i]), 'draft moves do not write IndexedDB');
+  engine.loadedFiles = engine.editOriginals; engine.editOriginals = null;
+  check(engine.loadedFiles.get('TestAmazon.d2s').every((v,i) => v === character[i]), 'discard restores browser original');
+  const packed = JSON.parse(engine.interop.PackWorkspace(JSON.stringify(Object.fromEntries([...engine.loadedFiles].map(([name, bytes]) => [name,btoa(Array.from(bytes,b => String.fromCharCode(b)).join(''))]))), JSON.stringify({source:'ModernSharedStashSoftCoreV2.d2i',category:'jewelry',autoCreate:true,assignments:{}})));
+  check(packed.success && packed.moved > 0 && packed.created.length > 0, 'offline bulk planner creates overflow mules');
+  const transferred = await engine.transferItem({source_file:item.sourceFile,source_container:'SharedStash',source_tab:0,item_seed:item.itemSeed,item_code:item.itemCode,target_file:'TestAmazon.d2s',target_container:'Inventory'});
+  check(transferred.success, 'string container enums and exact item identity transfer: ' + transferred.message);
+  const persisted = await engine.loadAllFilesFromDB();
+  check(persisted.length === 2 && persisted.every(row => row.original), 'paired save commit preserves originals');
+  check(persisted.find(row => row.name === 'TestAmazon.d2s').original.every((value,index) => value === character[index]), 'preserved original equals imported bytes');
+  const selection = [{name:'Hero',core:'soft',gameVersion:'Modern'}, {is_stash:true,file:'Hard.d2i',core:'hard',gameVersion:'Modern'}, {is_stash:true,file:'Soft.d2i',core:'soft',gameVersion:'Modern'}];
+  check(engine.getSharedStashDetail(selection, [], 'Hero').save.file === 'Soft.d2i' && engine.getSharedStashDetail(selection, []) === null, 'stash selection matches character mode and rejects ambiguity');
+
+  dataset = await engine.buildDataset();
+  const stack = dataset.items.find(item => item.isStash && item.tabIndex === 5 && item.itemCode === 'r08');
+  const edit = await engine.editStackQuantity(5,'r08',33,'ModernSharedStashSoftCoreV2.d2i',stack.itemSeed);
+  check(edit.success, 'offline exact stack edit: ' + edit.message);
+  dataset = await engine.buildDataset();
+  check(dataset.items.find(item => item.itemCode === 'r08' && item.tabIndex === 5).quantity === 33,'edited stack quantity survives reparse');
+  const first = await engine.completeQuests('TestAmazon.d2s','all',-1,true,true);
+  const firstBytes = engine.loadedFiles.get('TestAmazon.d2s').slice();
+  const second = await engine.completeQuests('TestAmazon.d2s','all',-1,true,true);
+  check(first.success && second.success && firstBytes.every((v,i) => v === engine.loadedFiles.get('TestAmazon.d2s')[i]),'quest rewards idempotent in WASM');
+  check((await engine.createMule('NewTestMule','Warlock',false)).success,'Warlock creation from embedded mod data');
+  const uniqueCreate = await engine.createItem('TestAmazon.d2s', {
+    itemCode: 'uap', quality: 'Unique', qualityIndex: 248, x: -1, y: -1,
+    itemStats: [
+      {statId: 127, layer: 0, value: 2},
+      {statId: 80, layer: 0, value: 50},
+      {statId: 36, layer: 0, value: 10},
+      {statId: 0, layer: 0, value: 2},
+      {statId: 2, layer: 0, value: 2},
+      {statId: 3, layer: 0, value: 2},
+      {statId: 1, layer: 0, value: 2}
+    ]
+  });
+  check(uniqueCreate.success, 'offline WASM unique item creation with auto-placement');
+  const old = engine.loadedFiles.get('TestAmazon.d2s');
+  engine.loadedFiles.set('TestAmazon.d2s',new Uint8Array([1,2]));
+  let rejected = false;
+  try { await engine.commitFiles([['ModernSharedStashSoftCoreV2.d2i',new Uint8Array([9])],['TestAmazon.d2s',new Uint8Array([9])]]); } catch { rejected = true; }
+  engine.loadedFiles.set('TestAmazon.d2s',old);
+  check(rejected && (await engine.loadAllFilesFromDB()).find(row => row.name === 'ModernSharedStashSoftCoreV2.d2i').bytes.length > 1,'stale paired write aborts without partial persistence');
+  const oldSession = engine.sessionId;
+  await engine.ingestFiles([{name:'TestAmazon.d2s',bytes:character}]);
+  check(engine.sessionId !== oldSession && engine.loadedFiles.size === 1 && (await engine.loadAllFilesFromDB()).length === 1,'new folder session cannot mix duplicate filenames');
+  output.textContent += '\nALL BROWSER CHECKS PASSED';
+ } catch (error) { output.textContent += '\nFAIL ' + error.stack; }
+})();
+</script></body></html>

@@ -1,0 +1,154 @@
+{
+  "scope": "Read-only source/data audit; mutation probes use memory and TEMP copies only",
+  "sources": {
+    "E:\\Games\\d2sitems\\Program.cs": {
+      "sha256": "c2e8cd3d0c190ce9417d56df9a37dedc403efbccca272d917e824de207f3e383"
+    },
+    "E:\\Games\\d2sitems\\SaveInspectorEngine.cs": {
+      "sha256": "b3e4aeda77d64dc73d809914a5eed50836755b9a5966da4966a5082a2b52f01e"
+    },
+    "E:\\Games\\d2sitems\\ItemTransferManager.cs": {
+      "sha256": "51e0aa8c10702a545284cfe1f3c00ee3545146587606c7aae3946753270b6e87"
+    },
+    "E:\\Games\\d2sitems\\StackEditorManager.cs": {
+      "sha256": "f8ad3b59a5a268d6b66717cab327d9daf3985065a77166c8d035f71717c98ea7"
+    },
+    "E:\\Games\\d2sitems\\QuestManager.cs": {
+      "sha256": "eb6145b7baa9c0626021eb46124870fe95bb0ae6d927a30785f0c15d88d02982"
+    },
+    "E:\\Games\\d2sitems\\MuleGenerator.cs": {
+      "sha256": "af76181e9f0cf1f3b5f27624c08ce47ca6d3e5acb4588ade273e592876a2a3ed"
+    },
+    "E:\\Games\\d2sitems\\SaveBackup.cs": {
+      "sha256": "844fff8285af4aa976bca4165a369d307afb5548b9e40dc508a6426f1b8a44df"
+    },
+    "E:\\Games\\d2sitems\\web_ui.py": {
+      "sha256": "b83353476f05df03be7699e63638d8433ce923d1a209047ea4fd3967396fa102"
+    },
+    "E:\\Games\\d2sitems\\extract_item_sprites.py": {
+      "sha256": "3850ce460561fff1977756ee75cd057015e079f23df2c5547c501a42f5ce67c7"
+    },
+    "E:\\Games\\d2sitems\\web\\app.js": {
+      "sha256": "e076a471d33f540bd3c9bceccf59e303513d96b74aeaa0e78dd431c2706fa3de"
+    },
+    "E:\\Games\\d2sitems\\web\\d2_armory.js": {
+      "sha256": "bacf0f2f4cf16dd5cf22bf98ee792161a9b773cd4e1e6f5ae385d0dc959c7e51"
+    },
+    "E:\\Games\\d2sitems\\web\\d2_wasm_engine.js": {
+      "sha256": "cb2c94219b44796dba7982e1e5796a5c68fbe9e8a225f60a0948a27b8c5737cb"
+    },
+    "E:\\Games\\GeminiDiff\\BT-BKDiff\\scripts\\d2lib\\repository.py": {
+      "sha256": "88ba2aa7ed890647a4e9e60f6017b4b18394fc2ea1f33303c4b882ce71cee355"
+    },
+    "E:\\Games\\GeminiDiff\\BT-BKDiff\\scripts\\d2lib\\wiki\\builders.py": {
+      "sha256": "180ccf42a2e51da0c2d64d818c90f5588311aac8d1d7cebf88c90c8cf06c0248"
+    }
+  },
+  "tables": {
+    "uniqueitems.txt": {
+      "sha256": "ffcc862d29092ffeb87a916a61481c37c9fce4b8e939f21e5eab2ae9ad48e427",
+      "headers": {
+        "prop1": 25
+      },
+      "embedded_matches": true,
+      "bt_bkdiff_matches": true
+    },
+    "setitems.txt": {
+      "sha256": "937d2bc2b8cbe443a2436feb0cae5621b346486baf353fd786ee5a98920f6678",
+      "headers": {
+        "prop1": 24
+      },
+      "embedded_matches": true,
+      "bt_bkdiff_matches": true
+    },
+    "runes.txt": {
+      "sha256": "082b52d8e4337853e90e4fabfb9a937170396b036e17b1d995349533ff9d8bda",
+      "headers": {
+        "T1Code1": 24,
+        "Rune1": 18
+      },
+      "embedded_matches": true,
+      "bt_bkdiff_matches": true
+    },
+    "inventory.txt": {
+      "sha256": "f084dded855d11bfff5b5651e2642753302e467018343a6253d5426dca3bdf24",
+      "headers": {},
+      "embedded_matches": true,
+      "bt_bkdiff_matches": true
+    },
+    "charstats.txt": {
+      "sha256": "f5e7d0b3c6f1a8ef49dbc218a392664bde0efbbe7821abd4371704fedc5860be",
+      "headers": {},
+      "embedded_matches": true,
+      "bt_bkdiff_matches": true
+    },
+    "properties.txt": {
+      "sha256": "a1adc87d00ebf01d62dd695f52f2cd0ea226e6e10ec76eb88955272234c791f4",
+      "headers": {},
+      "embedded_matches": true,
+      "bt_bkdiff_matches": true
+    }
+  },
+  "mod_assets": {
+    "items.json:cm3": {
+      "asset": "charm/charm_large"
+    },
+    "items.json:jew": {
+      "asset": "gem/perfect_diamond"
+    },
+    "items.json:cjw": {
+      "asset": "gem/perfect_diamond"
+    },
+    "items.json:bgn": {
+      "asset": "key/bigdinn_key"
+    },
+    "uniques.json:gheeds_fortune": {
+      "normal": "charm/charm_large",
+      "uber": "charm/charm_large",
+      "ultra": "charm/charm_large"
+    },
+    "uniques.json:rainbow_facet": {
+      "normal": "gem/perfect_diamond",
+      "uber": "gem/perfect_diamond",
+      "ultra": "gem/perfect_diamond"
+    },
+    "uniques.json:defenders_fire": {
+      "normal": "../misc/body_part/fragment_fire",
+      "uber": "../misc/body_part/fragment_fire",
+      "ultra": "../misc/body_part/fragment_fire"
+    },
+    "uniques.json:defenders_bile": {
+      "normal": "../misc/body_part/fragment_poison",
+      "uber": "../misc/body_part/fragment_poison",
+      "ultra": "../misc/body_part/fragment_poison"
+    }
+  },
+  "missing_classic_unique_assets": [
+    {
+      "key": "gheed's fortune",
+      "asset": "invcm3.png"
+    },
+    {
+      "key": "gheeds fortune",
+      "asset": "invcm3.png"
+    },
+    {
+      "key": "gheed's lucky charm",
+      "asset": "invcm3.png"
+    },
+    {
+      "key": "359",
+      "asset": "invcm3.png"
+    },
+    {
+      "key": "509",
+      "asset": "invcm3.png"
+    }
+  ],
+  "current_mappings": {
+    "bgn": "hd_knife_gidbinn.png",
+    "jew": "hd_jewel_1.png",
+    "cjw": "hd_gem_perfect_diamond.png",
+    "cm3": "hd_charm_charm_large.png"
+  }
+}

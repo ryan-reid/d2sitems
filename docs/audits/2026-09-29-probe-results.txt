@@ -1,0 +1,22 @@
+RANGES _uniqueStatRanges: 0
+RANGES _setStatRanges: 0
+RANGES _runewordStatRanges: 0
+ENUM REJECTED: The JSON value could not be converted to D2SItems.ContainerType. Path: $.SourceContainer | LineNumber: 0 | BytePositionInLine: 32.
+QUEST repeat: success=True,True; skill=0,1,2
+STASH baseline tabs=7; counts=86,59,53,53,68,110,0; roundtrip=True
+STACK normal tab accepted=True; message=Successfully set 'r01' stack quantity to 20 in tab 1.; returnedBytes=25336
+MULE charstats str=99 => saved str=20; error=
+[BACKUP] Created safety backup: C:\Users\Ryan\AppData\Local\Temp\d2sitems-audit-20260929\backups\20260929_173907_backup-test.d2s
+[BACKUP] Created safety backup: C:\Users\Ryan\AppData\Local\Temp\d2sitems-audit-20260929\backups\20260929_173907_backup-test.d2s
+BACKUP collision=True; firstBackupNow=after
+[BACKUP] Created safety backup: C:\Users\Ryan\AppData\Local\Temp\d2sitems-audit-20260929\transfer\backups\20260929_173907_Source.d2i
+[BACKUP] Created safety backup: C:\Users\Ryan\AppData\Local\Temp\d2sitems-audit-20260929\transfer\backups\20260929_173907_Target.d2s
+PARTIAL WRITE success=False; sourceBefore=86; sourceAfter=85; targetUnchanged=True; error=Transfer failed with exception: Access to the path 'C:\Users\Ryan\AppData\Local\Temp\d2sitems-audit-20260929\transfer\Target.d2s' is denied.
+CHAR ROUNDTRIP Amazon_L1.golden.d2s exact=True
+CHAR ROUNDTRIP Assassin_L1.golden.d2s exact=True
+CHAR ROUNDTRIP Barbarian_L1.golden.d2s exact=True
+CHAR ROUNDTRIP Druid_L1.golden.d2s exact=True
+CHAR ROUNDTRIP Necromancer_L1.golden.d2s exact=True
+CHAR ROUNDTRIP Paladin_L1.golden.d2s exact=True
+CHAR ROUNDTRIP Sorceress_L1.golden.d2s exact=True
+CHAR ROUNDTRIP Warlock_L1.golden.d2s exact=True
