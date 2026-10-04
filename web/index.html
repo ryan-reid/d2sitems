@@ -430,6 +430,20 @@
           <h2>The Chronicle</h2>
           <p class="section-desc">In-game Holy Grail discovery tracker recorded directly inside Diablo II Resurrected shared stash save files.</p>
         </div>
+        <div class="chronicle-actions">
+          <button id="btn-complete-chronicle" class="chronicle-action-btn btn-complete-all" onclick="completeAllChronicle()" title="Mark all items in the Chronicle as completed (100%)">
+            <svg class="icon-svg" style="width: 14px; height: 14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            Complete All
+          </button>
+          <button id="btn-complete-undroppable" class="chronicle-action-btn" onclick="completeUndroppableChronicle()" title="Mark non-droppable charms and items (Game Modifiers, Blank Charm, Level 90 Reward) as completed">
+            <svg class="icon-svg" style="width: 14px; height: 14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            Complete Undroppable
+          </button>
+          <button id="btn-reset-chronicle" class="chronicle-action-btn" onclick="resetChronicleCompletions()" title="Clear manual completions and revert to save file discoveries">
+            <svg class="icon-svg" style="width: 14px; height: 14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+            Reset
+          </button>
+        </div>
         <div class="chronicle-filters">
           <div class="chronicle-filter-group">
             <span class="chronicle-filter-label">MODE:</span>

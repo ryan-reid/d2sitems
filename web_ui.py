@@ -1105,8 +1105,7 @@ class SaveDataManager:
         try:
             sys.path.insert(0, SCRIPT_DIR)
             import find_items
-            exclude_names = set(n.strip() for n in load_conf().get("exclude_items", "").split(",") if n.strip())
-            grail = find_items.load_grail_items(excel_dir, exclude=exclude_names)
+            grail = find_items.load_grail_items(excel_dir, exclude=None)
 
             tracked_uniques = {}
             tracked_sets = {}
@@ -1126,13 +1125,25 @@ class SaveDataManager:
                     for u in chronicle.get("uniques", []):
                         uname = (u.get("name") or "").strip()
                         if uname:
-                            tracked_uniques[uname.lower()] = {
+                            entry = {
                                 "id": u.get("id"),
                                 "name": uname,
                                 "source": u.get("source"),
                                 "timestamp": u.get("timestamp"),
                                 "core": save_core
                             }
+                            tracked_uniques[uname.lower()] = entry
+                            u_low = uname.lower()
+                            if u_low in ("game modifiers", "game modifers", "charm modifiers"):
+                                tracked_uniques["game modifiers"] = entry
+                                tracked_uniques["game modifers"] = entry
+                                tracked_uniques["charm modifiers"] = entry
+                            elif u_low in ("blank charm", "charm blank"):
+                                tracked_uniques["blank charm"] = entry
+                                tracked_uniques["charm blank"] = entry
+                            elif u_low in ("level 90 reward", "charm level reward"):
+                                tracked_uniques["level 90 reward"] = entry
+                                tracked_uniques["charm level reward"] = entry
 
                     for s in chronicle.get("sets", []):
                         sname = (s.get("name") or "").strip()
@@ -1187,6 +1198,24 @@ class SaveDataManager:
                 except Exception:
                     pass
 
+            def check_manual(item_name):
+                low = (item_name or "").strip().lower()
+                if low in manual_completions:
+                    return bool(manual_completions[low])
+                alias_map = {
+                    "game modifiers": ["game modifers", "charm modifiers"],
+                    "game modifers": ["game modifiers", "charm modifiers"],
+                    "charm modifiers": ["game modifiers", "game modifers"],
+                    "blank charm": ["charm blank"],
+                    "charm blank": ["blank charm"],
+                    "level 90 reward": ["charm level reward"],
+                    "charm level reward": ["level 90 reward"]
+                }
+                for a in alias_map.get(low, []):
+                    if a in manual_completions:
+                        return bool(manual_completions[a])
+                return None
+
             sets_by_set = grail.pop("_setsByName", {})
             set_order = grail.pop("_setOrder", [])
             set_item_bases = grail.pop("_setItemBases", {})
@@ -1222,8 +1251,9 @@ class SaveDataManager:
                             iname_low = iname.lower()
                             t_info = tracked_sets.get(iname_low)
                             is_tracked = t_info is not None
-                            if iname_low in manual_completions:
-                                is_tracked = bool(manual_completions[iname_low])
+                            m_status = check_manual(iname)
+                            if m_status is not None:
+                                is_tracked = m_status
                             if is_tracked:
                                 set_sub_tracked += 1
                                 cat_tracked_count += 1
@@ -1241,7 +1271,7 @@ class SaveDataManager:
                                 "source": t_info.get("source") if t_info else ("Manual" if is_tracked else None),
                                 "timestamp": t_info.get("timestamp") if t_info else None,
                                 "core": t_info.get("core") if t_info else None,
-                                "isManual": iname_low in manual_completions
+                                "isManual": check_manual(iname) is not None
                             })
                         cat_items.append({
                             "is_group": True,
@@ -1261,8 +1291,9 @@ class SaveDataManager:
                         iname_low = iname.lower()
                         t_info = tracked_map.get(iname_low)
                         is_tracked = t_info is not None
-                        if iname_low in manual_completions:
-                            is_tracked = bool(manual_completions[iname_low])
+                        m_status = check_manual(iname)
+                        if m_status is not None:
+                            is_tracked = m_status
                         if is_tracked:
                             cat_tracked_count += 1
                         code = codes_map.get(iname, "")
@@ -1286,7 +1317,7 @@ class SaveDataManager:
                             "source": t_info.get("source") if t_info else ("Manual" if is_tracked else None),
                             "timestamp": t_info.get("timestamp") if t_info else None,
                             "core": t_info.get("core") if t_info else None,
-                            "isManual": iname_low in manual_completions
+                            "isManual": check_manual(iname) is not None
                         })
 
                 cat_total = len(item_names)
@@ -1743,6 +1774,17 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
             name_key = name.lower()
             manual_completions[name_key] = tracked
+            alias_map = {
+                "game modifiers": ["game modifers", "charm modifiers"],
+                "game modifers": ["game modifiers", "charm modifiers"],
+                "charm modifiers": ["game modifiers", "game modifers"],
+                "blank charm": ["charm blank"],
+                "charm blank": ["blank charm"],
+                "level 90 reward": ["charm level reward"],
+                "charm level reward": ["level 90 reward"]
+            }
+            for a in alias_map.get(name_key, []):
+                manual_completions[a] = tracked
 
             try:
                 with open(manual_file, "w", encoding="utf-8") as f:
@@ -1750,6 +1792,101 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json({"success": True, "name": name, "tracked": tracked})
             except Exception as ex:
                 self.send_json({"success": False, "error": f"Failed to save chronicle completion: {str(ex)}"})
+            return
+
+        if path == "/api/chronicle/complete-all":
+            active_p = manager.get_active_profile()
+            excel_dir = active_p.get("excel_dir")
+            sys.path.insert(0, SCRIPT_DIR)
+            import find_items
+            grail = find_items.load_grail_items(excel_dir, exclude=None)
+            manual_file = os.path.join(SCRIPT_DIR, "user_chronicle.json")
+            manual = {}
+            if os.path.isfile(manual_file):
+                try:
+                    with open(manual_file, "r", encoding="utf-8") as f:
+                        manual = json.load(f)
+                except Exception:
+                    manual = {}
+
+            all_items = []
+            for cat_name, items in grail.items():
+                if not cat_name.startswith("_"):
+                    all_items.extend(items)
+            extra_names = [
+                "Game Modifiers", "Game Modifers", "Charm Modifiers",
+                "Blank Charm", "Charm Blank",
+                "Level 90 Reward", "Charm Level Reward"
+            ]
+            all_items.extend(extra_names)
+
+            for item_name in all_items:
+                manual[item_name.lower()] = True
+
+            try:
+                with open(manual_file, "w", encoding="utf-8") as f:
+                    json.dump(manual, f, indent=2)
+                self.send_json({"success": True, "count": len(all_items), "total_completed": len(manual)})
+            except Exception as ex:
+                self.send_json({"success": False, "error": f"Failed to save chronicle completion: {str(ex)}"})
+            return
+
+        if path == "/api/chronicle/complete-undroppable":
+            manual_file = os.path.join(SCRIPT_DIR, "user_chronicle.json")
+            manual = {}
+            if os.path.isfile(manual_file):
+                try:
+                    with open(manual_file, "r", encoding="utf-8") as f:
+                        manual = json.load(f)
+                except Exception:
+                    manual = {}
+
+            undroppable = [
+                "game modifiers",
+                "game modifers",
+                "charm modifiers",
+                "blank charm",
+                "charm blank",
+                "level 90 reward",
+                "charm level reward",
+                "azurewrath",
+                "gore ripper",
+                "zakarum's salvation",
+                "larzuk's champion",
+                "darkfear",
+                "crafted cold rupture",
+                "crafted flame rift",
+                "crafted crack of the heavens",
+                "crafted rotting fissure",
+                "crafted bone break",
+                "crafted black cleft",
+                "horadric staff",
+                "hell forge hammer",
+            ]
+            for ex in load_conf().get("exclude_items", "").split(","):
+                ex_name = ex.strip()
+                if ex_name and ex_name.lower() not in undroppable:
+                    undroppable.append(ex_name.lower())
+
+            for item_name in undroppable:
+                manual[item_name.lower()] = True
+
+            try:
+                with open(manual_file, "w", encoding="utf-8") as f:
+                    json.dump(manual, f, indent=2)
+                self.send_json({"success": True, "updated_items": undroppable, "count": len(undroppable)})
+            except Exception as ex:
+                self.send_json({"success": False, "error": f"Failed to save chronicle completion: {str(ex)}"})
+            return
+
+        if path == "/api/chronicle/reset":
+            manual_file = os.path.join(SCRIPT_DIR, "user_chronicle.json")
+            try:
+                with open(manual_file, "w", encoding="utf-8") as f:
+                    json.dump({}, f, indent=2)
+                self.send_json({"success": True})
+            except Exception as ex:
+                self.send_json({"success": False, "error": f"Failed to reset chronicle: {str(ex)}"})
             return
 
         if path == "/api/mules/create":

@@ -1641,6 +1641,49 @@ tbody tr:hover td {
   gap: 16px;
 }
 
+.chronicle-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.chronicle-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.chronicle-action-btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--gold);
+  color: #ffd700;
+  box-shadow: 0 0 8px rgba(255, 215, 0, 0.2);
+}
+
+.chronicle-action-btn.btn-complete-all {
+  border-color: rgba(255, 215, 0, 0.5);
+  color: #ffd700;
+  background: rgba(255, 215, 0, 0.08);
+}
+
+.chronicle-action-btn.btn-complete-all:hover {
+  background: rgba(255, 215, 0, 0.2);
+  box-shadow: 0 0 12px rgba(255, 215, 0, 0.45);
+}
+
 .chronicle-filters {
   display: flex;
   gap: 12px;

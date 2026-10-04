@@ -536,6 +536,8 @@ def load_grail_items(excel_dir, exclude=None):
 
             raw_name = row.get("index", "").strip()
             name = localize(raw_name)
+            if name == "Game Modifers":
+                name = "Game Modifiers"
             base_fallback = row.get("*ItemName", "").strip()
             base_name = strings.get(base_code, base_fallback)
 

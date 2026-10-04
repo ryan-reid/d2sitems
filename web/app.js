@@ -1987,23 +1987,46 @@ function mergeLocalChronicleCompletions() {
   }
   if (!manual || Object.keys(manual).length === 0) return;
 
+  const aliases = {
+    'game modifiers': ['game modifers', 'charm modifiers'],
+    'game modifers': ['game modifiers', 'charm modifiers'],
+    'charm modifiers': ['game modifiers', 'game modifers'],
+    'blank charm': ['charm blank'],
+    'charm blank': ['blank charm'],
+    'level 90 reward': ['charm level reward'],
+    'charm level reward': ['level 90 reward']
+  };
+
+  function getManualStatus(k) {
+    if (k in manual) return manual[k];
+    const al = aliases[k];
+    if (al) {
+      for (const a of al) {
+        if (a in manual) return manual[a];
+      }
+    }
+    return undefined;
+  }
+
   state.chronicle.categories.forEach(cat => {
     (cat.items || []).forEach(it => {
       if (it.is_group) {
         (it.items || []).forEach(sub => {
           const k = (sub.name || '').toLowerCase();
-          if (k in manual) {
-            sub.tracked = manual[k];
-            sub.collected = manual[k];
+          const m = getManualStatus(k);
+          if (m !== undefined) {
+            sub.tracked = m;
+            sub.collected = m;
             sub.isManual = true;
           }
         });
         it.owned_count = (it.items || []).filter(x => x.tracked).length;
       } else {
         const k = (it.name || '').toLowerCase();
-        if (k in manual) {
-          it.tracked = manual[k];
-          it.collected = manual[k];
+        const m = getManualStatus(k);
+        if (m !== undefined) {
+          it.tracked = m;
+          it.collected = m;
           it.isManual = true;
         }
       }
@@ -2071,6 +2094,16 @@ async function toggleChronicleItem(itemName, newStatus) {
   try {
     const manual = JSON.parse(localStorage.getItem('bk-chronicle-manual') || '{}');
     manual[nameLower] = newStatus;
+    const aliases = {
+      'game modifiers': ['game modifers', 'charm modifiers'],
+      'game modifers': ['game modifiers', 'charm modifiers'],
+      'charm modifiers': ['game modifiers', 'game modifers'],
+      'blank charm': ['charm blank'],
+      'charm blank': ['blank charm'],
+      'level 90 reward': ['charm level reward'],
+      'charm level reward': ['level 90 reward']
+    };
+    (aliases[nameLower] || []).forEach(a => manual[a] = newStatus);
     localStorage.setItem('bk-chronicle-manual', JSON.stringify(manual));
   } catch (e) {}
 
@@ -2092,6 +2125,200 @@ async function toggleChronicleItem(itemName, newStatus) {
   showToast(`${itemName} marked as ${newStatus ? 'discovered' : 'undiscovered'}!`, 'success');
 }
 window.toggleChronicleItem = toggleChronicleItem;
+
+async function completeAllChronicle() {
+  if (!confirm("Are you sure you want to mark all Chronicle items as completed (100%)?")) {
+    return;
+  }
+
+  // 1. Update in-memory state
+  if (state.chronicle && state.chronicle.categories) {
+    state.chronicle.categories.forEach(cat => {
+      (cat.items || []).forEach(it => {
+        if (it.is_group) {
+          (it.items || []).forEach(sub => {
+            sub.tracked = true;
+            sub.collected = true;
+            sub.isManual = true;
+          });
+          it.owned_count = (it.items || []).length;
+        } else {
+          it.tracked = true;
+          it.collected = true;
+          it.isManual = true;
+        }
+      });
+      cat.owned = cat.total;
+      cat.percent = 100.0;
+    });
+    state.chronicle.total_owned = state.chronicle.total_items;
+    state.chronicle.percent = 100.0;
+  }
+
+  // 2. Persist in localStorage
+  try {
+    let manual = JSON.parse(localStorage.getItem('bk-chronicle-manual') || '{}');
+    if (state.chronicle && state.chronicle.categories) {
+      state.chronicle.categories.forEach(cat => {
+        (cat.items || []).forEach(it => {
+          if (it.is_group) {
+            (it.items || []).forEach(sub => {
+              if (sub.name) manual[sub.name.toLowerCase()] = true;
+            });
+          } else {
+            if (it.name) manual[it.name.toLowerCase()] = true;
+          }
+        });
+      });
+    }
+    const aliases = ['game modifiers', 'game modifers', 'charm modifiers', 'blank charm', 'charm blank', 'level 90 reward', 'charm level reward'];
+    aliases.forEach(a => manual[a] = true);
+    localStorage.setItem('bk-chronicle-manual', JSON.stringify(manual));
+  } catch (e) {
+    console.warn('Failed to save manual completions to localStorage:', e);
+  }
+
+  renderChronicleView();
+
+  // 3. Persist to backend if server mode
+  if (!state.isWasmMode) {
+    try {
+      await window.coreFetch('/api/chronicle/complete-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+    } catch (err) {
+      console.warn('Failed to call /api/chronicle/complete-all:', err);
+    }
+  }
+
+  showToast('Chronicle marked 100% complete!', 'success');
+}
+window.completeAllChronicle = completeAllChronicle;
+
+async function completeUndroppableChronicle() {
+  const undroppableList = [
+    'game modifiers',
+    'game modifers',
+    'charm modifiers',
+    'blank charm',
+    'charm blank',
+    'level 90 reward',
+    'charm level reward',
+    'azurewrath',
+    'gore ripper',
+    "zakarum's salvation",
+    "larzuk's champion",
+    'darkfear',
+    'crafted cold rupture',
+    'crafted flame rift',
+    'crafted crack of the heavens',
+    'crafted rotting fissure',
+    'crafted bone break',
+    'crafted black cleft',
+    'horadric staff',
+    'hell forge hammer'
+  ];
+  const undroppableSet = new Set(undroppableList);
+
+  let updatedCount = 0;
+
+  // 1. Update in-memory state
+  if (state.chronicle && state.chronicle.categories) {
+    state.chronicle.categories.forEach(cat => {
+      (cat.items || []).forEach(it => {
+        if (it.is_group) {
+          (it.items || []).forEach(sub => {
+            const k = (sub.name || '').toLowerCase();
+            if (undroppableSet.has(k)) {
+              sub.tracked = true;
+              sub.collected = true;
+              sub.isManual = true;
+              updatedCount++;
+            }
+          });
+          it.owned_count = (it.items || []).filter(x => x.tracked).length;
+        } else {
+          const k = (it.name || '').toLowerCase();
+          if (undroppableSet.has(k)) {
+            it.tracked = true;
+            it.collected = true;
+            it.isManual = true;
+            updatedCount++;
+          }
+        }
+      });
+      let catTracked = 0;
+      (cat.items || []).forEach(it => {
+        if (it.is_group) catTracked += it.owned_count;
+        else if (it.tracked) catTracked += 1;
+      });
+      cat.owned = catTracked;
+      cat.percent = cat.total > 0 ? Math.round((cat.owned / cat.total) * 1000) / 10 : 0;
+    });
+
+    let totalTracked = 0;
+    state.chronicle.categories.forEach(cat => totalTracked += cat.owned);
+    state.chronicle.total_owned = totalTracked;
+    state.chronicle.percent = state.chronicle.total_items > 0
+      ? Math.round((totalTracked / state.chronicle.total_items) * 10000) / 100
+      : 0;
+  }
+
+  // 2. Persist in localStorage
+  try {
+    let manual = JSON.parse(localStorage.getItem('bk-chronicle-manual') || '{}');
+    undroppableList.forEach(k => manual[k] = true);
+    localStorage.setItem('bk-chronicle-manual', JSON.stringify(manual));
+  } catch (e) {
+    console.warn('Failed to save undroppable items to localStorage:', e);
+  }
+
+  renderChronicleView();
+
+  // 3. Persist to backend if not WASM mode
+  if (!state.isWasmMode) {
+    try {
+      await window.coreFetch('/api/chronicle/complete-undroppable', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+    } catch (err) {
+      console.warn('Failed to call /api/chronicle/complete-undroppable:', err);
+    }
+  }
+
+  showToast('Undroppable items (Game Modifiers, Blank Charm, Level 90 Reward, etc.) marked as complete!', 'success');
+}
+window.completeUndroppableChronicle = completeUndroppableChronicle;
+
+async function resetChronicleCompletions() {
+  if (!confirm("Reset all manual Chronicle completions and revert to save file discoveries?")) {
+    return;
+  }
+
+  try {
+    localStorage.removeItem('bk-chronicle-manual');
+  } catch (e) {}
+
+  if (!state.isWasmMode) {
+    try {
+      await window.coreFetch('/api/chronicle/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+    } catch (err) {
+      console.warn('Failed to call /api/chronicle/reset:', err);
+    }
+  }
+
+  await loadChronicleView();
+  showToast('Chronicle manual completions reset!', 'info');
+}
+window.resetChronicleCompletions = resetChronicleCompletions;
 
 function setChronicleCore(core) {
   state.chronicleCore = core;
