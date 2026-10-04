@@ -614,6 +614,7 @@ public static class ItemTransferManager
         return (seed.HasValue || (x.HasValue && y.HasValue)) && matches.Count == 1 ? matches[0] : null;
     }
 
+    [System.Runtime.Versioning.UnsupportedOSPlatform("browser")]
     public static int RunCli(string[] args, string defaultSaveDir, string excelDir)
     {
         if (args.Length < 1) return 1;

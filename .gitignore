@@ -37,6 +37,7 @@ screenshot_*.png
 test_*.png
 *.tmp
 invgswe_decoded.png
+scratch/
 backups/
 temp.json
 sorc_api.json

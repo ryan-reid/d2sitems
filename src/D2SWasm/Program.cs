@@ -4,6 +4,7 @@ namespace D2SWasm;
 
 public class Program
 {
+    [System.Runtime.Versioning.SupportedOSPlatform("browser")]
     public static void Main(string[] args)
     {
         Console.WriteLine("[D2SWasm] WebAssembly runtime started.");

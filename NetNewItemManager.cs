@@ -189,6 +189,7 @@ public static class NetNewItemManager
         }
     }
 
+    [System.Runtime.Versioning.UnsupportedOSPlatform("browser")]
     public static int RunCli(string[] args, string excelDir)
     {
         try
