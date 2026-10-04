@@ -60,4 +60,7 @@ test_zoom.js
 web/wasm/
 web/_framework/
 
+*.zip
+
+
 

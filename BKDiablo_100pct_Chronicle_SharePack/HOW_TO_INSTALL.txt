@@ -1,0 +1,48 @@
+========================================================================
+   BKDiablo Mod - 100% In-Game Chronicle (Holy Grail Wiki) Stash Files
+========================================================================
+
+These files provide a 100% completed in-game Chronicle tab for the BKDiablo mod in Diablo II: Resurrected.
+You can use them as a full in-game wiki/reference to inspect all items, runewords, and stats!
+
+FILES INCLUDED:
+--------------
+- ModernSharedStashSoftCoreV2.d2i  --> Softcore shared stash (100% Chronicle, empty stash)
+- ModernSharedStashHardCoreV2.d2i  --> Hardcore shared stash (100% Chronicle, empty stash)
+
+*Note: All item container tabs in these stashes are completely blank (0 items, 0 gold) 
+so your shared stash won't be cluttered with someone else's gear.
+
+========================================================================
+   INSTALLATION INSTRUCTIONS
+========================================================================
+
+STEP 1: Close Diablo II: Resurrected completely.
+
+STEP 2: Open your D2R BKDiablo save folder:
+   Press Windows Key + R, paste the following line, and press Enter:
+   %USERPROFILE%\Saved Games\Diablo II Resurrected\Mods\BKDiablo
+
+STEP 3: BACK UP YOUR EXISTING SHARED STASH!
+   - If playing Softcore, rename your existing "ModernSharedStashSoftCoreV2.d2i" 
+     to "ModernSharedStashSoftCoreV2.d2i.bak".
+   - If playing Hardcore, rename your existing "ModernSharedStashHardCoreV2.d2i" 
+     to "ModernSharedStashHardCoreV2.d2i.bak".
+   (This ensures your personal items and shared gold are never lost!)
+
+STEP 4: Copy the file(s) from this folder into that save directory:
+   - Copy ModernSharedStashSoftCoreV2.d2i (for Softcore)
+   - Copy ModernSharedStashHardCoreV2.d2i (for Hardcore)
+
+STEP 5: Launch Diablo II: Resurrected, open your Shared Stash, and click 
+   the "Chronicle" tab. Enjoy your 100% completed in-game wiki!
+
+========================================================================
+   HOW TO RESTORE YOUR ORIGINAL STASH
+========================================================================
+To switch back to your own personal stash:
+1. Close D2R.
+2. Go back to %USERPROFILE%\Saved Games\Diablo II Resurrected\Mods\BKDiablo\
+3. Delete or move the 100% ModernSharedStashSoftCoreV2.d2i (or HardCore).
+4. Rename your "ModernSharedStashSoftCoreV2.d2i.bak" back to "ModernSharedStashSoftCoreV2.d2i".
+========================================================================
