@@ -636,9 +636,6 @@
           <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px; color:var(--text-main);">
             <input type="checkbox" id="quests-rewards-check" checked /> Grant Quest Rewards (+Skills, +Stats, +Life)
           </label>
-          <label id="quests-force-live-container" style="display:none; align-items:center; gap:8px; cursor:pointer; font-size:13px; color:#ff6b6b;">
-            <input type="checkbox" id="quests-force-live-check" /> ⚠️ Confirm override for live main character
-          </label>
         </div>
 
         <div id="quests-status" style="font-size:12px; margin-top:8px; padding:6px; border-radius:4px; display:none;"></div>
@@ -690,12 +687,6 @@
           </div>
         </div>
 
-        <div class="filter-group" id="transfer-force-live-container" style="display:none; margin-top: 6px;">
-          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px; color:#ff6b6b;">
-            <input type="checkbox" id="transfer-force-live-check" /> ⚠️ Confirm override for live main character
-          </label>
-        </div>
-
         <div id="transfer-destination-summary" role="status" style="font-size:12px; margin-top:10px; padding:6px 8px; border-left:3px solid var(--color-accent); color:var(--text-main);"></div>
         <div id="transfer-status" style="font-size:12px; margin-top:8px; padding:6px; border-radius:4px; display:none;"></div>
       </div>
@@ -744,12 +735,6 @@
         <div class="filter-group">
           <label for="pack-max-items" class="filter-label">Max Items to Pack:</label>
           <input type="number" id="pack-max-items" class="search-input" value="30" min="1" max="100" />
-        </div>
-
-        <div class="filter-group" id="pack-force-live-container" style="display:none; margin-top: 6px;">
-          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px; color:#ff6b6b;">
-            <input type="checkbox" id="pack-force-live-check" /> ⚠️ Confirm override for live main character
-          </label>
         </div>
 
         <div id="pack-status" style="font-size:12px; margin-top:8px; padding:6px; border-radius:4px; display:none;"></div>

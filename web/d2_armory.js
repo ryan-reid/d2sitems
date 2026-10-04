@@ -43,7 +43,10 @@
 
   function getItemSpriteUrl(item) {
     const isClassic = d2rState.graphicsMode === 'classic';
-    const resolved = window.BKItemArt?.resolve(item, itemImageMappings, isClassic);
+    const mappings = (itemImageMappings && Object.keys(itemImageMappings.codes || {}).length > 0)
+      ? itemImageMappings
+      : (window.itemImageMappings || window.D2Wasm?.spriteMappings);
+    const resolved = window.BKItemArt?.resolve(item, mappings, isClassic);
     if (resolved?.file) return `assets/items/${resolved.file}`;
     const jewelSprite = resolveJewelSprite(item, isClassic);
     if (jewelSprite) {
@@ -55,7 +58,7 @@
         return `assets/items/${item.invFileClassic}`;
       }
       const code = (item.itemCode || '').trim();
-      const classicFile = (itemImageMappings.classic_codes && itemImageMappings.classic_codes[code]) || `inv${code.toLowerCase()}.png`;
+      const classicFile = (mappings?.classic_codes && mappings.classic_codes[code]) || `inv${code.toLowerCase()}.png`;
       return `assets/items/${classicFile}`;
     }
 
@@ -65,17 +68,21 @@
     const q = (item.quality || '').toLowerCase();
     const rawName = (item.name || item.displayName || '').split('(')[0].trim().toLowerCase();
     const uid = item.uniqueId !== undefined && item.uniqueId !== null ? String(item.uniqueId) : null;
-    const code = (item.itemCode || '').trim();
+    const code = (item.itemCode || '').trim().toLowerCase();
 
     let file = null;
     if (q === 'unique') {
-      file = (uid && itemImageMappings.uniques && itemImageMappings.uniques[uid]) || (itemImageMappings.uniques && itemImageMappings.uniques[rawName]);
+      file = (uid && mappings?.uniques && mappings.uniques[uid]) || (mappings?.uniques && mappings.uniques[rawName]);
     } else if (q === 'set') {
-      file = itemImageMappings.sets && itemImageMappings.sets[rawName];
+      file = mappings?.sets && mappings.sets[rawName];
     }
 
-    if (!file && code && itemImageMappings.codes) {
-      file = itemImageMappings.codes[code];
+    if (!file && code && mappings?.codes) {
+      file = mappings.codes[code];
+    }
+
+    if (!file && code) {
+      file = resolveSlotSprite(code);
     }
 
     if (file) {
@@ -334,27 +341,51 @@
     window.closeD2RActionMenu();
     window.hideD2RItemTooltip();
 
+    if (!window.EditWorkspace?.active) {
+      window.showToast?.('Turn on Edit mode to modify stacks.', 'info');
+      return;
+    }
+
     code = (code || '').trim().toLowerCase();
-    const candidates = ((d2rState.stashData?.tabs || []).flatMap(t => t.items || []))
-      .filter(it => it.itemCode?.trim().toLowerCase() === code && it.tabIndex === tabIndex);
-    const item = selectedItem || (candidates.length === 1 ? candidates[0] : null);
-    if (!item || !item.isStash || item.itemSeed == null || !item.sourceFile) {
+    tabIndex = tabIndex != null ? tabIndex : 5;
+
+    const allStashItems = (d2rState.stashData?.tabs || []).flatMap(t => t.items || []);
+    const candidates = allStashItems.filter(it => it.itemCode?.trim().toLowerCase() === code && it.tabIndex === tabIndex);
+    const item = selectedItem
+      || (candidates.length > 0 ? candidates[0] : null)
+      || allStashItems.find(it => it.itemCode?.trim().toLowerCase() === code)
+      || ((window.state?.items || []).find(it => it.isStash && it.itemCode?.trim().toLowerCase() === code));
+
+    if (!item) {
+      window.showToast?.(`No '${displayName || code.toUpperCase()}' stack currently exists in this stash tab. Transfer or add items to stack first.`, 'info');
+      return;
+    }
+
+    const stashFile = item.sourceFile || d2rState.stashData?.save?.file || (window.state?.saves || []).find(s => s.is_stash)?.file;
+    if (!item.isStash || item.itemSeed == null || !stashFile) {
       window.showToast?.('Select an existing stack from a specific shared stash. Reload if it is missing or ambiguous.', 'error');
       return;
     }
-    window.editStackSelection = { file: item.sourceFile, seed: item.itemSeed, revision: item.saveRevision, tab: item.tabIndex, code: item.itemCode };
+
+    const revision = item.saveRevision || d2rState.stashData?.save?.saveRevision || (window.state?.saves || []).find(s => s.file === stashFile)?.saveRevision;
+    window.editStackSelection = {
+      file: stashFile,
+      seed: item.itemSeed,
+      revision: revision,
+      tab: item.tabIndex != null ? item.tabIndex : tabIndex,
+      code: item.itemCode
+    };
 
     if (!displayName || displayName === code || displayName === code.toUpperCase()) {
-      displayName = D2R_STACK_SLOT_NAMES[code] || code.toUpperCase();
+      displayName = item.displayName || item.name || D2R_STACK_SLOT_NAMES[code] || code.toUpperCase();
     }
-    currentQty = parseInt(currentQty, 10) || 0;
-    tabIndex = tabIndex != null ? tabIndex : 5;
+    currentQty = parseInt(currentQty, 10) || (item.quantity != null ? item.quantity : 1);
 
     const modal = document.getElementById('edit-stack-modal');
     if (!modal) return;
 
     document.getElementById('edit-stack-item-code').value = code;
-    document.getElementById('edit-stack-tab-idx').value = tabIndex;
+    document.getElementById('edit-stack-tab-idx').value = window.editStackSelection.tab;
     document.getElementById('edit-stack-preview-name').textContent = displayName;
     document.getElementById('edit-stack-preview-code').textContent = code;
     document.getElementById('edit-stack-preview-curr').textContent = currentQty;
@@ -374,7 +405,7 @@
     const iconBox = document.getElementById('edit-stack-preview-icon');
     if (iconBox) {
       const sprite = resolveSlotSprite(code);
-      iconBox.innerHTML = sprite ? `<img src="/assets/items/${sprite}" style="max-width: 44px; max-height: 44px; object-fit: contain;">` : '📦';
+      iconBox.innerHTML = sprite ? `<img src="assets/items/${sprite}" style="max-width: 44px; max-height: 44px; object-fit: contain;">` : '📦';
     }
 
     const statusEl = document.getElementById('edit-stack-status');
@@ -421,6 +452,11 @@
   };
 
   window.submitEditStackQuantity = function () {
+    if (!window.EditWorkspace?.active) {
+      window.showToast?.('Turn on Edit mode to modify stacks.', 'info');
+      return;
+    }
+
     const code = document.getElementById('edit-stack-item-code').value.trim();
     const tabIdx = parseInt(document.getElementById('edit-stack-tab-idx').value, 10);
     const qty = parseInt(document.getElementById('edit-stack-qty-input').value, 10);
@@ -452,9 +488,10 @@
         if (res && res.success) {
           window.closeEditStackModal();
           window.recordEdit?.('stack quantity');
+          window.EditWorkspace?.changed();
           if (window.showToast) window.showToast(`Updated ${res.code || code} stack quantity to ${qty}.`, 'success');
+          if (window.refreshWasmDataset) await window.refreshWasmDataset();
           if (typeof reloadArmoryData === 'function') await reloadArmoryData();
-          if (window.loadSavesAndItems) await window.loadSavesAndItems();
         } else {
           if (statusEl) {
             statusEl.style.background = 'rgba(255,0,0,0.2)';
@@ -486,6 +523,7 @@
       if (res && (res.Success || res.success)) {
         window.closeEditStackModal();
         window.recordEdit?.('stack quantity');
+        window.EditWorkspace?.changed();
         if (window.showToast) window.showToast(`Updated ${code.toUpperCase()} stack count to ${qty}.`, 'success');
         // Refresh shared stash data and item list
         if (typeof reloadArmoryData === 'function') await reloadArmoryData();
@@ -1258,7 +1296,7 @@
     // Regular shared tabs (indices 0..4 only)
     const sharedTabs = tabsMeta.slice(0, 5);
     const stackTab = tabsMeta[5] || { name: 'Stackable', itemCount: 0, items: [] };
-    const sharedTotalCount = sharedTabs.reduce((sum, t) => sum + (t.itemCount || 0), 0);
+    const sharedTotalCount = sharedTabs.reduce((sum, t) => sum + (t.itemCount !== undefined ? t.itemCount : (t.items ? t.items.length : 0)), 0);
 
     // Compute crafting total (items in Cube + crafting materials in stash)
     const craftingMatCodes = /mls|lmr|bgn|gft|dw1|db1|1dr|cct|bct|sct|pct|rrr|mfp|tds|std|dsd|rtr|fel|voa|gwh|hsm|dss/;
@@ -1282,7 +1320,7 @@
           Crafting (${craftingTotalCount})
         </button>
         <button class="d2r-tab-btn ${isStackableActive ? 'active' : ''}" onclick="switchD2RStashTab('stackable')">
-          Stackable (${stackTab.itemCount || 0})
+          Stackable (${stackTab.itemCount !== undefined ? stackTab.itemCount : (stackTab.items ? stackTab.items.length : 0)})
         </button>
       </div>
     `;
@@ -1293,9 +1331,11 @@
       let subPagesHtml = '';
       sharedTabs.forEach((t, idx) => {
         const isSubActive = currentSharedIdx === idx;
+        const count = t.itemCount !== undefined ? t.itemCount : (t.items ? t.items.length : 0);
+        const shortName = `Shared ${idx + 1}`;
         subPagesHtml += `
-          <button class="d2r-subtab-btn ${isSubActive ? 'active' : ''}" onclick="switchD2RSharedSubTab(${idx})">
-            ${escapeHtml(t.name || `Shared ${idx + 1}`)} (${t.itemCount || 0})
+          <button class="d2r-subtab-btn ${isSubActive ? 'active' : ''}" onclick="switchD2RSharedSubTab(${idx})" title="${escapeHtml(t.name || `Shared Tab ${idx + 1}`)} (${count} items)">
+            ${shortName} (${count})
           </button>
         `;
       });
@@ -1320,7 +1360,9 @@
     if (code === 'jew' || code.startsWith('jew')) {
       return 'hd_jewel_1.png';
     }
-    const mappings = itemImageMappings || window.itemImageMappings;
+    const mappings = (itemImageMappings && Object.keys(itemImageMappings.codes || {}).length > 0)
+      ? itemImageMappings
+      : (window.itemImageMappings || window.D2Wasm?.spriteMappings);
     if (mappings) {
       if (mappings.hd_codes && mappings.hd_codes[code]) {
         return mappings.hd_codes[code];
@@ -1328,6 +1370,10 @@
       if (mappings.codes && mappings.codes[code]) {
         return mappings.codes[code];
       }
+    }
+    if (window.BKItemArt && mappings) {
+      const res = window.BKItemArt.resolve({ itemCode: code, quality: 'Normal' }, mappings);
+      if (res?.file) return res.file;
     }
     return null;
   }
@@ -1458,7 +1504,7 @@
           `;
         } else {
           const imgFile = resolveSlotSprite(code);
-          const wmHtml = imgFile ? `<img src="/assets/items/${imgFile}" class="d2r-mod-slot-watermark" alt="${code}">` : '';
+          const wmHtml = imgFile ? `<img src="assets/items/${imgFile}" class="d2r-mod-slot-watermark" alt="${code}">` : '';
           slotsHtml += `
             <div class="d2r-mod-slot is-empty" style="left: ${sx}px; top: ${sy}px; width: ${sw}px; height: ${sh}px;" data-code="${code}" data-name="${escapeHtml(friendlyName)}" data-qty="0" data-tab="5" title="Empty Slot: ${escapeHtml(friendlyName)} (Click to Add / Edit Stack)">
               ${wmHtml}
@@ -1518,7 +1564,7 @@
             // Double click opens stack editor
             itemEl.addEventListener('dblclick', (e) => {
               e.stopPropagation();
-              window.openEditStackModalByCode(it.itemCode, it.displayName || it.name, q, 5);
+              window.openEditStackModalByCode(it.itemCode, it.displayName || it.name, q, 5, it);
             });
           } catch (e) {}
         }
@@ -1531,7 +1577,9 @@
           const name = slotBox.getAttribute('data-name');
           const qty = parseInt(slotBox.getAttribute('data-qty'), 10) || 0;
           const tab = parseInt(slotBox.getAttribute('data-tab'), 10) || 5;
-          window.openEditStackModalByCode(code, name, qty, tab);
+          const itJson = slotBox.getAttribute('data-item');
+          const itObj = itJson ? JSON.parse(decodeURIComponent(itJson)) : null;
+          window.openEditStackModalByCode(code, name, qty, tab, itObj);
         });
       });
 
@@ -1544,7 +1592,9 @@
             const name = slot.getAttribute('data-name');
             const qty = parseInt(slot.getAttribute('data-qty'), 10) || 0;
             const tab = parseInt(slot.getAttribute('data-tab'), 10) || 5;
-            window.openEditStackModalByCode(code, name, qty, tab);
+            const itJson = slot.getAttribute('data-item');
+            const itObj = itJson ? JSON.parse(decodeURIComponent(itJson)) : null;
+            window.openEditStackModalByCode(code, name, qty, tab, itObj);
           }
         });
       });
@@ -1637,7 +1687,7 @@
           `;
         } else {
           const imgFile = resolveSlotSprite(code);
-          const wmHtml = imgFile ? `<img src="/assets/items/${imgFile}" class="d2r-mod-slot-watermark" alt="${code}">` : '';
+          const wmHtml = imgFile ? `<img src="assets/items/${imgFile}" class="d2r-mod-slot-watermark" alt="${code}">` : '';
           slotsHtml += `
             <div class="d2r-mod-slot is-empty" style="left: ${sx}px; top: ${sy}px; width: ${sw}px; height: ${sh}px;" data-code="${code}" data-name="${escapeHtml(friendlyName)}" data-qty="0" data-tab="5" title="Empty Slot: ${escapeHtml(friendlyName)} (Click to Add / Edit Stack)">
               ${wmHtml}
@@ -1708,7 +1758,7 @@
             // Double click opens stack editor
             itemEl.addEventListener('dblclick', (e) => {
               e.stopPropagation();
-              window.openEditStackModalByCode(it.itemCode, it.displayName || it.name, q, 5);
+              window.openEditStackModalByCode(it.itemCode, it.displayName || it.name, q, 5, it);
             });
           } catch (e) {}
         }
@@ -1721,7 +1771,9 @@
           const name = slotBox.getAttribute('data-name');
           const qty = parseInt(slotBox.getAttribute('data-qty'), 10) || 0;
           const tab = parseInt(slotBox.getAttribute('data-tab'), 10) || 5;
-          window.openEditStackModalByCode(code, name, qty, tab);
+          const itJson = slotBox.getAttribute('data-item');
+          const itObj = itJson ? JSON.parse(decodeURIComponent(itJson)) : null;
+          window.openEditStackModalByCode(code, name, qty, tab, itObj);
         });
       });
 
@@ -1734,7 +1786,9 @@
             const name = slot.getAttribute('data-name');
             const qty = parseInt(slot.getAttribute('data-qty'), 10) || 0;
             const tab = parseInt(slot.getAttribute('data-tab'), 10) || 5;
-            window.openEditStackModalByCode(code, name, qty, tab);
+            const itJson = slot.getAttribute('data-item');
+            const itObj = itJson ? JSON.parse(decodeURIComponent(itJson)) : null;
+            window.openEditStackModalByCode(code, name, qty, tab, itObj);
           }
         });
       });

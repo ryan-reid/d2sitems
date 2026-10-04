@@ -187,23 +187,9 @@
   transition: zoom 0.2s ease-out, max-width 0.2s ease-out;
 }
 
-/* Adaptive Auto-Scaling for Desktop Screens */
-@media (min-width: 1360px) {
-  .d2r-panels-container:not([data-scale-override]) {
-    zoom: 1.15;
-  }
-}
-
-@media (min-width: 1600px) {
-  .d2r-panels-container:not([data-scale-override]) {
-    zoom: 1.30;
-  }
-}
-
-@media (min-width: 2100px) {
-  .d2r-panels-container:not([data-scale-override]) {
-    zoom: 1.45;
-  }
+/* Desktop Container Scaling */
+.d2r-panels-container:not([data-scale-override]) {
+  zoom: 1.0;
 }
 
 /* Base In-Game Panel Frame */
@@ -298,17 +284,19 @@
   display: flex;
   width: 100%;
   gap: 4px;
+  flex-wrap: wrap;
 }
 
 .d2r-tab-btn {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   text-align: center;
   background: linear-gradient(180deg, #27221b 0%, #151310 100%);
   color: #8b8374;
   border: 1px solid #4a3c26;
   border-bottom: none;
   border-radius: 5px 5px 0 0;
-  padding: 7px 6px;
+  padding: 6px 4px;
   font-family: var(--d2-font-title);
   font-size: 11px;
   letter-spacing: 0.5px;
@@ -368,27 +356,24 @@
 
 .d2r-subtab-pages {
   display: flex;
-  gap: 2px;
+  gap: 3px;
   flex: 1;
   min-width: 0;
-  justify-content: center;
-  overflow-x: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+  justify-content: space-between;
+  overflow: visible;
   padding: 1px 0;
-}
-.d2r-subtab-pages::-webkit-scrollbar {
-  display: none;
 }
 
 .d2r-subtab-btn {
-  flex-shrink: 0;
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: center;
   background: #191410;
   color: #9c9281;
   border: 1px solid #3d3020;
   border-radius: 3px;
-  padding: 2px 5px;
-  font-size: 10px;
+  padding: 4px 2px;
+  font-size: 10.5px;
   cursor: pointer;
   white-space: nowrap;
   transition: all 0.12s ease;
@@ -1285,13 +1270,13 @@
 }
 
 #d2r-mod-stackable-viewport {
-  background: #0d0a08 url('/assets/panel_additionalstash_all.png') no-repeat;
+  background: #0d0a08 url('assets/panel_additionalstash_all.png') no-repeat;
   background-size: 571px 587px;
   background-position: -30px -77px;
 }
 
 #d2r-mod-crafting-viewport {
-  background: #0d0a08 url('/assets/stashpanel_bkd.png') no-repeat;
+  background: #0d0a08 url('assets/stashpanel_bkd.png') no-repeat;
   background-size: 571px 587px;
   background-position: -30px -77px;
 }

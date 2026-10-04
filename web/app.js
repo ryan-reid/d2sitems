@@ -1914,8 +1914,9 @@ window.openArmoryForChar = function(charName) {
 // ==========================================================================
 async function loadArmoryView() {
   const chars = state.saves.filter(s => !s.is_stash);
-  if (chars.length === 0) {
-    dom.armoryContent.innerHTML = '<div class="empty-state"><h3>No characters loaded</h3></div>';
+  const stashes = state.saves.filter(s => s.is_stash);
+  if (chars.length === 0 && stashes.length === 0) {
+    dom.armoryContent.innerHTML = '<div class="empty-state"><h3>No saves loaded</h3></div>';
     return;
   }
 
@@ -1924,14 +1925,23 @@ async function loadArmoryView() {
   chars.forEach(c => {
     const opt = document.createElement('option');
     opt.value = c.name;
-    opt.textContent = `${c.name} (Lvl ${c.level} ${c.class})`;
+    const countSuffix = c.item_count != null ? ` - ${c.item_count} items` : '';
+    opt.textContent = `${c.name} (Lvl ${c.level} ${c.class}${countSuffix})`;
     if (preferredChar && c.name.toLowerCase() === preferredChar.toLowerCase()) {
       opt.selected = true;
     }
     dom.armoryCharSelect.appendChild(opt);
   });
 
-  const activeChar = dom.armoryCharSelect.value || chars[0].name;
+  if (chars.length === 0 && stashes.length > 0) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = `Shared Stash (${stashes[0].item_count || 0} items)`;
+    opt.selected = true;
+    dom.armoryCharSelect.appendChild(opt);
+  }
+
+  const activeChar = dom.armoryCharSelect.value || (chars[0] && chars[0].name) || '';
   state.selectedChar = activeChar;
   if (window._d2rState) window._d2rState.activeCharName = activeChar;
   await renderArmoryForChar(activeChar);
@@ -1950,8 +1960,7 @@ async function renderArmoryForChar(charName) {
     }
 
     if (state.isWasmMode && window.D2Wasm) {
-      const data = window.D2Wasm.getCharacterDetail(charName, state.saves, state.allWasmItems || state.items);
-      if (!data) throw new Error(`Character '${charName}' not found in loaded saves.`);
+      const data = charName ? window.D2Wasm.getCharacterDetail(charName, state.saves, state.allWasmItems || state.items) : { character: { name: 'Shared Stash' }, equipped: {}, stats: {}, inventory: [], stash: [], cube: [] };
       const stashData = window.D2Wasm.getSharedStashDetail(state.saves, state.allWasmItems || state.items, charName);
       const dims = { inventory: { width: 11, height: 8 }, stash: { width: 16, height: 13 }, cube: { width: 6, height: 6 } };
 
@@ -3185,8 +3194,6 @@ function openQuestsModal(charName) {
   const titleEl = document.getElementById('quests-modal-title');
   const charInput = document.getElementById('quests-char-name');
   const statusEl = document.getElementById('quests-status');
-  const forceContainer = document.getElementById('quests-force-live-container');
-  const forceCheck = document.getElementById('quests-force-live-check');
 
   if (!modal) return;
   modal.style.display = 'flex';
@@ -3196,14 +3203,6 @@ function openQuestsModal(charName) {
   if (statusEl) {
     statusEl.style.display = 'none';
     statusEl.textContent = '';
-  }
-
-  const isProtected = PROTECTED_CHARS.includes((charName || '').toLowerCase());
-  if (forceContainer) {
-    forceContainer.style.display = isProtected ? 'flex' : 'none';
-  }
-  if (forceCheck) {
-    forceCheck.checked = false;
   }
 }
 
@@ -3228,7 +3227,6 @@ async function submitCompleteQuests() {
   const actSelect = document.getElementById('quests-act-select');
   const wpCheck = document.getElementById('quests-waypoints-check');
   const rewCheck = document.getElementById('quests-rewards-check');
-  const forceCheck = document.getElementById('quests-force-live-check');
   const statusEl = document.getElementById('quests-status');
   const submitBtn = document.getElementById('btn-submit-quests');
 
@@ -3242,18 +3240,6 @@ async function submitCompleteQuests() {
   const act = actVal === 'all' ? null : parseInt(actVal, 10);
   const unlockWaypoints = wpCheck ? wpCheck.checked : true;
   const grantRewards = rewCheck ? rewCheck.checked : true;
-  const forceLive = forceCheck ? forceCheck.checked : false;
-
-  const isProtected = PROTECTED_CHARS.includes(charName.toLowerCase());
-  if (isProtected && !forceLive) {
-    if (statusEl) {
-      statusEl.style.display = 'block';
-      statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
-      statusEl.style.color = '#f87171';
-      statusEl.textContent = 'This is a protected live character. Check the confirmation checkbox to authorize modification.';
-    }
-    return;
-  }
 
   if (submitBtn) submitBtn.disabled = true;
   if (statusEl) {
@@ -3455,24 +3441,11 @@ function closeTransferItemModal() {
 function onTransferTargetFileChange() {
   const fileSelect = document.getElementById('transfer-target-file-select');
   const contSelect = document.getElementById('transfer-target-container-select');
-  const forceContainer = document.getElementById('transfer-force-live-container');
-  const forceCheck = document.getElementById('transfer-force-live-check');
-  if (forceCheck) forceCheck.checked = false;
 
   const selOpt = fileSelect.options[fileSelect.selectedIndex];
   if (!selOpt) return;
 
   const isStash = selOpt.dataset.isStash === 'true';
-  const charName = selOpt.dataset.charName || '';
-
-  const sourceFile = document.getElementById('transfer-source-file').value;
-  const sourceBase = (sourceFile.replace(/\.d2s$/i, '').split(/[\\/]/).pop() || '').toLowerCase();
-  const targetBase = charName.toLowerCase();
-  const isProtected = PROTECTED_CHARS.includes(sourceBase) || PROTECTED_CHARS.includes(targetBase);
-
-  if (forceContainer) {
-    forceContainer.style.display = isProtected ? 'block' : 'none';
-  }
 
   contSelect.innerHTML = '';
   if (isStash) {
@@ -3524,7 +3497,6 @@ async function submitItemTransfer() {
   const fileSelect = document.getElementById('transfer-target-file-select');
   const contSelect = document.getElementById('transfer-target-container-select');
   const autoCheck = document.getElementById('transfer-autoplace-check');
-  const forceCheck = document.getElementById('transfer-force-live-check');
 
   const targetFile = fileSelect.value;
   const targetVal = contSelect.value;
@@ -3549,7 +3521,7 @@ async function submitItemTransfer() {
     }
   }
 
-  const forceLive = forceCheck ? forceCheck.checked : false;
+  const forceLive = true;
 
   if (submitBtn) submitBtn.disabled = true;
   if (statusEl) {
@@ -3750,18 +3722,7 @@ function onPackStashChange() {
 }
 
 function onPackTargetCharChange() {
-  const charSelect = document.getElementById('pack-target-char-select');
-  const forceContainer = document.getElementById('pack-force-live-container');
-  const forceCheck = document.getElementById('pack-force-live-check');
-  if (forceCheck) forceCheck.checked = false;
-
-  const selOpt = charSelect.options[charSelect.selectedIndex];
-  const charName = selOpt ? (selOpt.dataset.charName || '') : '';
-  const isProtected = PROTECTED_CHARS.includes(charName.toLowerCase());
-
-  if (forceContainer) {
-    forceContainer.style.display = isProtected ? 'block' : 'none';
-  }
+  // Target char change handler
 }
 
 async function submitPackMule() {
@@ -3773,8 +3734,7 @@ async function submitPackMule() {
   const charFile = document.getElementById('pack-target-char-select').value;
   const filter = document.getElementById('pack-filter-select').value;
   const maxItems = parseInt(document.getElementById('pack-max-items').value || '30', 10);
-  const forceCheck = document.getElementById('pack-force-live-check');
-  const forceLive = forceCheck ? forceCheck.checked : false;
+  const forceLive = true;
 
   if (submitBtn) submitBtn.disabled = true;
   if (statusEl) {
@@ -3813,10 +3773,6 @@ async function submitPackMule() {
           statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
           statusEl.style.color = '#f87171';
           statusEl.textContent = data.message || 'Packing failed.';
-        }
-        if (data.isProtected) {
-          const forceContainer = document.getElementById('pack-force-live-container');
-          if (forceContainer) forceContainer.style.display = 'block';
         }
         if (submitBtn) submitBtn.disabled = false;
       }

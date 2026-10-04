@@ -738,17 +738,29 @@ class D2WasmEngine {
    */
   getSharedStashDetail(saves, items, characterName = null) {
     const character = saves.find(save => !save.is_stash && save.name === characterName);
-    const candidates = saves.filter(save => save.is_stash && (!characterName || (character && save.core === character.core && save.gameVersion === character.gameVersion)));
-    const stashSave = candidates.length === 1 ? candidates[0] : null;
+    let candidates = saves.filter(save => save.is_stash && (!characterName || (character && save.core === character.core && save.gameVersion === character.gameVersion)));
+    if (candidates.length === 0) {
+      candidates = saves.filter(save => save.is_stash);
+    }
+    const stashSave = candidates.find(s => s.file && s.file.toLowerCase().includes('modern')) || candidates[0] || null;
     if (!stashSave) return null;
 
     const stashItems = items.filter(it => it.isStash && (!stashSave.file || it.sourceFile === stashSave.file));
-    const tabs = (stashSave.tabs || []).map((t, idx) => ({
-      index: idx,
-      name: t.name || (idx === 5 ? 'Stackable' : `Shared ${idx + 1}`),
-      gold: t.gold || 0,
-      items: stashItems.filter(it => it.tabIndex === idx)
-    }));
+    const tabs = (stashSave.tabs || []).map((t, idx) => {
+      const tabItems = stashItems.filter(it => it.tabIndex === idx);
+      const rawName = t.name || '';
+      let tabName = rawName;
+      if (!rawName || rawName.startsWith('Shared Stash Tab')) {
+        tabName = idx === 5 ? 'Stackable' : `Shared ${idx + 1}`;
+      }
+      return {
+        index: idx,
+        name: tabName,
+        gold: t.gold || 0,
+        itemCount: tabItems.length,
+        items: tabItems
+      };
+    });
 
     return {
       save: stashSave,
@@ -1025,10 +1037,8 @@ class D2WasmEngine {
     const parsed = typeof res === 'string' ? JSON.parse(res) : res;
     if (parsed.success && parsed.stashBytesBase64) {
       const newStash = Uint8Array.from(atob(parsed.stashBytesBase64), c => c.charCodeAt(0));
+      this.loadedFiles.set(stashFileName, newStash);
       await this.saveFileToDB(stashFileName, newStash);
-      this.downloadFile(stashFileName, newStash);
-      // The caller rebuilds the dataset after the durable edit.
-
     }
     return parsed;
   }
