@@ -746,13 +746,19 @@ class D2WasmEngine {
    * Helper: Shared Stash Detail (all tabs)
    */
   getSharedStashDetail(saves, items, characterName = null) {
-    const character = saves.find(save => !save.is_stash && save.name === characterName);
-    let candidates = saves.filter(save => save.is_stash && (!characterName || (character && save.core === character.core && save.gameVersion === character.gameVersion)));
-    if (candidates.length === 0) {
-      candidates = saves.filter(save => save.is_stash);
+    let stashSaves = (saves || []).filter(save => save.is_stash);
+    if (!stashSaves.length) return null;
+
+    if (characterName) {
+      const character = saves.find(save => !save.is_stash && save.name === characterName);
+      if (!character) return null;
+      stashSaves = stashSaves.filter(save => save.core === character.core && save.gameVersion === character.gameVersion);
     }
-    const stashSave = candidates.find(s => s.file && s.file.toLowerCase().includes('modern')) || candidates[0] || null;
-    if (!stashSave) return null;
+
+    if (stashSaves.length !== 1) {
+      return null;
+    }
+    const stashSave = stashSaves[0];
 
     const stashItems = items.filter(it => it.isStash && (!stashSave.file || it.sourceFile === stashSave.file));
     const tabs = (stashSave.tabs || []).map((t, idx) => {
@@ -1046,8 +1052,11 @@ class D2WasmEngine {
     const parsed = typeof res === 'string' ? JSON.parse(res) : res;
     if (parsed.success && parsed.stashBytesBase64) {
       const newStash = Uint8Array.from(atob(parsed.stashBytesBase64), c => c.charCodeAt(0));
-      this.loadedFiles.set(stashFileName, newStash);
-      await this.saveFileToDB(stashFileName, newStash);
+      if (this.editOriginals) {
+        this.loadedFiles.set(stashFileName, newStash);
+      } else {
+        await this.saveFileToDB(stashFileName, newStash);
+      }
     }
     return parsed;
   }

@@ -122,6 +122,8 @@ class EditWorkspaceTests(unittest.TestCase):
                         'x': 0, 'y': 0,
                         'itemStats': [
                             {'statId': 127, 'layer': 0, 'value': 2},
+                            {'statId': 216, 'layer': 0, 'value': 12},
+                            {'statId': 217, 'layer': 0, 'value': 12},
                             {'statId': 80, 'layer': 0, 'value': 30},
                             {'statId': 36, 'layer': 0, 'value': 10},
                             {'statId': 0, 'layer': 0, 'value': 2},
@@ -143,6 +145,8 @@ class EditWorkspaceTests(unittest.TestCase):
                         'x': -1, 'y': -1,
                         'itemStats': [
                             {'statId': 127, 'layer': 0, 'value': 2},
+                            {'statId': 216, 'layer': 0, 'value': 12},
+                            {'statId': 217, 'layer': 0, 'value': 12},
                             {'statId': 80, 'layer': 0, 'value': 50},
                             {'statId': 36, 'layer': 0, 'value': 10},
                             {'statId': 0, 'layer': 0, 'value': 2},

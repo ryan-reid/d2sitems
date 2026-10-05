@@ -311,7 +311,7 @@ try
     var testStashFile = Path.Combine(transferTestDir, "ModernSharedStashSoftCoreV2.d2i");
     File.Copy(Path.Combine(baselinesDir, "ModernSharedStashSoftCoreV2.golden.d2i"), testStashFile);
 
-    string tHero = "TestTransferHero";
+    string tHero = "TestTransfer";
     D2SItems.MuleGenerator.Run(
         new[] { "create-mule", "--name", tHero, "--class", "Barbarian", "--save-dir", transferTestDir },
         transferTestDir,
@@ -496,12 +496,17 @@ try
     var testStashFile = Path.Combine(stackTestDir, "ModernSharedStashSoftCoreV2.d2i");
     File.Copy(goldenStash, testStashFile);
 
-    // 6.1 Edit existing item (std) from 0 to 5
+    // 6.1 Edit existing advanced stash stack item to quantity 5
+    var initialStash = D2StashSave.Read(File.ReadAllBytes(testStashFile), externalData);
+    var stack = initialStash.SelectMany((tab, index) => tab.Items.Select(item => (item, index)))
+        .First(x => initialStash[x.index].TabType == StashTabType.AdvancedStash && x.item.AdvancedStashStackSize.HasValue && initialStash[x.index].Items.Count(i => i.ItemSeed == x.item.ItemSeed && i.ItemCodeString == x.item.ItemCodeString) == 1);
+
     var editRes = D2SItems.StackEditorManager.EditStack(new D2SItems.EditStackRequest
     {
         StashFile = testStashFile,
-        TabIndex = 5,
-        ItemCode = "std",
+        TabIndex = stack.index,
+        ItemCode = stack.item.ItemCodeString.Trim(),
+        ItemSeed = stack.item.ItemSeed,
         Quantity = 5,
         ExcelDir = excelDir
     });
@@ -509,15 +514,15 @@ try
     if (editRes.Success && editRes.NewQuantity == 5)
     {
         var verifyStash = D2StashSave.Read(File.ReadAllBytes(testStashFile), externalData);
-        var stdItem = verifyStash[5].Items.FirstOrDefault(i => i.ItemCodeString.Trim().Equals("std", StringComparison.OrdinalIgnoreCase));
-        if (stdItem != null && stdItem.AdvancedStashStackSize == 5)
+        var editedItem = verifyStash[stack.index].Items.FirstOrDefault(i => i.ItemSeed == stack.item.ItemSeed);
+        if (editedItem != null && editedItem.AdvancedStashStackSize == 5)
         {
-            Console.WriteLine("  [PASS] Successfully updated 'std' (Standard of Heroes) stack size to 5");
+            Console.WriteLine($"  [PASS] Successfully updated '{stack.item.ItemCodeString.Trim()}' stack size to 5");
             passed++;
         }
         else
         {
-            Console.WriteLine($"  [FAIL] 'std' stack size readback mismatch: expected 5, got {stdItem?.AdvancedStashStackSize}");
+            Console.WriteLine($"  [FAIL] '{stack.item.ItemCodeString.Trim()}' stack size readback mismatch: expected 5, got {editedItem?.AdvancedStashStackSize}");
             failed++;
         }
     }
@@ -527,65 +532,47 @@ try
         failed++;
     }
 
-    // 6.2 Edit item back to 0
+    // 6.2 Zero quantity is safely rejected (deletion is separate)
     var zeroRes = D2SItems.StackEditorManager.EditStack(new D2SItems.EditStackRequest
     {
         StashFile = testStashFile,
-        TabIndex = 5,
-        ItemCode = "std",
+        TabIndex = stack.index,
+        ItemCode = stack.item.ItemCodeString.Trim(),
+        ItemSeed = stack.item.ItemSeed,
         Quantity = 0,
         ExcelDir = excelDir
     });
 
-    if (zeroRes.Success && zeroRes.NewQuantity == 0)
+    if (!zeroRes.Success)
     {
-        var verifyStash = D2StashSave.Read(File.ReadAllBytes(testStashFile), externalData);
-        var stdItem = verifyStash[5].Items.FirstOrDefault(i => i.ItemCodeString.Trim().Equals("std", StringComparison.OrdinalIgnoreCase));
-        if (stdItem != null && stdItem.AdvancedStashStackSize == 0)
-        {
-            Console.WriteLine("  [PASS] Successfully reset 'std' stack size to 0");
-            passed++;
-        }
-        else
-        {
-            Console.WriteLine($"  [FAIL] 'std' reset mismatch: got {stdItem?.AdvancedStashStackSize}");
-            failed++;
-        }
+        Console.WriteLine("  [PASS] EditStack correctly rejected zero quantity");
+        passed++;
     }
     else
     {
-        Console.WriteLine($"  [FAIL] EditStack zero reset failed: {zeroRes.Message}");
+        Console.WriteLine("  [FAIL] EditStack unexpectedly allowed zero quantity!");
         failed++;
     }
 
-    // 6.3 Add new stack item code (r33)
-    var addRes = D2SItems.StackEditorManager.EditStack(new D2SItems.EditStackRequest
+    // 6.3 Missing or invalid item seed is safely rejected
+    var badSeedRes = D2SItems.StackEditorManager.EditStack(new D2SItems.EditStackRequest
     {
         StashFile = testStashFile,
-        TabIndex = 5,
-        ItemCode = "r33",
+        TabIndex = stack.index,
+        ItemCode = stack.item.ItemCodeString.Trim(),
+        ItemSeed = uint.MaxValue,
         Quantity = 10,
         ExcelDir = excelDir
     });
 
-    if (addRes.Success && addRes.NewQuantity == 10)
+    if (!badSeedRes.Success)
     {
-        var verifyStash = D2StashSave.Read(File.ReadAllBytes(testStashFile), externalData);
-        var r33Item = verifyStash[5].Items.FirstOrDefault(i => i.ItemCodeString.Trim().Equals("r33", StringComparison.OrdinalIgnoreCase));
-        if (r33Item != null && r33Item.AdvancedStashStackSize == 10)
-        {
-            Console.WriteLine("  [PASS] Successfully added new item 'r33' with stack size 10");
-            passed++;
-        }
-        else
-        {
-            Console.WriteLine($"  [FAIL] 'r33' add readback mismatch: got {r33Item?.AdvancedStashStackSize}");
-            failed++;
-        }
+        Console.WriteLine("  [PASS] EditStack correctly rejected invalid item seed");
+        passed++;
     }
     else
     {
-        Console.WriteLine($"  [FAIL] Add stack item failed: {addRes.Message}");
+        Console.WriteLine("  [FAIL] EditStack unexpectedly succeeded with invalid seed!");
         failed++;
     }
 }
