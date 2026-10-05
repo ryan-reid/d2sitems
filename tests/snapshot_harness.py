@@ -27,7 +27,7 @@ DEFAULT_SAVE_DIR = os.path.join(
     "BKDiablo"
 )
 
-DEFAULT_EXCEL_DIR = r"E:\Games\Diablo II Resurrected\Mods\BKDiablo\bkdiablo.mpq\data\global\excel"
+DEFAULT_EXCEL_DIR = os.path.join(PROJECT_DIR, "mods", "BKDiablo", "bkdiablo.mpq", "data", "global", "excel")
 
 CLASS_MAP = {
     "TestAmazon": "Amazon",

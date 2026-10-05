@@ -15,21 +15,23 @@ import struct
 import zlib
 import shutil
 
+BK_DATA_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "BKDiablo", "bkdiablo.mpq", "data")
+
 DEFAULT_PALETTE_PATH = r"E:\Games\Diablo II Resurrected\Data\global\palette\act1\pal.dat"
 DEFAULT_DC6_DIRS = [
-    r"E:\Games\Diablo II Resurrected\Mods\BKDiablo\bkdiablo.mpq\data\global\items",
+    os.path.join(BK_DATA_ROOT, "global", "items"),
     r"E:\Games\Diablo II Resurrected\Data\global\items",
 ]
 DEFAULT_HD_ITEMS_ROOTS = [
-    r"E:\Games\Diablo II Resurrected\Mods\BKDiablo\bkdiablo.mpq\data\hd\global\ui\items",
+    os.path.join(BK_DATA_ROOT, "hd", "global", "ui", "items"),
     r"E:\Games\Diablo II Resurrected\Data\hd\global\ui\items",
 ]
 DEFAULT_HD_JSON_DIRS = [
-    r"E:\Games\Diablo II Resurrected\Mods\BKDiablo\bkdiablo.mpq\data\hd\items",
+    os.path.join(BK_DATA_ROOT, "hd", "items"),
     r"E:\Games\Diablo II Resurrected\Data\hd\items",
 ]
 DEFAULT_EXCEL_DIRS = [
-    r"E:\Games\Diablo II Resurrected\Mods\BKDiablo\bkdiablo.mpq\data\global\excel",
+    os.path.join(BK_DATA_ROOT, "global", "excel"),
     r"E:\Games\Diablo II Resurrected\Data\global\excel",
 ]
 DEFAULT_OUTPUT_DIR = r"web\assets\items"
@@ -212,7 +214,7 @@ def extract_all_sprites(palette_path=DEFAULT_PALETTE_PATH, dc6_dirs=DEFAULT_DC6_
 
 
 def build_image_mappings(excel_dirs=DEFAULT_EXCEL_DIRS, hd_json_dirs=DEFAULT_HD_JSON_DIRS,
-                         hd_files_map=None, json_path=DEFAULT_JSON_PATH):
+                         hd_files_map=None, json_path=DEFAULT_JSON_PATH, mod_artwork_prefix=""):
     """Resolve each definition from the mod before considering a retail match."""
     import csv
     import hashlib
@@ -234,6 +236,8 @@ def build_image_mappings(excel_dirs=DEFAULT_EXCEL_DIRS, hd_json_dirs=DEFAULT_HD_
         return re.sub(r"[^a-z0-9]", "", value.lower())
 
     def existing(name):
+        if name and mod_artwork_prefix and os.path.isfile(os.path.join(items_dir, mod_artwork_prefix + name)):
+            return mod_artwork_prefix + name
         return name if name and os.path.isfile(os.path.join(items_dir, name)) else None
 
     def hd_file(asset):

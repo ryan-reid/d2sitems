@@ -65,3 +65,13 @@ web/_framework/
 
 
 
+
+# Generated directly from the BK submodule
+web/assets/items/bk/
+web/assets/bk/
+web/item_images.json
+web/catalog_meta.json
+web/bank_expansion_layout.json
+web/d2_bank_layout.js
+web/unique_items_catalog.json
+web/source-revisions.json

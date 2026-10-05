@@ -12,17 +12,17 @@ ROOT = Path(__file__).resolve().parents[1]
 class CatalogTests(unittest.TestCase):
     def test_real_mapping_matches_mod(self):
         mapping = json.loads((ROOT / 'web/item_images.json').read_text(encoding='utf-8'))
-        self.assertEqual(mapping['codes']['bgn'], 'hd_key_bigdinn_key.png')
+        self.assertEqual(Path(mapping['codes']['bgn']).name, 'hd_key_bigdinn_key.png')
         # Release builds must follow the current mod asset, not the bundled
         # snapshot's historical hand-assigned Rainbow Facet icon.
         if 'artworkSources' in mapping:
             definitions = json.loads((ROOT / 'mods/BKDiablo/bkdiablo.mpq/data/hd/items/uniques.json').read_text(encoding='utf-8-sig'))
             facet = next(info for entry in definitions for name, info in entry.items()
                          if ''.join(c for c in name.lower() if c.isalnum()) == 'rainbowfacet')
-            self.assertEqual(mapping['uniques']['rainbow facet'],
+            self.assertEqual(Path(mapping['uniques']['rainbow facet']).name,
                              'hd_' + facet['normal'].lower().replace('/', '_') + '.png')
-        self.assertEqual(mapping['uniques']["defender's fire"], 'hd_body_part_fragment_fire.png')
-        self.assertEqual(mapping['uniques']["gheed's fortune"], 'hd_charm_charm_large.png')
+        self.assertEqual(Path(mapping['uniques']["defender's fire"]).name, 'hd_body_part_fragment_fire.png')
+        self.assertEqual(Path(mapping['uniques']["gheed's fortune"]).name, 'hd_charm_charm_large.png')
         for group in ('codes', 'uniques', 'sets', 'classic_codes', 'classic_uniques', 'classic_sets'):
             for name, file in mapping[group].items():
                 self.assertTrue((ROOT / 'web/assets/items' / file).is_file(), (group, name, file))
@@ -40,7 +40,7 @@ class CatalogTests(unittest.TestCase):
             (dirs[1] / 'misc.txt').write_text('code\tinvfile\nbgn\tretail\n')
             (hd[1] / 'items.json').write_text('[{"bgn":{"asset":"retail/icon"}}]')
             mapping = build_image_mappings([str(d) for d in dirs], [str(d) for d in hd], json_path=str(root / 'item_images.json'))
-            self.assertEqual(mapping['codes']['bgn'], 'mod.png')
+            self.assertEqual(Path(mapping['codes']['bgn']).name, 'mod.png')
             self.assertFalse(mapping['provenance']['codes:bgn']['fallback'])
             before = mapping['revision']
             (dirs[0] / 'misc.txt').write_text('code\tinvfile\nbgn\tmod\nother\tmod\n')

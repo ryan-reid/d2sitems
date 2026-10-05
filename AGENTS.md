@@ -11,6 +11,9 @@
 ## Build, Test, and Development Commands
 
 Run commands from the repository root with the .NET 10 SDK and Python installed.
+Initialize `git submodule update --init --recursive` and enable `git config core.hooksPath .githooks`.
+BK source data lives only under `mods/BKDiablo`; never mirror it into this repository.
+`python scripts/build_web_assets.py` builds ignored browser artifacts directly from the submodule.
 
 - `dotnet build d2sitems.csproj` — compile the CLI.
 - `dotnet run -- "path/to/saves"` — parse saves and generate searchable JSON; configure game data paths first.

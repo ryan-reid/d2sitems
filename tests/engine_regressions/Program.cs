@@ -4,7 +4,7 @@ using D2SSharp.Model;
 using D2SSharp.Enums;
 using System.Reflection;
 
-var excel = args.Length > 0 ? args[0] : @"E:\Games\Diablo II Resurrected\Mods\BKDiablo\bkdiablo.mpq\data\global\excel";
+var excel = args.Length > 0 ? args[0] : Path.GetFullPath("mods/BKDiablo/bkdiablo.mpq/data/global/excel");
 var fixtures = Path.GetFullPath("tests/fixtures/baselines");
 var external = new TxtFileExternalData(excel, version: 105);
 void Check(bool value, string message) { if (!value) throw new Exception(message); Console.WriteLine("PASS " + message); }

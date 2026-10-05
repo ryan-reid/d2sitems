@@ -138,3 +138,17 @@ Cross-repository alignment & wiki backlog:
 Matched BT-BKDiff's daily 10:00 UTC Pages workflow and added the same BK branch as a submodule. Release preparation now refreshes supported embedded tables/strings/layout, BK item/panel artwork, bank geometry, image mappings, unique-item catalog, catalog hashes, and deployed source revisions. Committed artwork and application supplements are explicitly identified as fallbacks. Added a homelab marker-comparison watcher with the wiki's live one-minute cadence and active-run suppression. See [RELEASES.md](RELEASES.md).
 
 Validation: disposable-checkout data preparation, 502-item catalog export, full WASM publish, Python catalog/API/monitor tests, C# engine regressions, save-safety tests, and actionlint passed. Browser checks passed ingestion, collection data, BK artwork, draft/paired transfers and preserved originals, then failed the existing ambiguous shared-stash selection assertion. Reproduced that failure using the method directly from unmodified HEAD: it chooses Hard.d2i where the test expects null. No save-engine or selection behavior changed in this release setup.
+
+
+### 2026-10-05 — Direct submodule inputs (supersedes release-copy preparation)
+
+Removed mirrored BK tables, strings, layout, generated catalogs, and the tracked
+PNG copies of upstream BK overrides. Native tools read `mods/BKDiablo` directly;
+MSBuild embeds its files directly for offline execution. Browser artifacts are
+ignored build outputs; no source-data refresh/copy step remains. Generated bank
+JavaScript now also follows the live submodule layout. The app-owned property
+supplement has one source, and baseline fixtures remain unchanged.
+
+Added and enabled BT-BKDiff's versioned pre-commit/checkout/merge/rewrite hooks.
+Pre-commit updates configured submodule branches and stages the pointers. Fresh
+checkouts enable them with `git config core.hooksPath .githooks`.

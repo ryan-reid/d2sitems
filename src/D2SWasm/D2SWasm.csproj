@@ -16,9 +16,20 @@
     <PackageReference Include="D2SSharp" Version="0.0.21" />
   </ItemGroup>
 
-  <!-- Embed data files (excel, strings, baselines) as resources -->
+  <!-- Read BK resources directly from the submodule; never mirror them in this repo. -->
+  <PropertyGroup>
+    <BKDataRoot>$(MSBuildProjectDirectory)/../../mods/BKDiablo/bkdiablo.mpq/data</BKDataRoot>
+  </PropertyGroup>
+  <Target Name="RequireBKSubmodule" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('$(BKDataRoot)/global/excel/uniqueitems.txt')"
+           Text="BKDiablo submodule is missing. Run git submodule update --init --recursive." />
+  </Target>
   <ItemGroup>
-    <EmbeddedResource Include="EmbeddedData\**\*" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
+    <EmbeddedResource Include="EmbeddedData/baselines/*" LogicalName="baselines/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="../../propertygroups.txt" LogicalName="propertygroups.txt" />
+    <EmbeddedResource Include="$(BKDataRoot)/global/excel/*.txt" LogicalName="excel/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="$(BKDataRoot)/local/lng/strings/*.json" LogicalName="strings/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="$(BKDataRoot)/global/ui/layouts/bankexpansionlayouthd.json" LogicalName="ui/layouts/bankexpansionlayouthd.json" />
   </ItemGroup>
 
   <!-- Link common engine C# files -->

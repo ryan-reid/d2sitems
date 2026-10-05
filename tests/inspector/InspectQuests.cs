@@ -10,7 +10,7 @@ public static class InspectQuests
 {
     public static void Run()
     {
-        var excelDir = @"E:\Games\Diablo II Resurrected\Mods\BKDiablo\bkdiablo.mpq\data\global\excel";
+        var excelDir = Path.GetFullPath("mods/BKDiablo/bkdiablo.mpq/data/global/excel");
         var saveDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Saved Games", "Diablo II Resurrected", "Mods", "BKDiablo");
         var externalData = new TxtFileExternalData(excelDir, version: 105);
         var testAzFile = Path.Combine(saveDir, "TestAmazon.d2s");

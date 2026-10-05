@@ -29,7 +29,7 @@ This guide documents data storage schemas across binary save files, mod balance 
 ## 2. Mod Definitions & Priority Rules
 Authoritative mod data priority:
 1. **BKDiablo Mod Definitions**:
-   - Primary source: `src/D2SWasm/EmbeddedData/excel/` (`UniqueItems.txt`, `Sets.txt`, `ItemStatCost.txt`, `charstats.txt`, `runes.txt`).
+   - Primary source: `mods/BKDiablo/bkdiablo.mpq/data/global/excel/` (`UniqueItems.txt`, `Sets.txt`, `ItemStatCost.txt`, `charstats.txt`, `runes.txt`).
    - Consult BT-BKDiff parsing conventions (`scripts/d2lib`).
 2. **Retail Fallback**:
    - Only utilized if an item code or property has no mod match.

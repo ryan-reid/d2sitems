@@ -192,7 +192,7 @@ def load_conf():
     return config
 
 DEFAULT_BKDIABLO_SAVE_DIR = os.path.join(DEFAULT_D2R_SAVE_DIR, "Mods", "BKDiablo")
-DEFAULT_BKDIABLO_EXCEL_DIR = r"E:\Games\Diablo II Resurrected\Mods\BKDiablo\bkdiablo.mpq\data\global\excel"
+DEFAULT_BKDIABLO_EXCEL_DIR = os.path.join(SCRIPT_DIR, "mods", "BKDiablo", "bkdiablo.mpq", "data", "global", "excel")
 
 def detect_profiles():
     """Detect available save profiles specifically for BKDiablo with optional retail fallback."""
@@ -687,8 +687,7 @@ class SaveDataManager:
         self._merc_strings = {}
 
         candidate_strings = [
-            r"E:\Games\Mods\BKDiablo\Repo\bkdiablo.mpq\data\local\lng\strings\mercenaries.json",
-            r"E:\Games\Diablo II Resurrected\Mods\BKDiablo\bkdiablo.mpq\data\local\lng\strings\mercenaries.json",
+            os.path.normpath(os.path.join(DEFAULT_BKDIABLO_EXCEL_DIR, "..", "..", "local", "lng", "strings", "mercenaries.json")),
             r"E:\Games\Diablo II Resurrected\Data\local\lng\strings\mercenaries.json",
         ]
         for sp in candidate_strings:
@@ -705,8 +704,7 @@ class SaveDataManager:
                     pass
 
         candidate_hireling = [
-            r"E:\Games\Mods\BKDiablo\Repo\bkdiablo.mpq\data\global\excel\hireling.txt",
-            r"E:\Games\Diablo II Resurrected\Mods\BKDiablo\bkdiablo.mpq\data\global\excel\hireling.txt",
+            os.path.join(DEFAULT_BKDIABLO_EXCEL_DIR, "hireling.txt"),
             r"E:\Games\Diablo II Resurrected\Data\global\excel\hireling.txt",
         ]
         for hp in candidate_hireling:
@@ -2209,4 +2207,5 @@ if __name__ == "__main__":
     parser.add_argument("--no-browser", action="store_true", help="Do not automatically open browser")
     args = parser.parse_args()
 
+    subprocess.run([sys.executable, os.path.join(SCRIPT_DIR, "scripts", "build_web_assets.py")], check=True, cwd=SCRIPT_DIR)
     run_server(port=args.port, open_browser=not args.no_browser)

@@ -20,7 +20,7 @@ catch (Exception ex)
 var config = LoadConfig("d2sitems.conf");
 
 var excelDir = config.GetValueOrDefault("excel_dir",
-    @"C:\Program Files (x86)\Diablo II Resurrected\data\global\excel");
+    Path.GetFullPath("mods/BKDiablo/bkdiablo.mpq/data/global/excel"));
 var defaultSaveDir = config.GetValueOrDefault("save_dir",
     Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
         "Saved Games", "Diablo II Resurrected"));

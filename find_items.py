@@ -8,7 +8,7 @@ import re
 
 def load_config(filename="d2sitems.conf"):
     """Load config from file next to this script or in the current directory."""
-    config = {}
+    config = {"excel_dir": os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "BKDiablo", "bkdiablo.mpq", "data", "global", "excel")}
     candidates = [
         os.path.join(os.path.dirname(os.path.abspath(__file__)), filename),
         os.path.join(os.getcwd(), filename),

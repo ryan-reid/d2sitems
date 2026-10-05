@@ -19,7 +19,7 @@
   output.textContent += 'Catalog totals: ' + JSON.stringify(grail.categories.map(category => [category.category, category.total])) + '\n';
   check(Array.isArray(grail.categories) && grail.total_items > 600 && grail.categories.every(category => category.items.length === category.total), 'collection totals and rows come from embedded mod definitions');
   const art = window.BKItemArt.resolve({itemCode:'bgn'}, engine.spriteMappings, false);
-  check(art.file === 'hd_key_bigdinn_key.png', 'Bigdinn key resolves to BKDiablo artwork');
+  check(art.file === 'bk/hd_key_bigdinn_key.png', 'Bigdinn key resolves to BKDiablo artwork');
   const stashSave = dataset.saves.find(s => s.is_stash);
   stashSave.chronicle = { uniques: [{ name: 'Gull', source: 'Shared', timestamp: 1234567890 }] };
   const testChronicle = engine.getChronicleProgress(dataset.saves);

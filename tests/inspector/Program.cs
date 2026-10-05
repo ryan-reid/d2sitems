@@ -9,8 +9,8 @@ Console.WriteLine("    D2R Save & Stash Regression Test Suite       ");
 Console.WriteLine("=================================================");
 D2SItems.InspectQuests.Run();
 
-var projectDir = @"E:\Games\d2sitems";
-var excelDir = @"E:\Games\Diablo II Resurrected\Mods\BKDiablo\bkdiablo.mpq\data\global\excel";
+var projectDir = Path.GetFullPath(".");
+var excelDir = Path.GetFullPath("mods/BKDiablo/bkdiablo.mpq/data/global/excel");
 var baselinesDir = Path.Combine(projectDir, "tests", "fixtures", "baselines");
 
 if (!Directory.Exists(baselinesDir))

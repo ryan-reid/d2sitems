@@ -5,10 +5,11 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <DefaultItemExcludes>$(DefaultItemExcludes);tests\**;src\**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);tests\**;src\**;mods\**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
+    <Content Include="propertygroups.txt" CopyToOutputDirectory="PreserveNewest" />
     <PackageReference Include="D2SSharp" Version="0.0.21" />
   </ItemGroup>
 

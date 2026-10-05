@@ -1270,13 +1270,13 @@
 }
 
 #d2r-mod-stackable-viewport {
-  background: #0d0a08 url('assets/panel_additionalstash_all.png') no-repeat;
+  background: #0d0a08 url('assets/bk/panel_additionalstash_all.png') no-repeat;
   background-size: 571px 587px;
   background-position: -30px -77px;
 }
 
 #d2r-mod-crafting-viewport {
-  background: #0d0a08 url('assets/stashpanel_bkd.png') no-repeat;
+  background: #0d0a08 url('assets/bk/stashpanel_bkd.png') no-repeat;
   background-size: 571px 587px;
   background-position: -30px -77px;
 }

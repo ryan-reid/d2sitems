@@ -1,3 +1,18 @@
+## BKDiablo development setup
+
+BK data is read directly from the Git submodule. Initialize it and enable the
+same automatic submodule hooks as BT-BKDiff:
+
+```sh
+git submodule update --init --recursive
+git config core.hooksPath .githooks
+```
+
+Run `python web_ui.py --no-browser` for the local UI. It builds the ignored browser
+catalogs and artwork from the submodule before starting. For a static browser
+build, run `python scripts/build_web_assets.py` and publish the WebAssembly project.
+See [release and build details](docs/RELEASES.md).
+
 This is a .net program that creates json descriptions of what is inside diablo 2 save files.
 
 The purpose is to make it easier to search for specific items across all your saves/mules.
