@@ -13,7 +13,14 @@ class CatalogTests(unittest.TestCase):
     def test_real_mapping_matches_mod(self):
         mapping = json.loads((ROOT / 'web/item_images.json').read_text(encoding='utf-8'))
         self.assertEqual(mapping['codes']['bgn'], 'hd_key_bigdinn_key.png')
-        self.assertEqual(mapping['uniques']['rainbow facet'], 'hd_jewel_1.png')
+        # Release builds must follow the current mod asset, not the bundled
+        # snapshot's historical hand-assigned Rainbow Facet icon.
+        if 'artworkSources' in mapping:
+            definitions = json.loads((ROOT / 'mods/BKDiablo/bkdiablo.mpq/data/hd/items/uniques.json').read_text(encoding='utf-8-sig'))
+            facet = next(info for entry in definitions for name, info in entry.items()
+                         if ''.join(c for c in name.lower() if c.isalnum()) == 'rainbowfacet')
+            self.assertEqual(mapping['uniques']['rainbow facet'],
+                             'hd_' + facet['normal'].lower().replace('/', '_') + '.png')
         self.assertEqual(mapping['uniques']["defender's fire"], 'hd_body_part_fragment_fire.png')
         self.assertEqual(mapping['uniques']["gheed's fortune"], 'hd_charm_charm_large.png')
         for group in ('codes', 'uniques', 'sets', 'classic_codes', 'classic_uniques', 'classic_sets'):

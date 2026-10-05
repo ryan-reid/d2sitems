@@ -1,0 +1,21 @@
+[Unit]
+Description=Check d2sitems BK revisions and trigger GitHub Actions
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+DynamicUser=yes
+LoadCredential=github-token:/etc/wiki-monitor/github-token
+ExecStart=/usr/bin/python3 /opt/d2sitems-monitor/release_monitor.py --token-file %d/github-token
+TimeoutStartSec=5min
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0077

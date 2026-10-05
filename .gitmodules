@@ -1,0 +1,4 @@
+[submodule "mods/BKDiablo"]
+	path = mods/BKDiablo
+	url = https://github.com/BaronBeefStick/BKDiablo-Ascenstion
+	branch = BKDiablo-Ascension

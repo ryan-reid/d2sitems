@@ -1,0 +1,11 @@
+[Unit]
+Description=Check d2sitems BK revisions every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+Persistent=true
+RandomizedDelaySec=30
+Unit=d2sitems-monitor.service
+
+[Install]
+WantedBy=timers.target

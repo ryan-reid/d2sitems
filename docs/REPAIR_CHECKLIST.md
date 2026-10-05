@@ -132,3 +132,9 @@ Cross-repository alignment & wiki backlog:
   6. Blank Charm omission and duplicate slug collisions.
 - Re-exported `web/unique_items_catalog.json` (502 items) and recompiled/published Release WebAssembly to `web/_framework/`.
 - Verified live `ItemTester.d2s` mule with 80 unique items; transactional commit and backup verified. All test suites pass.
+
+### 2026-10-05 — Release cadence and automatic BK refresh
+
+Matched BT-BKDiff's daily 10:00 UTC Pages workflow and added the same BK branch as a submodule. Release preparation now refreshes supported embedded tables/strings/layout, BK item/panel artwork, bank geometry, image mappings, unique-item catalog, catalog hashes, and deployed source revisions. Committed artwork and application supplements are explicitly identified as fallbacks. Added a homelab marker-comparison watcher with the wiki's live one-minute cadence and active-run suppression. See [RELEASES.md](RELEASES.md).
+
+Validation: disposable-checkout data preparation, 502-item catalog export, full WASM publish, Python catalog/API/monitor tests, C# engine regressions, save-safety tests, and actionlint passed. Browser checks passed ingestion, collection data, BK artwork, draft/paired transfers and preserved originals, then failed the existing ambiguous shared-stash selection assertion. Reproduced that failure using the method directly from unmodified HEAD: it chooses Hard.d2i where the test expects null. No save-engine or selection behavior changed in this release setup.
