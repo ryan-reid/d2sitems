@@ -1,53 +1,31 @@
 /* Staged editing: no disk writes or downloads until Save. */
 (() => {
   const workspace = window.EditWorkspace = { active: false, busy: false, token: null, changes: 0 };
-  const baseFetch = window.coreFetch;
-  window.coreFetch = (url, options = {}) => {
-    if (workspace.active && workspace.token) {
-      const parsed = new URL(url, location.href);
-      if (parsed.pathname.startsWith('/api/')) {
-        if (!options.method || options.method === 'GET') parsed.searchParams.set('edit_session', workspace.token);
-        else options = { ...options, body: JSON.stringify({ ...JSON.parse(options.body || '{}'), edit_session: workspace.token }) };
-        url = parsed.href;
-      }
-    }
-    return baseFetch(url, options);
-  };
   const bar = document.createElement('section');
   bar.className = 'edit-workspace-bar';
   bar.innerHTML = '<button id="edit-start" class="btn btn-primary">Edit mode</button><span id="edit-status" role="status">Browse mode · Turn on Edit mode to move items.</span><button id="edit-save" class="btn btn-primary" hidden>Save changes</button><button id="edit-discard" class="btn btn-secondary" hidden>Discard</button><button id="create-item" class="btn btn-secondary" hidden>Create item</button><button id="mule-organizer" class="btn btn-secondary">Mule assignments & bulk pack</button>';
   document.querySelector('.masthead').after(bar);
   const el = id => document.getElementById(id);
   const refresh = async () => {
-    if (state.isWasmMode) await window.refreshWasmDataset();
-    else await window.loadSavesAndItems();
+    await window.refreshWasmDataset();
   };
   const update = () => {
     el('edit-start').hidden = workspace.active;
     el('edit-save').hidden = el('edit-discard').hidden = !workspace.active;
     el('create-item').hidden = !workspace.active;
     el('edit-status').textContent = workspace.active
-      ? `Edit mode · ${workspace.changes} staged operation(s) · ${state.isWasmMode ? 'Save commits and downloads changed files' : 'Live saves unchanged until Save'}`
+      ? `Edit mode · ${workspace.changes} staged operation(s) · Save commits and downloads changed files`
       : 'Browse mode · Turn on Edit mode to move items.';
     for (const id of ['core-select', 'profile-select', 'wasm-pick-folder-btn', 'rescan-btn']) if (el(id)) el(id).disabled = workspace.active;
-  };
-  const post = async (path, body = {}) => {
-    const response = await window.coreFetch(path, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
-    const result = await response.json();
-    if (!response.ok || !result.success) throw new Error(result.error || result.message || 'Edit operation failed');
-    return result;
   };
   workspace.changed = () => { workspace.changes++; update(); };
   workspace.start = async () => {
     if (workspace.active) return;
     const selectedSource = el('character-filter')?.value || state.filters.source;
     const selectedChar = state.selectedChar || window._d2rState?.activeCharName || el('armory-char-select')?.value;
-    if (state.isWasmMode) {
+    if (window.D2Wasm) {
       await window.D2Wasm.init();
       window.D2Wasm.editOriginals = new Map(window.D2Wasm.loadedFiles);
-    } else {
-      const result = await post('/api/edit/start', {core:state.core});
-      workspace.token = result.edit_session;
     }
     workspace.active = true; workspace.changes = 0; update();
     if (selectedChar) {
@@ -72,7 +50,7 @@
     const selectedSource = el('character-filter')?.value || state.filters.source;
     const selectedChar = state.selectedChar || window._d2rState?.activeCharName || el('armory-char-select')?.value;
     try {
-      if (state.isWasmMode) {
+      if (window.D2Wasm) {
         const engine = window.D2Wasm;
         const originals = engine.editOriginals;
         const draft = engine.loadedFiles;
@@ -91,7 +69,7 @@
             await engine.markFilesAsExported(changes.map(([name]) => name));
           }
         } else { engine.loadedFiles = originals; engine.editOriginals = null; }
-      } else await post(save ? '/api/edit/save' : '/api/edit/discard');
+      }
       workspace.active = false; workspace.token = null; workspace.changes = 0; update();
       if (typeof window.clearEditLog === 'function') window.clearEditLog();
       if (typeof window.updateExportButtonState === 'function') window.updateExportButtonState();
@@ -797,10 +775,8 @@
     }
 
     let result;
-    if (state.isWasmMode && window.D2Wasm) {
+    if (window.D2Wasm) {
       result = await window.D2Wasm.createItem(sourceFile, payload);
-    } else {
-      result = await post('/api/item/create', payload);
     }
 
     workspace.changed();
@@ -860,7 +836,7 @@
   organizer.innerHTML = '<h2>Mule assignments & bulk pack</h2><p>Assign each mule a category. Matching mules fill first (inventory, cube, personal stash). Jewelry takes priority over set/unique quality. Only normal shared-stash tabs are packed; advanced banks stay unchanged.</p><div id="mule-assignments"></div><label>Shared stash <select id="organizer-stash"></select></label><label>Category <select id="organizer-category"><option value="all">All categories</option></select></label><label><input id="organizer-auto" type="checkbox"> Create matching Amazon mules when needed (up to 30 per plan)</label><p>New names use HC/SC + category + letters. Review the staged results before Save.</p><p id="organizer-result" role="status"></p><button id="organizer-plan">Stage bulk pack</button> <button id="organizer-close">Close</button>';
   document.body.append(organizer);
   categories.forEach(value => el('organizer-category').add(new Option(value, value)));
-  const key = () => 'bk-mules:' + (state.isWasmMode ? window.D2Wasm.sessionId : state.activeProfileId) + ':' + state.core;
+  const key = () => 'bk-mules:' + (window.D2Wasm?.sessionId || 'default') + ':' + state.core;
   let assignments = {};
   el('mule-organizer').onclick = run(async () => {
     try { assignments = JSON.parse(localStorage.getItem(key()) || '{}'); } catch { assignments = {}; }
@@ -889,12 +865,12 @@
       const plan = {source:el('organizer-stash').value, category:el('organizer-category').value,
         assignments:Object.fromEntries(Object.entries(assignments).filter(([file]) => available.has(file))), autoCreate:el('organizer-auto').checked};
       let result;
-      if (state.isWasmMode) {
+      if (window.D2Wasm) {
         const files = Object.fromEntries([...window.D2Wasm.loadedFiles].map(([name, bytes]) => [name, btoa(Array.from(bytes, b => String.fromCharCode(b)).join(''))]));
         result = JSON.parse(window.D2Wasm.interop.PackWorkspace(JSON.stringify(files), JSON.stringify(plan)));
         if (!result.success) throw new Error(result.error);
         for (const [name, value] of Object.entries(result.files)) window.D2Wasm.loadedFiles.set(name, Uint8Array.from(atob(value), c => c.charCodeAt(0)));
-      } else result = await post('/api/edit/pack', {plan});
+      }
       if (result.moved) workspace.changed();
       for (const name of result.created) {
         const category = categories.find(c => name.toLowerCase().startsWith((state.core === 'hard' ? 'hc' : 'sc') + c));

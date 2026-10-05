@@ -72,7 +72,7 @@ Run-Tier -Name "Tier 2: Engine Regressions & Parity" -Action {
 
 # Tier 3: Python API & Mod Catalog Unit Tests
 Run-Tier -Name "Tier 3: Python API & Catalog Tests" -Action {
-    $p = Start-Process -FilePath "python" -ArgumentList "-m unittest tests/test_catalog.py tests/test_api.py tests/test_edit_workspace.py" -NoNewWindow -Wait -PassThru
+    $p = Start-Process -FilePath "python" -ArgumentList "-m unittest tests/test_catalog.py tests/test_api.py tests/test_edit_workspace.py tests/test_server.py tests/test_release_monitor.py" -NoNewWindow -Wait -PassThru
     if ($p.ExitCode -ne 0) {
         throw "Python catalog/API tests failed with exit code $($p.ExitCode)"
     }

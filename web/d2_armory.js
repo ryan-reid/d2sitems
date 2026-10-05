@@ -482,7 +482,7 @@
     }
 
     // WASM mode support
-    if (window.state?.isWasmMode && window.D2Wasm) {
+    if (window.D2Wasm) {
       window.D2Wasm.editStackQuantity(tabIdx, code, qty, window.editStackSelection.file, window.editStackSelection.seed).then(async res => {
         if (btn) btn.disabled = false;
         if (res && res.success) {
@@ -503,49 +503,7 @@
         if (btn) btn.disabled = false;
         if (statusEl) statusEl.textContent = err.message || 'Failed to save stack.';
       });
-      return;
     }
-
-    // Server API mode
-    window.coreFetch('/api/stash/stack-quantity', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...window.editStackSelection,
-        tab: tabIdx,
-        code: code,
-        quantity: qty
-      })
-    })
-    .then(r => r.json())
-    .then(async res => {
-      if (btn) btn.disabled = false;
-      if (res && (res.Success || res.success)) {
-        window.closeEditStackModal();
-        window.recordEdit?.('stack quantity');
-        window.EditWorkspace?.changed();
-        if (window.showToast) window.showToast(`Updated ${code.toUpperCase()} stack count to ${qty}.`, 'success');
-        // Refresh shared stash data and item list
-        if (typeof reloadArmoryData === 'function') await reloadArmoryData();
-        if (window.loadSavesAndItems) await window.loadSavesAndItems();
-      } else {
-        if (statusEl) {
-          statusEl.style.display = 'block';
-          statusEl.style.background = 'rgba(255,0,0,0.2)';
-          statusEl.style.color = '#ff6b6b';
-          statusEl.textContent = (res && (res.Message || res.error)) || 'Failed to update stack.';
-        }
-      }
-    })
-    .catch(err => {
-      if (btn) btn.disabled = false;
-      if (statusEl) {
-        statusEl.style.display = 'block';
-        statusEl.style.background = 'rgba(255,0,0,0.2)';
-        statusEl.style.color = '#ff6b6b';
-        statusEl.textContent = 'Network error: ' + err.message;
-      }
-    });
   };
 
   // -------------------------------------------------------------------------
@@ -2160,7 +2118,7 @@
       };
 
 
-      if (window.state && window.state.isWasmMode && window.D2Wasm) {
+      if (window.D2Wasm) {
         // In-memory WASM transfer
         const allItems = window.state.allWasmItems || window.state.items || [];
         const it = allItems.find(x => x.id === itemId);
@@ -2173,26 +2131,7 @@
         window.recordEdit?.('item transfer');
         if (window.refreshWasmDataset) await window.refreshWasmDataset();
         await reloadArmoryData();
-        return;
       }
-
-      const res = await window.coreFetch('/api/item/transfer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      const data = await res.json();
-      if (!res.ok || !(data.Success === true || data.success === true)) {
-        throw new Error(data.Message || data.message || data.error || 'Transfer failed');
-      }
-
-      window.EditWorkspace.changed();
-      await window.loadSavesAndItems();
-
-      // Live reload armory data
-      await reloadArmoryData();
-
     } catch (err) {
       if (window.showToast) {
         window.showToast('Transfer Error: ' + err.message, 'error');
@@ -2203,38 +2142,13 @@
   };
 
   async function reloadArmoryData() {
-    if (window.state && window.state.isWasmMode && window.D2Wasm) {
+    if (window.D2Wasm) {
       const charData = d2rState.activeCharName
         ? window.D2Wasm.getCharacterDetail(d2rState.activeCharName, window.state.saves, window.state.allWasmItems || window.state.items)
         : null;
       const stashData = window.D2Wasm.getSharedStashDetail(window.state.saves, window.state.allWasmItems || window.state.items, d2rState.activeCharName);
       const dims = { inventory: { width: 11, height: 8 }, stash: { width: 16, height: 13 }, cube: { width: 6, height: 6 } };
       window.renderD2RInGameArmory(charData || d2rState.charData || { character: {}, equipped: {}, stats: {}, inventory: [], stash: [], cube: [] }, stashData, dims);
-      return;
-    }
-
-    try {
-      const promises = [
-        window.coreFetch(`/api/shared-stash?character=${encodeURIComponent(d2rState.activeCharName || '')}`),
-        window.coreFetch('/api/container-dimensions')
-      ];
-      if (d2rState.activeCharName) {
-        promises.push(window.coreFetch(`/api/character/${encodeURIComponent(d2rState.activeCharName)}`));
-      }
-      const results = await Promise.all(promises);
-      const stashRes = results[0];
-      const dimsRes = results[1];
-      const charRes = d2rState.activeCharName ? results[2] : null;
-
-      const stashData = stashRes.ok ? await stashRes.json() : null;
-      const dims = dimsRes.ok ? await dimsRes.json() : d2rState.containerDims;
-      const charData = (charRes && charRes.ok) ? await charRes.json() : d2rState.charData;
-
-      if (stashData) {
-        window.renderD2RInGameArmory(charData || { character: {}, equipped: {}, stats: {}, inventory: [], stash: [], cube: [] }, stashData, dims);
-      }
-    } catch (err) {
-      console.error('Failed to reload armory data:', err);
     }
   }
   window.reloadArmoryData = reloadArmoryData;

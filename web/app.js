@@ -4,7 +4,7 @@
 
 // Application State
 const state = {
-  isWasmMode: false,
+  isWasmMode: true,
   core: localStorage.getItem('bk-save-core') === 'hard' ? 'hard' : 'soft',
   allWasmItems: [],
   activeTab: 'search-view',
@@ -248,34 +248,9 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
   });
 });
 
-// Load Profiles from Server (with seamless WASM Mode fallback)
+// Load application in 100% Client-Side WebAssembly Mode
 async function loadProfiles() {
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 1800);
-    const res = await window.coreFetch('/api/profiles', { signal: controller.signal });
-    clearTimeout(timeoutId);
-
-    if (!res.ok) throw new Error('API returned status ' + res.status);
-    const data = await res.json();
-    state.isWasmMode = false;
-    state.profiles = data.profiles || [];
-    state.activeProfileId = data.active_id;
-
-    dom.profileSelect.innerHTML = '';
-    state.profiles.forEach(p => {
-      const opt = document.createElement('option');
-      opt.value = p.id;
-      opt.textContent = p.name;
-      if (p.id === state.activeProfileId) opt.selected = true;
-      dom.profileSelect.appendChild(opt);
-    });
-
-    await loadSavesAndItems();
-  } catch (err) {
-    console.log('[App] Local backend not reachable. Activating 100% Client-Side WebAssembly Mode...');
-    await enableWasmMode();
-  }
+  await enableWasmMode();
 }
 
 // Enable 100% Client-Side WebAssembly Mode
@@ -776,46 +751,12 @@ function setupWasmEvents() {
   });
 }
 
-// Switch Profile
-dom.profileSelect.addEventListener('change', async (e) => {
-  const newProfileId = e.target.value;
-  try {
-    const res = await window.coreFetch('/api/profiles/select', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ profile_id: newProfileId })
-    });
-    const data = await res.json();
-    if (data.success) {
-      state.activeProfileId = newProfileId;
-      showToast('Switched profile to ' + dom.profileSelect.options[dom.profileSelect.selectedIndex].text, 'success');
-      await loadSavesAndItems();
-    }
-  } catch (err) {
-    showToast('Error switching profile: ' + err.message, 'error');
-  }
-});
+// Switch Profile (profile selection is handled via WASM storage)
+dom.profileSelect.addEventListener('change', async () => {});
 
 // Load Saves and Items
 async function loadSavesAndItems() {
-  try {
-    const res = await window.coreFetch('/api/saves');
-    const data = await res.json();
-    state.saves = data.saves || [];
-    
-    // Update Character filter dropdown
-    updateCharacterFilterDropdown();
-
-    // Trigger search
-    await executeSearch();
-
-    // If armory tab active, render it
-    if (state.activeTab === 'armory-view') {
-      loadArmoryView();
-    }
-  } catch (err) {
-    showToast('Failed to load saves: ' + err.message, 'error');
-  }
+  await refreshWasmDataset();
 }
 
 function updateCharacterFilterDropdown() {
@@ -861,31 +802,7 @@ function updateCharacterFilterDropdown() {
 
 // Rescan Button
 dom.rescanBtn.addEventListener('click', async () => {
-  if (state.isWasmMode) {
-    await reloadWasmSavesFromDisk();
-    return;
-  }
-
-  dom.rescanIcon.classList.add('spin');
-  dom.rescanLabel.textContent = 'Scanning...';
-  dom.rescanBtn.disabled = true;
-
-  try {
-    const res = await window.coreFetch('/api/scan', { method: 'POST' });
-    const data = await res.json();
-    if (data.success) {
-      showToast(`Scan complete! Loaded ${data.saves_count} saves and ${data.items_count} items.`, 'success');
-      await loadSavesAndItems();
-    } else {
-      showToast('Scan error: ' + (data.error || 'Unknown error'), 'error');
-    }
-  } catch (err) {
-    showToast('Scan failed: ' + err.message, 'error');
-  } finally {
-    dom.rescanIcon.classList.remove('spin');
-    dom.rescanLabel.textContent = 'Rescan Saves';
-    dom.rescanBtn.disabled = false;
-  }
+  await reloadWasmSavesFromDisk();
 });
 
 // Search & Filter Execution
@@ -896,109 +813,79 @@ function debouncedSearch() {
 }
 
 async function executeSearch() {
-  if (state.isWasmMode) {
-    let filtered = [...(state.allWasmItems || [])];
-    const f = state.filters;
+  let filtered = [...(state.allWasmItems || [])];
+  const f = state.filters;
 
-    if (f.quality !== 'all') {
-      const qLower = f.quality.toLowerCase();
-      filtered = filtered.filter(it => (it.quality || '').toLowerCase() === qLower || (qLower === 'runeword' && it.isRuneword));
+  if (f.quality !== 'all') {
+    const qLower = f.quality.toLowerCase();
+    filtered = filtered.filter(it => (it.quality || '').toLowerCase() === qLower || (qLower === 'runeword' && it.isRuneword));
+  }
+  if (f.source !== 'all') {
+    const srcLower = f.source.toLowerCase();
+    filtered = filtered.filter(it => (it.sourceName || '').toLowerCase() === srcLower || (it.sourceFile || '').toLowerCase() === srcLower);
+  }
+  if (f.type !== 'all') {
+    filtered = filtered.filter(it => (it.type || '').toLowerCase() === f.type.toLowerCase());
+  }
+  if (f.tier !== 'all') {
+    filtered = filtered.filter(it => (it.tier || '').toLowerCase() === f.tier.toLowerCase());
+  }
+  if (f.location !== 'all') {
+    filtered = filtered.filter(it => (it.location || '').toLowerCase().includes(f.location.toLowerCase()));
+  }
+  if (f.sockets !== 'all') {
+    if (f.sockets === 'has') filtered = filtered.filter(it => (it.socketCount || 0) > 0);
+    else if (f.sockets === 'open') filtered = filtered.filter(it => (it.openSockets || 0) > 0);
+    else {
+      const cnt = parseInt(f.sockets, 10);
+      filtered = filtered.filter(it => (it.socketCount || 0) === cnt);
     }
-    if (f.source !== 'all') {
-      const srcLower = f.source.toLowerCase();
-      filtered = filtered.filter(it => (it.sourceName || '').toLowerCase() === srcLower || (it.sourceFile || '').toLowerCase() === srcLower);
-    }
-    if (f.type !== 'all') {
-      filtered = filtered.filter(it => (it.type || '').toLowerCase() === f.type.toLowerCase());
-    }
-    if (f.tier !== 'all') {
-      filtered = filtered.filter(it => (it.tier || '').toLowerCase() === f.tier.toLowerCase());
-    }
-    if (f.location !== 'all') {
-      filtered = filtered.filter(it => (it.location || '').toLowerCase().includes(f.location.toLowerCase()));
-    }
-    if (f.sockets !== 'all') {
-      if (f.sockets === 'has') filtered = filtered.filter(it => (it.socketCount || 0) > 0);
-      else if (f.sockets === 'open') filtered = filtered.filter(it => (it.openSockets || 0) > 0);
-      else {
-        const cnt = parseInt(f.sockets, 10);
-        filtered = filtered.filter(it => (it.socketCount || 0) === cnt);
+  }
+  if (f.ethereal === 'yes') filtered = filtered.filter(it => it.isEthereal);
+  if (f.ethereal === 'no') filtered = filtered.filter(it => !it.isEthereal);
+  if (f.out_of_date === 'out_of_date') filtered = filtered.filter(it => it.isOutOfDate);
+
+  if (f.perfect === 'yes' || f.perfect === '100') {
+    filtered = filtered.filter(it => it.perfectionNum != null && it.perfectionNum >= 100.0);
+  } else if (f.perfect === '90') {
+    filtered = filtered.filter(it => it.perfectionNum != null && it.perfectionNum >= 90.0);
+  }
+  if (f.min_perf > 0) {
+    filtered = filtered.filter(it => it.perfectionNum != null && it.perfectionNum >= f.min_perf);
+  }
+
+  if (f.q) {
+    const qLower = f.q.toLowerCase();
+    filtered = filtered.filter(it => {
+      if ((it.displayName || '').toLowerCase().includes(qLower)) return true;
+      if ((it.baseName || '').toLowerCase().includes(qLower)) return true;
+      if ((it.set || '').toLowerCase().includes(qLower)) return true;
+      for (const s of (it.stats || []).concat(it.runewordStats || [])) {
+        if ((s.description || s.id || '').toLowerCase().includes(qLower)) return true;
       }
-    }
-    if (f.ethereal === 'yes') filtered = filtered.filter(it => it.isEthereal);
-    if (f.ethereal === 'no') filtered = filtered.filter(it => !it.isEthereal);
-    if (f.out_of_date === 'out_of_date') filtered = filtered.filter(it => it.isOutOfDate);
-
-    if (f.perfect === 'yes' || f.perfect === '100') {
-      filtered = filtered.filter(it => it.perfectionNum != null && it.perfectionNum >= 100.0);
-    } else if (f.perfect === '90') {
-      filtered = filtered.filter(it => it.perfectionNum != null && it.perfectionNum >= 90.0);
-    }
-    if (f.min_perf > 0) {
-      filtered = filtered.filter(it => it.perfectionNum != null && it.perfectionNum >= f.min_perf);
-    }
-
-    if (f.q) {
-      const qLower = f.q.toLowerCase();
-      filtered = filtered.filter(it => {
-        if ((it.displayName || '').toLowerCase().includes(qLower)) return true;
-        if ((it.baseName || '').toLowerCase().includes(qLower)) return true;
-        if ((it.set || '').toLowerCase().includes(qLower)) return true;
-        for (const s of (it.stats || []).concat(it.runewordStats || [])) {
-          if ((s.description || s.id || '').toLowerCase().includes(qLower)) return true;
-        }
-        return false;
-      });
-    }
-
-    // Sorting
-    if (f.sort === 'perfection_desc') {
-      filtered.sort((a, b) => (b.perfectionNum || 0) - (a.perfectionNum || 0));
-    } else if (f.sort === 'perfection_asc') {
-      filtered.sort((a, b) => (a.perfectionNum || 100) - (b.perfectionNum || 100));
-    } else if (f.sort === 'ilvl_desc') {
-      filtered.sort((a, b) => (b.itemLevel || 0) - (a.itemLevel || 0));
-    } else if (f.sort === 'quality_desc') {
-      const qRank = { unique: 7, set: 6, runeword: 5, crafted: 4, rare: 3, magic: 2, superior: 1, normal: 0 };
-      filtered.sort((a, b) => (qRank[(b.quality || '').toLowerCase()] || 0) - (qRank[(a.quality || '').toLowerCase()] || 0));
-    } else if (f.sort === 'character_asc') {
-      filtered.sort((a, b) => (a.sourceName || '').localeCompare(b.sourceName || ''));
-    } else {
-      filtered.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
-    }
-
-    state.items = filtered;
-    dom.resultsCountBadge.textContent = `${filtered.length} item${filtered.length === 1 ? '' : 's'}`;
-    renderItemsView();
-    return;
+      return false;
+    });
   }
 
-  const params = new URLSearchParams();
-  if (state.filters.q) params.set('q', state.filters.q);
-  if (state.filters.quality !== 'all') params.set('quality', state.filters.quality);
-  if (state.filters.source !== 'all') params.set('source', state.filters.source);
-  if (state.filters.type !== 'all') params.set('type', state.filters.type);
-  if (state.filters.tier !== 'all') params.set('tier', state.filters.tier);
-  if (state.filters.location !== 'all') params.set('location', state.filters.location);
-  if (state.filters.sockets !== 'all') params.set('sockets', state.filters.sockets);
-  if (state.filters.ethereal !== 'all') params.set('ethereal', state.filters.ethereal);
-  if (state.filters.out_of_date && state.filters.out_of_date !== 'all') params.set('out_of_date', state.filters.out_of_date);
-  if (state.filters.perfect && state.filters.perfect !== 'all') params.set('perfect', state.filters.perfect);
-  if (state.filters.min_perf > 0) params.set('min_perf', state.filters.min_perf);
-  if (state.filters.stat) params.set('stat', state.filters.stat);
-  if (state.filters.sort) params.set('sort', state.filters.sort);
-
-  try {
-    const res = await window.coreFetch('/api/items?' + params.toString());
-    const data = await res.json();
-    state.items = data.items || [];
-    const totalCount = data.total || 0;
-
-    dom.resultsCountBadge.innerHTML = `<b>${totalCount}</b> item${totalCount === 1 ? '' : 's'}`;
-    renderItemsView();
-  } catch (err) {
-    showToast('Search query error: ' + err.message, 'error');
+  // Sorting
+  if (f.sort === 'perfection_desc') {
+    filtered.sort((a, b) => (b.perfectionNum || 0) - (a.perfectionNum || 0));
+  } else if (f.sort === 'perfection_asc') {
+    filtered.sort((a, b) => (a.perfectionNum || 100) - (b.perfectionNum || 100));
+  } else if (f.sort === 'ilvl_desc') {
+    filtered.sort((a, b) => (b.itemLevel || 0) - (a.itemLevel || 0));
+  } else if (f.sort === 'quality_desc') {
+    const qRank = { unique: 7, set: 6, runeword: 5, crafted: 4, rare: 3, magic: 2, superior: 1, normal: 0 };
+    filtered.sort((a, b) => (qRank[(b.quality || '').toLowerCase()] || 0) - (qRank[(a.quality || '').toLowerCase()] || 0));
+  } else if (f.sort === 'character_asc') {
+    filtered.sort((a, b) => (a.sourceName || '').localeCompare(b.sourceName || ''));
+  } else {
+    filtered.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
   }
+
+  state.items = filtered;
+  dom.resultsCountBadge.textContent = `${filtered.length} item${filtered.length === 1 ? '' : 's'}`;
+  renderItemsView();
 }
 
 // Render Items Grid & Table
@@ -1961,7 +1848,7 @@ async function renderArmoryForChar(charName) {
       window._d2rState.activeCharName = charName;
     }
 
-    if (state.isWasmMode && window.D2Wasm) {
+    if (window.D2Wasm) {
       const data = charName ? window.D2Wasm.getCharacterDetail(charName, state.saves, state.allWasmItems || state.items) : { character: { name: 'Shared Stash' }, equipped: {}, stats: {}, inventory: [], stash: [], cube: [] };
       const stashData = window.D2Wasm.getSharedStashDetail(state.saves, state.allWasmItems || state.items, charName);
       const dims = { inventory: { width: 11, height: 8 }, stash: { width: 16, height: 13 }, cube: { width: 6, height: 6 } };
@@ -1970,24 +1857,6 @@ async function renderArmoryForChar(charName) {
       if (window.renderD2RInGameArmory) {
         window.renderD2RInGameArmory(data, stashData, dims);
       }
-      return;
-    }
-
-    const [charRes, stashRes, dimsRes] = await Promise.all([
-      window.coreFetch(`/api/character/${encodeURIComponent(charName)}`),
-      window.coreFetch(`/api/shared-stash?character=${encodeURIComponent(charName)}`),
-      window.coreFetch('/api/container-dimensions')
-    ]);
-
-    if (!charRes.ok) throw new Error('Character not found');
-    const data = await charRes.json();
-    const stashData = stashRes.ok ? await stashRes.json() : null;
-    const dims = dimsRes.ok ? await dimsRes.json() : null;
-
-    window._currentArmoryData = data;
-
-    if (window.renderD2RInGameArmory) {
-      window.renderD2RInGameArmory(data, stashData, dims);
     }
   } catch (err) {
     dom.armoryContent.innerHTML = `<div class="empty-state"><h3>Error loading armory: ${escapeHtml(err.message)}</h3></div>`;
@@ -2011,13 +1880,6 @@ window.openItemDetailModalById = function(itemId) {
   }
   if (item) {
     openItemDetailModal(item);
-  } else {
-    window.coreFetch(`/api/item/${itemId}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(it => {
-        if (it) openItemDetailModal(it);
-      })
-      .catch(() => {});
   }
 };
 
@@ -2052,26 +1914,9 @@ window.switchInvTab = function(tabName, btnEl) {
 // ==========================================================================
 async function loadGrailView() {
   if (!dom.grailCategories) return;
-  if (state.isWasmMode && window.D2Wasm) {
+  if (window.D2Wasm) {
     state.grail = window.D2Wasm.getGrailProgress(state.allWasmItems || state.items);
     renderGrailView();
-    return;
-  }
-
-  dom.grailCategories.innerHTML = '<div class="empty-state"><h3>Calculating Holy Grail progress...</h3></div>';
-
-  try {
-    const res = await window.coreFetch('/api/grail');
-    const data = await res.json();
-    if (data.error) {
-      dom.grailCategories.innerHTML = `<div class="empty-state"><h3>Grail Error: ${escapeHtml(data.error)}</h3></div>`;
-      return;
-    }
-
-    state.grail = data;
-    renderGrailView();
-  } catch (err) {
-    dom.grailCategories.innerHTML = `<div class="empty-state"><h3>Failed to load grail report: ${err.message}</h3></div>`;
   }
 }
 
@@ -2256,7 +2101,7 @@ state.chronicleSearch = '';
 state.chronicleCore = 'both'; // 'both', 'soft', 'hard'
 
 async function loadChronicleView() {
-  if (state.isWasmMode && window.D2Wasm && typeof window.D2Wasm.getChronicleProgress === 'function') {
+  if (window.D2Wasm && typeof window.D2Wasm.getChronicleProgress === 'function') {
     if (!window.D2Wasm.ready) {
       await window.D2Wasm.init();
     }
@@ -2264,30 +2109,6 @@ async function loadChronicleView() {
     state.chronicle = window.D2Wasm.getChronicleProgress(savesForChronicle, state.chronicleCore);
     mergeLocalChronicleCompletions();
     renderChronicleView();
-    return;
-  }
-
-  if (dom.chronicleCategories) {
-    dom.chronicleCategories.innerHTML = '<div class="empty-state"><h3>Reading in-game Chronicle discoveries from shared stashes...</h3></div>';
-  }
-
-  try {
-    const res = await window.coreFetch(`/api/chronicle?core=${encodeURIComponent(state.chronicleCore)}`);
-    const data = await res.json();
-    if (data.error) {
-      if (dom.chronicleCategories) {
-        dom.chronicleCategories.innerHTML = `<div class="empty-state"><h3>Chronicle Error: ${escapeHtml(data.error)}</h3></div>`;
-      }
-      return;
-    }
-
-    state.chronicle = data;
-    mergeLocalChronicleCompletions();
-    renderChronicleView();
-  } catch (err) {
-    if (dom.chronicleCategories) {
-      dom.chronicleCategories.innerHTML = `<div class="empty-state"><h3>Failed to load Chronicle report: ${err.message}</h3></div>`;
-    }
   }
 }
 window.loadChronicleView = loadChronicleView;
@@ -2423,20 +2244,6 @@ async function toggleChronicleItem(itemName, newStatus) {
   } catch (e) {}
 
   renderChronicleView();
-
-  // If server mode, persist to backend
-  if (!state.isWasmMode) {
-    try {
-      await window.coreFetch('/api/chronicle/toggle', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: itemName, tracked: newStatus })
-      });
-    } catch (err) {
-      console.warn('Failed to save chronicle toggle to backend:', err);
-    }
-  }
-
   showToast(`${itemName} marked as ${newStatus ? 'discovered' : 'undiscovered'}!`, 'success');
 }
 window.toggleChronicleItem = toggleChronicleItem;
@@ -2494,20 +2301,6 @@ async function completeAllChronicle() {
   }
 
   renderChronicleView();
-
-  // 3. Persist to backend if server mode
-  if (!state.isWasmMode) {
-    try {
-      await window.coreFetch('/api/chronicle/complete-all', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
-      });
-    } catch (err) {
-      console.warn('Failed to call /api/chronicle/complete-all:', err);
-    }
-  }
-
   showToast('Chronicle marked 100% complete!', 'success');
 }
 window.completeAllChronicle = completeAllChronicle;
@@ -2591,20 +2384,6 @@ async function completeUndroppableChronicle() {
   }
 
   renderChronicleView();
-
-  // 3. Persist to backend if not WASM mode
-  if (!state.isWasmMode) {
-    try {
-      await window.coreFetch('/api/chronicle/complete-undroppable', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
-      });
-    } catch (err) {
-      console.warn('Failed to call /api/chronicle/complete-undroppable:', err);
-    }
-  }
-
   showToast('Undroppable items (Game Modifiers, Blank Charm, Level 90 Reward, etc.) marked as complete!', 'success');
 }
 window.completeUndroppableChronicle = completeUndroppableChronicle;
@@ -2617,18 +2396,6 @@ async function resetChronicleCompletions() {
   try {
     localStorage.removeItem('bk-chronicle-manual');
   } catch (e) {}
-
-  if (!state.isWasmMode) {
-    try {
-      await window.coreFetch('/api/chronicle/reset', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
-      });
-    } catch (err) {
-      console.warn('Failed to call /api/chronicle/reset:', err);
-    }
-  }
 
   await loadChronicleView();
   showToast('Chronicle manual completions reset!', 'info');
@@ -2886,73 +2653,29 @@ dom.modalCloseBtn.addEventListener('click', () => dom.profileModal.style.display
 dom.modalCancelBtn.addEventListener('click', () => dom.profileModal.style.display = 'none');
 
 dom.modalSaveBtn.addEventListener('click', async () => {
-  const name = dom.customProfileName.value.trim();
-  const saveDir = dom.customProfilePath.value.trim();
-  const excelDir = dom.customExcelPath.value.trim();
-
-  if (!saveDir) {
-    showToast('Please specify a Saved Games Directory Path', 'error');
-    return;
-  }
-
-  try {
-    const res = await window.coreFetch('/api/profiles/add', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name || 'Custom Profile', save_dir: saveDir, excel_dir: excelDir })
-    });
-    const data = await res.json();
-    if (data.success) {
-      showToast('Profile added successfully!', 'success');
-      dom.profileModal.style.display = 'none';
-      await loadProfiles();
-    } else {
-      showToast('Failed to add profile: ' + data.error, 'error');
-    }
-  } catch (err) {
-    showToast('Error: ' + err.message, 'error');
-  }
+  showToast('In browser mode, use the folder or file picker to load save files directly.', 'info');
+  dom.profileModal.style.display = 'none';
 });
 
 // ==========================================================================
 // ITEM VERIFIER VIEW
 // ==========================================================================
 async function loadVerifierView() {
-  if (state.isWasmMode) {
-    const all = state.allWasmItems || state.items || [];
-    const outOfDate = all.filter(it => it.isOutOfDate);
-    const belowMin = outOfDate.filter(it => (it.outOfDateIssues || []).some(iss => iss.includes('BELOW'))).length;
-    const aboveMax = outOfDate.filter(it => (it.outOfDateIssues || []).some(iss => iss.includes('ABOVE'))).length;
-    const missing = outOfDate.filter(it => (it.outOfDateIssues || []).some(iss => iss.includes('Missing'))).length;
+  const all = state.allWasmItems || state.items || [];
+  const outOfDate = all.filter(it => it.isOutOfDate);
+  const belowMin = outOfDate.filter(it => (it.outOfDateIssues || []).some(iss => iss.includes('BELOW'))).length;
+  const aboveMax = outOfDate.filter(it => (it.outOfDateIssues || []).some(iss => iss.includes('ABOVE'))).length;
+  const missing = outOfDate.filter(it => (it.outOfDateIssues || []).some(iss => iss.includes('Missing'))).length;
 
-    state.verifier = {
-      total_checked: all.length,
-      total_out_of_date: outOfDate.length,
-      total_up_to_date: all.filter(it => !it.isOutOfDate && it.verificationStatus !== 'unknown').length,
-      percent_out_of_date: all.length > 0 ? Math.round((outOfDate.length / all.length) * 100) : 0,
-      counts_by_issue: { below_min: belowMin, above_max: aboveMax, missing_stats: missing },
-      items: outOfDate
-    };
-    renderVerifierView();
-    return;
-  }
-
-  dom.verifierItemsList.innerHTML = '<div class="empty-state"><h3>Verifying items against game files...</h3></div>';
-  dom.verifierAllClean.style.display = 'none';
-
-  try {
-    const res = await window.coreFetch('/api/verifier');
-    const data = await res.json();
-    if (data.error) {
-      dom.verifierItemsList.innerHTML = `<div class="empty-state"><h3>Verifier Error: ${escapeHtml(data.error)}</h3></div>`;
-      return;
-    }
-
-    state.verifier = data;
-    renderVerifierView();
-  } catch (err) {
-    dom.verifierItemsList.innerHTML = `<div class="empty-state"><h3>Failed to load verifier report: ${escapeHtml(err.message)}</h3></div>`;
-  }
+  state.verifier = {
+    total_checked: all.length,
+    total_out_of_date: outOfDate.length,
+    total_up_to_date: all.filter(it => !it.isOutOfDate && it.verificationStatus !== 'unknown').length,
+    percent_out_of_date: all.length > 0 ? Math.round((outOfDate.length / all.length) * 100) : 0,
+    counts_by_issue: { below_min: belowMin, above_max: aboveMax, missing_stats: missing },
+    items: outOfDate
+  };
+  renderVerifierView();
 }
 
 function renderVerifierView() {
@@ -3098,7 +2821,7 @@ async function submitCreateMule() {
     statusEl.textContent = 'Generating character...';
   }
 
-  if (state.isWasmMode && window.D2Wasm) {
+  if (window.D2Wasm) {
     try {
       const data = await window.D2Wasm.createMule(name, charClass, hardcore);
       if (data.success) {
@@ -3129,44 +2852,6 @@ async function submitCreateMule() {
       }
       if (submitBtn) submitBtn.disabled = false;
     }
-    return;
-  }
-
-  try {
-    const res = await window.coreFetch('/api/mules/create', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, class: charClass, hardcore })
-    });
-    const data = await res.json();
-
-    if (data.success) {
-      if (statusEl) {
-        statusEl.style.background = 'rgba(34, 197, 94, 0.2)';
-        statusEl.style.color = '#4ade80';
-        statusEl.textContent = `Character '${name}' created successfully!`;
-      }
-      showToast(`Character '${name}' created!`, 'success');
-      setTimeout(() => {
-        closeCreateMuleModal();
-        if (submitBtn) submitBtn.disabled = false;
-        loadSaves();
-      }, 1000);
-    } else {
-      if (statusEl) {
-        statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
-        statusEl.style.color = '#f87171';
-        statusEl.textContent = data.error || 'Failed to create character.';
-      }
-      if (submitBtn) submitBtn.disabled = false;
-    }
-  } catch (err) {
-    if (statusEl) {
-      statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
-      statusEl.style.color = '#f87171';
-      statusEl.textContent = 'Network or server error: ' + err.message;
-    }
-    if (submitBtn) submitBtn.disabled = false;
   }
 }
 
@@ -3251,7 +2936,7 @@ async function submitCompleteQuests() {
     statusEl.textContent = 'Applying quest completions and updating waypoints...';
   }
 
-  if (state.isWasmMode && window.D2Wasm) {
+  if (window.D2Wasm) {
     try {
       const data = await window.D2Wasm.completeQuests(charName, difficulty, act, unlockWaypoints, grantRewards);
       if (data.success) {
@@ -3282,52 +2967,6 @@ async function submitCompleteQuests() {
       }
       if (submitBtn) submitBtn.disabled = false;
     }
-    return;
-  }
-
-  try {
-    const res = await window.coreFetch('/api/character/quests/complete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        revision: state.saves.find(save => save.name === charName)?.saveRevision,
-        character: charName,
-        difficulty,
-        act,
-        unlock_waypoints: unlockWaypoints,
-        grant_rewards: grantRewards,
-        force_live: forceLive
-      })
-    });
-
-    const data = await res.json();
-    if (data.success) {
-      if (statusEl) {
-        statusEl.style.background = 'rgba(34, 197, 94, 0.2)';
-        statusEl.style.color = '#4ade80';
-        statusEl.textContent = data.message || 'Quests updated successfully!';
-      }
-      showToast(`Quests updated for ${charName}!`, 'success');
-      setTimeout(() => {
-        closeQuestsModal();
-        if (submitBtn) submitBtn.disabled = false;
-        loadSaves();
-      }, 1000);
-    } else {
-      if (statusEl) {
-        statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
-        statusEl.style.color = '#f87171';
-        statusEl.textContent = data.error || 'Failed to update quests.';
-      }
-      if (submitBtn) submitBtn.disabled = false;
-    }
-  } catch (err) {
-    if (statusEl) {
-      statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
-      statusEl.style.color = '#f87171';
-      statusEl.textContent = 'Network or server error: ' + err.message;
-    }
-    if (submitBtn) submitBtn.disabled = false;
   }
 }
 
@@ -3556,7 +3195,7 @@ async function submitItemTransfer() {
       payload.target_y = targetY;
     }
 
-    if (state.isWasmMode && window.D2Wasm) {
+    if (window.D2Wasm) {
       const data = await window.D2Wasm.transferItem(payload);
       if (data.success) {
         if (statusEl) {
@@ -3581,38 +3220,6 @@ async function submitItemTransfer() {
 
         if (submitBtn) submitBtn.disabled = false;
       }
-      return;
-    }
-
-    const res = await window.coreFetch('/api/item/transfer', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    const data = await res.json();
-    if (data.Success) {
-      if (statusEl) {
-        statusEl.style.background = 'rgba(34, 197, 94, 0.2)';
-        statusEl.style.color = '#4ade80';
-        statusEl.textContent = data.Message || 'Item transferred successfully!';
-      }
-      showToast('Item transferred successfully!', 'success');
-      window.recordEdit?.('item transfer');
-      setTimeout(async () => {
-        closeTransferItemModal();
-        if (dom.itemModal) dom.itemModal.style.display = 'none';
-        if (submitBtn) submitBtn.disabled = false;
-        await loadSavesAndItems();
-      }, 800);
-    } else {
-      if (statusEl) {
-        statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
-        statusEl.style.color = '#f87171';
-        statusEl.textContent = data.Message || data.error || 'Transfer failed.';
-      }
-
-      if (submitBtn) submitBtn.disabled = false;
     }
   } catch (err) {
     if (statusEl) {
@@ -3629,18 +3236,8 @@ async function openPackMuleModal() {
   if (packMuleRefreshing) return;
   packMuleRefreshing = true;
   try {
-    if (state.isWasmMode && window.D2Wasm) {
+    if (window.D2Wasm) {
       await refreshWasmDataset();
-    } else {
-      showToast('Refreshing saves before packing a mule…', 'info');
-      const scanResponse = await window.coreFetch('/api/scan', { method: 'POST' });
-      const scan = await scanResponse.json();
-      if (!scanResponse.ok || !scan.success) throw new Error(scan.error || 'Save scan failed.');
-      const savesResponse = await window.coreFetch('/api/saves', { cache: 'no-store' });
-      if (!savesResponse.ok) throw new Error('Could not load refreshed saves.');
-      const refreshed = await savesResponse.json();
-      if (!Array.isArray(refreshed.saves)) throw new Error('Invalid save list.');
-      state.saves = refreshed.saves;
     }
   } catch (err) {
     showToast('Cannot open Pack Mule: ' + err.message, 'error');
@@ -3740,7 +3337,7 @@ async function submitPackMule() {
     statusEl.textContent = 'Packing items into mule containers...';
   }
 
-  if (state.isWasmMode && window.D2Wasm) {
+  if (window.D2Wasm) {
     try {
       const data = await window.D2Wasm.bulkTransfer({
         source_revision: state.saves.find(save => save.file === stashFile)?.saveRevision,
@@ -3780,54 +3377,6 @@ async function submitPackMule() {
       }
       if (submitBtn) submitBtn.disabled = false;
     }
-    return;
-  }
-
-  try {
-    const res = await window.coreFetch('/api/mule/fill', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        source_revision: state.saves.find(save => save.file === stashFile)?.saveRevision,
-        target_revision: state.saves.find(save => save.file === charFile)?.saveRevision,
-        stash_file: stashFile,
-        tab,
-        char_file: charFile,
-        filter,
-        max_items: maxItems,
-        force_live: forceLive
-      })
-    });
-
-    const data = await res.json();
-    if (data.Success) {
-      if (statusEl) {
-        statusEl.style.background = 'rgba(34, 197, 94, 0.2)';
-        statusEl.style.color = '#4ade80';
-        statusEl.textContent = data.Message || 'Mule packed successfully!';
-      }
-      showToast(`Packed ${data.ItemsMoved} items into mule!`, 'success');
-      setTimeout(async () => {
-        closePackMuleModal();
-        if (submitBtn) submitBtn.disabled = false;
-        await loadSavesAndItems();
-      }, 1000);
-    } else {
-      if (statusEl) {
-        statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
-        statusEl.style.color = '#f87171';
-        statusEl.textContent = data.Message || data.error || 'Packing failed.';
-      }
-
-      if (submitBtn) submitBtn.disabled = false;
-    }
-  } catch (err) {
-    if (statusEl) {
-      statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
-      statusEl.style.color = '#f87171';
-      statusEl.textContent = 'Error: ' + err.message;
-    }
-    if (submitBtn) submitBtn.disabled = false;
   }
 }
 

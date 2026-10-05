@@ -3,7 +3,7 @@
 ## Project Structure & Module Organization
 
 - Root C# files implement the .NET 10 CLI and save engine: `Program.cs`, `SaveInspectorEngine.cs`, `ItemTransferManager.cs`, `MuleGenerator.cs`, and related helpers.
-- `web_ui.py` serves the local UI and API; `find_items.py`, `fetch.py`, and `mule.py` provide command-line utilities.
+- `web_ui.py` serves the local static UI and WebAssembly engine (matching GitHub Pages); `find_items.py`, `fetch.py`, and `mule.py` provide command-line utilities.
 - `web/` contains HTML, CSS, JavaScript, and item artwork in `web/assets/`. Treat `web/_framework/` as generated WebAssembly output.
 - `src/D2SWasm/` links shared root C# engine files and embeds game data for browser execution. Keep shared logic compatible with both targets.
 - `tests/` contains browser checks, a snapshot harness, the C# inspector, and save fixtures under `tests/fixtures/`.
@@ -17,7 +17,7 @@ BK source data lives only under `mods/BKDiablo`; never mirror it into this repos
 
 - `dotnet build d2sitems.csproj` — compile the CLI.
 - `dotnet run -- "path/to/saves"` — parse saves and generate searchable JSON; configure game data paths first.
-- `python web_ui.py --no-browser` — serve the explorer at `http://localhost:5000`; `run_ui.bat` also opens a browser.
+- `python web_ui.py --no-browser` — serve the 100% client-side explorer at `http://localhost:5000` (matching GitHub Pages); `run_ui.bat` also opens a browser.
 - `dotnet publish src/D2SWasm/D2SWasm.csproj -c Release -o web/wasm` — publish the browser engine. Copy `web/wasm/wwwroot/_framework` into `web/` for local use, matching `.github/workflows/deploy-pages.yml`.
 - `python tests/snapshot_harness.py --help` — list snapshot capture and byte-diff commands.
 
@@ -27,7 +27,7 @@ Match surrounding code: four-space indentation for C# and Python, two spaces for
 
 ## Testing Guidelines
 
-Run `dotnet run --project tests/save_safety/SaveSafety.csproj` for crash recovery and `dotnet run --project tests/engine_regressions/EngineRegressions.csproj` for fixture/parsing checks. Run `python -m unittest tests/test_catalog.py tests/test_api.py` for catalog/API checks. Serve the repository root and open `tests/browser_regressions.html` for WASM checks. No coverage threshold is configured. Use disposable copies and byte diffs for mutations; preserve golden fixtures.
+Run `powershell -File scripts/run_all_qa.ps1` for the full 4-tier matrix (SaveSafety, EngineRegressions, Python unit tests, and browser WASM regressions). Alternatively, run `dotnet run --project tests/save_safety/SaveSafety.csproj` for crash recovery, `dotnet run --project tests/engine_regressions/EngineRegressions.csproj` for fixture/parsing checks, and `python -m unittest tests/test_catalog.py tests/test_api.py tests/test_edit_workspace.py tests/test_server.py tests/test_release_monitor.py` for server/catalog checks. Serve the repository root and open `tests/browser_regressions.html` for WASM checks. No coverage threshold is configured. Use disposable copies and byte diffs for mutations; preserve golden fixtures.
 
 
 ## Commit & Pull Request Guidelines

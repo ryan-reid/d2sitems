@@ -36,8 +36,8 @@ You can launch the modern Web UI to explore characters, shared stashes, search i
   - **Characters & Stashes**: Grid of all characters with levels, stats, gold, and shared stash tabs.
   - **Armory Sheet**: Interactive paperdoll displaying equipped gear, inventory grid, stash, and mercenary gear with full stat roll details.
   - **Holy Grail Tracker**: Automatic grail checklist with completion percentage across Unique Items, Sets, and Runewords.
-  - **Profiles**: Seamlessly switch between base game saves and mods (BKDiablo, BTDiablo, RMD, etc.).
-  - **1-Click Rescan**: Re-parse your save files directly from the UI.
+  - **100% Client-Side WebAssembly**: Matches GitHub Pages with zero required backend dependencies, private offline browser persistence, and File System Access API integration.
+  - **1-Click Rescan**: Re-parse your save files or drag-and-drop saves directly in the browser.
 
 How to install/use.
 

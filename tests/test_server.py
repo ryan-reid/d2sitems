@@ -1,4 +1,4 @@
-"""Tests for web_ui.py static server and WebAssembly delivery."""
+"""Tests for the streamlined static web server."""
 
 import http.client
 from pathlib import Path
@@ -10,9 +10,10 @@ import web_ui
 ROOT_DIR = Path(__file__).resolve().parents[1]
 
 
-class WebServerApiTests(unittest.TestCase):
+class WebServerTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # Bind to port 0 to get an ephemeral free port
         cls.server = web_ui.ReusableTCPServer(("127.0.0.1", 0), web_ui.WasmStaticHTTPRequestHandler)
         cls.port = cls.server.server_address[1]
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
@@ -48,8 +49,9 @@ class WebServerApiTests(unittest.TestCase):
         self.assertEqual(res.getheader("Content-Type"), "application/javascript")
         _ = res.read()
 
+        # Find any .wasm file in _framework
         wasm_files = list((ROOT_DIR / "web" / "_framework").glob("*.wasm"))
-        self.assertTrue(len(wasm_files) > 0, "Expected at least one .wasm file in web/_framework")
+        self.assertTrue(len(wasm_files) > 0)
         wasm_rel = f"/_framework/{wasm_files[0].name}"
         res_wasm = self.request(wasm_rel)
         self.assertEqual(res_wasm.status, 200)
