@@ -67,11 +67,9 @@ coreSelect.addEventListener('change', async () => {
 
 // DOM Elements
 const dom = {
-  profileSelect: document.getElementById('profile-select'),
   rescanBtn: document.getElementById('rescan-btn'),
   rescanIcon: document.getElementById('rescan-icon'),
   rescanLabel: document.getElementById('rescan-label'),
-  addProfileBtn: document.getElementById('add-profile-btn'),
   searchInput: document.getElementById('search-input'),
   searchClearBtn: document.getElementById('search-clear-btn'),
   resultsCountBadge: document.getElementById('results-count-badge'),
@@ -120,13 +118,6 @@ const dom = {
   verifierSearchInput: document.getElementById('verifier-search-input'),
   verifierItemsList: document.getElementById('verifier-items-list'),
   verifierAllClean: document.getElementById('verifier-all-clean'),
-  profileModal: document.getElementById('profile-modal'),
-  modalCloseBtn: document.getElementById('modal-close-btn'),
-  modalCancelBtn: document.getElementById('modal-cancel-btn'),
-  modalSaveBtn: document.getElementById('modal-save-btn'),
-  customProfileName: document.getElementById('custom-profile-name'),
-  customProfilePath: document.getElementById('custom-profile-path'),
-  customExcelPath: document.getElementById('custom-excel-path'),
   itemModal: document.getElementById('item-modal'),
   itemModalTitle: document.getElementById('item-modal-title'),
   itemModalBody: document.getElementById('item-modal-body'),
@@ -273,12 +264,7 @@ async function enableWasmMode() {
     invalidateBtn.style.display = 'inline-flex';
   }
 
-  const addProfileBtn = document.getElementById('add-profile-btn');
-  if (addProfileBtn) addProfileBtn.style.display = 'none';
 
-  if (dom.profileSelect) {
-    dom.profileSelect.innerHTML = '<option value="wasm">Browser Local Storage</option>';
-  }
 
   showToast('Running in 100% Client-Side WebAssembly Mode (Offline / Zero-Backend)', 'info');
 
@@ -751,8 +737,6 @@ function setupWasmEvents() {
   });
 }
 
-// Switch Profile (profile selection is handled via WASM storage)
-dom.profileSelect.addEventListener('change', async () => {});
 
 // Load Saves and Items
 async function loadSavesAndItems() {
@@ -2642,20 +2626,6 @@ function createChronicleItemCard(it, categoryName, groupName) {
   return card;
 }
 
-// ==========================================================================
-// ADD CUSTOM PROFILE MODAL
-// ==========================================================================
-dom.addProfileBtn.addEventListener('click', () => {
-  dom.profileModal.style.display = 'flex';
-});
-
-dom.modalCloseBtn.addEventListener('click', () => dom.profileModal.style.display = 'none');
-dom.modalCancelBtn.addEventListener('click', () => dom.profileModal.style.display = 'none');
-
-dom.modalSaveBtn.addEventListener('click', async () => {
-  showToast('In browser mode, use the folder or file picker to load save files directly.', 'info');
-  dom.profileModal.style.display = 'none';
-});
 
 // ==========================================================================
 // ITEM VERIFIER VIEW

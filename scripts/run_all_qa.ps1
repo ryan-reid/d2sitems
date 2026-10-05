@@ -56,25 +56,25 @@ function Run-Tier {
 
 # Tier 1: C# Save Safety & Transaction Recovery
 Run-Tier -Name "Tier 1: Save Safety & Crash Recovery" -Action {
-    $p = Start-Process -FilePath "dotnet" -ArgumentList "run --project tests/save_safety/SaveSafety.csproj" -NoNewWindow -Wait -PassThru
-    if ($p.ExitCode -ne 0) {
-        throw "SaveSafety failed with exit code $($p.ExitCode)"
+    & dotnet run --project tests/save_safety/SaveSafety.csproj
+    if ($LASTEXITCODE -ne 0) {
+        throw "SaveSafety failed with exit code $LASTEXITCODE"
     }
 }
 
 # Tier 2: C# Engine Regressions & Byte Conservation
 Run-Tier -Name "Tier 2: Engine Regressions & Parity" -Action {
-    $p = Start-Process -FilePath "dotnet" -ArgumentList "run --project tests/engine_regressions/EngineRegressions.csproj" -NoNewWindow -Wait -PassThru
-    if ($p.ExitCode -ne 0) {
-        throw "EngineRegressions failed with exit code $($p.ExitCode)"
+    & dotnet run --project tests/engine_regressions/EngineRegressions.csproj
+    if ($LASTEXITCODE -ne 0) {
+        throw "EngineRegressions failed with exit code $LASTEXITCODE"
     }
 }
 
 # Tier 3: Python API & Mod Catalog Unit Tests
 Run-Tier -Name "Tier 3: Python API & Catalog Tests" -Action {
-    $p = Start-Process -FilePath "python" -ArgumentList "-m unittest tests/test_catalog.py tests/test_api.py tests/test_edit_workspace.py tests/test_server.py tests/test_release_monitor.py" -NoNewWindow -Wait -PassThru
-    if ($p.ExitCode -ne 0) {
-        throw "Python catalog/API tests failed with exit code $($p.ExitCode)"
+    & python -m unittest tests/test_catalog.py tests/test_api.py tests/test_edit_workspace.py tests/test_server.py tests/test_release_monitor.py
+    if ($LASTEXITCODE -ne 0) {
+        throw "Python catalog/API tests failed with exit code $LASTEXITCODE"
     }
 }
 
@@ -98,9 +98,9 @@ if (-not $SkipBrowser) {
         }
 
         try {
-            $p = Start-Process -FilePath "node" -ArgumentList "tests/run_browser_regressions.mjs $testUrl" -NoNewWindow -Wait -PassThru
-            if ($p.ExitCode -ne 0) {
-                throw "Browser regressions failed with exit code $($p.ExitCode)"
+            & node tests/run_browser_regressions.mjs $testUrl
+            if ($LASTEXITCODE -ne 0) {
+                throw "Browser regressions failed with exit code $LASTEXITCODE"
             }
         }
         finally {

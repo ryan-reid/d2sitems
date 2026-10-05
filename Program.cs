@@ -240,7 +240,7 @@ if (isMonitorMode)
     Console.WriteLine($"\nMonitoring {Path.GetFileName(monitorFile)} for unique/set drops (Interval: {monitorInterval}s)...");
     Console.WriteLine("Press Ctrl+C to exit.\n");
 
-    Dictionary<string, Dictionary<string, object>> previousItems = new();
+    Dictionary<string, Dictionary<string, object?>> previousItems = new();
     bool firstRun = true;
     var regenMinutes = int.TryParse(config.GetValueOrDefault("monitor_regen_minutes", "10"), out var rm) ? rm : 10;
     DateTime lastRegen = DateTime.Now;
@@ -273,17 +273,17 @@ if (isMonitorMode)
             var itemsList = (List<Dictionary<string, object?>>)charData["items"];
             
             // Collect current unique/set items by name
-            var currentItems = new Dictionary<string, Dictionary<string, object>>();
+            var currentItems = new Dictionary<string, Dictionary<string, object?>>();
             foreach (var item in itemsList)
             {
                 if (item != null && item.ContainsKey("quality") && item.ContainsKey("name") && item.ContainsKey("isUnidentified"))
                 {
                     var quality = item["quality"]?.ToString();
-                    var isUnid = (bool)item["isUnidentified"];
+                    var isUnid = item["isUnidentified"] is bool b && b;
                     if ((quality == "Unique" || quality == "Set") && !isUnid)
                     {
                         var name = item["name"]?.ToString() ?? "";
-                        currentItems.TryAdd(name, (Dictionary<string, object>)item);
+                        currentItems.TryAdd(name, item);
                     }
                 }
             }
@@ -298,7 +298,7 @@ if (isMonitorMode)
                         var score = itemDict.ContainsKey("perfectionScore") && itemDict["perfectionScore"] != null ? (double?)Convert.ToDouble(itemDict["perfectionScore"]) : null;
                         var scoreStr = score.HasValue ? $" - (Perfection: {score:F2}%)" : " - (No Perfection Score)";
                         
-                        var flags = itemDict.ContainsKey("flags") ? (List<string>)itemDict["flags"] : new List<string>();
+                        var flags = itemDict.TryGetValue("flags", out var flagsVal) && flagsVal is List<string> flList ? flList : new List<string>();
                         var ethStr = flags.Contains("Ethereal") ? " [ETH]" : "";
                         
                         Console.WriteLine($"\n------\n");
@@ -399,12 +399,9 @@ if (isMonitorMode)
                                               $"Copies: {existing.Count} (Eth: {existingEth}, Non: {existingNonEth})\\n" +
                                               $"Is Best: {isBest}"
                                 });
-                                var req = System.Net.WebRequest.Create(webhookUrl);
-                                req.Method = "POST";
-                                req.ContentType = "application/json";
-                                using (var sw = new System.IO.StreamWriter(req.GetRequestStream()))
-                                    sw.Write(webhookJson);
-                                req.GetResponse();
+                                using var httpClient = new HttpClient();
+                                using var postContent = new StringContent(webhookJson, System.Text.Encoding.UTF8, "application/json");
+                                var res = httpClient.PostAsync(webhookUrl, postContent).GetAwaiter().GetResult();
                             }
                             catch (Exception ex) { Console.WriteLine($"  Webhook Error: {ex.Message}"); }
                         }

@@ -6,8 +6,8 @@ obj/
 runtimes/
 *.deps.json
 *.runtimeconfig.json
-D2SSharp.dll
-System.Speech.dll
+*.dll
+*.exe
 tests/fixtures/baselines/*.json
 
 *.user
