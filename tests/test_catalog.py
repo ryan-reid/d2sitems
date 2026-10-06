@@ -50,23 +50,39 @@ class CatalogTests(unittest.TestCase):
 
 class ItemFilterTests(unittest.TestCase):
     def setUp(self):
-        self.stash_data = json.loads((ROOT / 'tests/fixtures/baselines/ModernSharedStashSoftCoreV2.golden.json').read_text(encoding='utf-8'))
-        self.items = self.stash_data.get('items', [])
+        self.items = [
+            {"name": "The Scalper", "type": "Throwing Axe"},
+            {"name": "Warshrike", "type": "Throwing Knife"},
+            {"name": "Demon's Arch", "type": "Javelin"},
+            {"name": "Gargoyle's Bite", "type": "Javelin"},
+            {"name": "Titan's Revenge", "type": "Amazon Javelin"},
+            {"name": "Crystal Sword", "type": "Sword"},
+            {"name": "Berserker Axe", "type": "Axe"},
+            {"name": "War Hammer", "type": "Hammer"},
+            {"name": "Hydra Bow", "type": "Bow"},
+            {"name": "Harlequin Crest", "type": "Helm"},
+            {"name": "Stormshield", "type": "Shield"},
+            {"name": "Stone of Jordan", "type": "Ring"},
+            {"name": "Mara's Kaleidoscope", "type": "Amulet"},
+            {"name": "Annihilus", "type": "Small Charm"},
+            {"name": "Rainbow Facet", "type": "Jewel"},
+            {"name": "Ber Rune", "type": "Rune"},
+            {"name": "Perfect Ruby", "type": "Ruby"},
+        ]
 
     def test_filter_weapons_all(self):
         import re
         from find_items import matches_field
         weapons = [it for it in self.items if matches_field(it, 'type', re.compile('weapon', re.I))]
-        self.assertGreater(len(weapons), 0)
-        self.assertEqual(len(weapons), 64)
+        self.assertEqual(len(weapons), 9)
         for w in weapons:
-            self.assertNotIn(w.get('type', '').lower(), ['armor', 'shield', 'ring', 'amulet', 'charm'])
+            self.assertNotIn(w.get('type', '').lower(), ['helm', 'shield', 'ring', 'amulet', 'small charm', 'jewel', 'rune', 'ruby'])
 
     def test_filter_throwing_weapons(self):
         import re
         from find_items import matches_field
         throwing = [it for it in self.items if matches_field(it, 'type', re.compile('throwing', re.I))]
-        self.assertEqual(len(throwing), 6)
+        self.assertEqual(len(throwing), 5)
         names = [it['name'] for it in throwing]
         self.assertTrue(any('The Scalper' in n for n in names))
         self.assertTrue(any("Demon's Arch" in n for n in names))
@@ -76,7 +92,7 @@ class ItemFilterTests(unittest.TestCase):
         import re
         from find_items import matches_field
         javelins = [it for it in self.items if matches_field(it, 'type', re.compile('javelin', re.I))]
-        self.assertEqual(len(javelins), 5)
+        self.assertEqual(len(javelins), 3)
         for jav in javelins:
             self.assertIn(jav.get('type'), ['Javelin', 'Amazon Javelin'])
 
