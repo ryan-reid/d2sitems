@@ -2089,6 +2089,18 @@ async function loadChronicleView() {
     if (!window.D2Wasm.ready) {
       await window.D2Wasm.init();
     }
+    // Auto-rollback unstaged 100% Complete All blowout to restore authentic save file discoveries
+    try {
+      if (localStorage.getItem('bk-chronicle-rollback-done') !== 'true') {
+        const storedManual = JSON.parse(localStorage.getItem('bk-chronicle-manual') || '{}');
+        if (Object.keys(storedManual).length > 200) {
+          localStorage.removeItem('bk-chronicle-manual');
+          console.log('[Chronicle] Automatically rolled back unstaged 100% manual completion blowout.');
+        }
+        localStorage.setItem('bk-chronicle-rollback-done', 'true');
+      }
+    } catch (e) {}
+
     const savesForChronicle = window.D2Wasm.allSaves || state.saves;
     state.chronicle = window.D2Wasm.getChronicleProgress(savesForChronicle, state.chronicleCore);
     mergeLocalChronicleCompletions();
@@ -2101,7 +2113,10 @@ function mergeLocalChronicleCompletions() {
   if (!state.chronicle || !state.chronicle.categories) return;
   let manual = {};
   try {
-    manual = JSON.parse(localStorage.getItem('bk-chronicle-manual') || '{}');
+    const raw = (window.EditWorkspace?.active && window.EditWorkspace?.hasChronicleChanges)
+      ? window.EditWorkspace.chronicleDraft
+      : localStorage.getItem('bk-chronicle-manual');
+    manual = JSON.parse(raw || '{}');
   } catch (e) {
     manual = {};
   }
@@ -2170,6 +2185,10 @@ function mergeLocalChronicleCompletions() {
 
 async function toggleChronicleItem(itemName, newStatus) {
   if (!itemName) return;
+  if (!window.EditWorkspace?.active) {
+    showToast('Turn on Edit mode to modify Chronicle completions.', 'info');
+    return;
+  }
   const nameLower = itemName.toLowerCase();
 
   // Update in-memory state
@@ -2210,29 +2229,40 @@ async function toggleChronicleItem(itemName, newStatus) {
       : 0;
   }
 
-  // Persist in localStorage
+  // Stage in EditWorkspace draft (do NOT write localStorage until Save changes)
+  let manual = {};
   try {
-    const manual = JSON.parse(localStorage.getItem('bk-chronicle-manual') || '{}');
-    manual[nameLower] = newStatus;
-    const aliases = {
-      'game modifiers': ['game modifers', 'charm modifiers'],
-      'game modifers': ['game modifiers', 'charm modifiers'],
-      'charm modifiers': ['game modifiers', 'game modifers'],
-      'blank charm': ['charm blank'],
-      'charm blank': ['blank charm'],
-      'level 90 reward': ['charm level reward'],
-      'charm level reward': ['level 90 reward']
-    };
-    (aliases[nameLower] || []).forEach(a => manual[a] = newStatus);
-    localStorage.setItem('bk-chronicle-manual', JSON.stringify(manual));
-  } catch (e) {}
+    const raw = window.EditWorkspace.chronicleDraft || localStorage.getItem('bk-chronicle-manual');
+    manual = JSON.parse(raw || '{}');
+  } catch (e) {
+    manual = {};
+  }
+  manual[nameLower] = newStatus;
+  const aliases = {
+    'game modifiers': ['game modifers', 'charm modifiers'],
+    'game modifers': ['game modifiers', 'charm modifiers'],
+    'charm modifiers': ['game modifiers', 'game modifers'],
+    'blank charm': ['charm blank'],
+    'charm blank': ['blank charm'],
+    'level 90 reward': ['charm level reward'],
+    'charm level reward': ['level 90 reward']
+  };
+  (aliases[nameLower] || []).forEach(a => manual[a] = newStatus);
+
+  window.EditWorkspace.chronicleDraft = JSON.stringify(manual);
+  window.EditWorkspace.hasChronicleChanges = true;
+  window.EditWorkspace.changed();
 
   renderChronicleView();
-  showToast(`${itemName} marked as ${newStatus ? 'discovered' : 'undiscovered'}!`, 'success');
+  showToast(`${itemName} marked as ${newStatus ? 'discovered' : 'undiscovered'} (staged in Edit mode). Click Save changes to apply.`, 'success');
 }
 window.toggleChronicleItem = toggleChronicleItem;
 
 async function completeAllChronicle() {
+  if (!window.EditWorkspace?.active) {
+    showToast('Turn on Edit mode to modify Chronicle completions.', 'info');
+    return;
+  }
   if (!confirm("Are you sure you want to mark all Chronicle items as completed (100%)?")) {
     return;
   }
@@ -2261,35 +2291,44 @@ async function completeAllChronicle() {
     state.chronicle.percent = 100.0;
   }
 
-  // 2. Persist in localStorage
+  // 2. Stage in EditWorkspace (do NOT save to localStorage until Save changes)
+  let manual = {};
   try {
-    let manual = JSON.parse(localStorage.getItem('bk-chronicle-manual') || '{}');
-    if (state.chronicle && state.chronicle.categories) {
-      state.chronicle.categories.forEach(cat => {
-        (cat.items || []).forEach(it => {
-          if (it.is_group) {
-            (it.items || []).forEach(sub => {
-              if (sub.name) manual[sub.name.toLowerCase()] = true;
-            });
-          } else {
-            if (it.name) manual[it.name.toLowerCase()] = true;
-          }
-        });
-      });
-    }
-    const aliases = ['game modifiers', 'game modifers', 'charm modifiers', 'blank charm', 'charm blank', 'level 90 reward', 'charm level reward'];
-    aliases.forEach(a => manual[a] = true);
-    localStorage.setItem('bk-chronicle-manual', JSON.stringify(manual));
+    const raw = window.EditWorkspace.chronicleDraft || localStorage.getItem('bk-chronicle-manual');
+    manual = JSON.parse(raw || '{}');
   } catch (e) {
-    console.warn('Failed to save manual completions to localStorage:', e);
+    manual = {};
   }
+  if (state.chronicle && state.chronicle.categories) {
+    state.chronicle.categories.forEach(cat => {
+      (cat.items || []).forEach(it => {
+        if (it.is_group) {
+          (it.items || []).forEach(sub => {
+            if (sub.name) manual[sub.name.toLowerCase()] = true;
+          });
+        } else {
+          if (it.name) manual[it.name.toLowerCase()] = true;
+        }
+      });
+    });
+  }
+  const aliases = ['game modifiers', 'game modifers', 'charm modifiers', 'blank charm', 'charm blank', 'level 90 reward', 'charm level reward'];
+  aliases.forEach(a => manual[a] = true);
+
+  window.EditWorkspace.chronicleDraft = JSON.stringify(manual);
+  window.EditWorkspace.hasChronicleChanges = true;
+  window.EditWorkspace.changed();
 
   renderChronicleView();
-  showToast('Chronicle marked 100% complete!', 'success');
+  showToast('Chronicle marked 100% complete (staged in Edit mode). Click Save changes to apply.', 'success');
 }
 window.completeAllChronicle = completeAllChronicle;
 
 async function completeUndroppableChronicle() {
+  if (!window.EditWorkspace?.active) {
+    showToast('Turn on Edit mode to modify Chronicle completions.', 'info');
+    return;
+  }
   const undroppableList = [
     'game modifiers',
     'game modifers',
@@ -2358,17 +2397,22 @@ async function completeUndroppableChronicle() {
       : 0;
   }
 
-  // 2. Persist in localStorage
+  // 2. Stage in EditWorkspace (do NOT save to localStorage until Save changes)
+  let manual = {};
   try {
-    let manual = JSON.parse(localStorage.getItem('bk-chronicle-manual') || '{}');
-    undroppableList.forEach(k => manual[k] = true);
-    localStorage.setItem('bk-chronicle-manual', JSON.stringify(manual));
+    const raw = window.EditWorkspace.chronicleDraft || localStorage.getItem('bk-chronicle-manual');
+    manual = JSON.parse(raw || '{}');
   } catch (e) {
-    console.warn('Failed to save undroppable items to localStorage:', e);
+    manual = {};
   }
+  undroppableList.forEach(k => manual[k] = true);
+
+  window.EditWorkspace.chronicleDraft = JSON.stringify(manual);
+  window.EditWorkspace.hasChronicleChanges = true;
+  window.EditWorkspace.changed();
 
   renderChronicleView();
-  showToast('Undroppable items (Game Modifiers, Blank Charm, Level 90 Reward, etc.) marked as complete!', 'success');
+  showToast('Undroppable items marked as complete (staged in Edit mode). Click Save changes to apply.', 'success');
 }
 window.completeUndroppableChronicle = completeUndroppableChronicle;
 
@@ -2377,12 +2421,20 @@ async function resetChronicleCompletions() {
     return;
   }
 
-  try {
-    localStorage.removeItem('bk-chronicle-manual');
-  } catch (e) {}
-
-  await loadChronicleView();
-  showToast('Chronicle manual completions reset!', 'info');
+  if (window.EditWorkspace?.active) {
+    window.EditWorkspace.chronicleDraft = '{}';
+    window.EditWorkspace.hasChronicleChanges = true;
+    window.EditWorkspace.changed();
+    await loadChronicleView();
+    showToast('Chronicle manual completions reset (staged in Edit mode). Click Save changes to apply.', 'info');
+  } else {
+    try {
+      localStorage.removeItem('bk-chronicle-manual');
+      localStorage.setItem('bk-chronicle-rollback-done', 'true');
+    } catch (e) {}
+    await loadChronicleView();
+    showToast('Chronicle manual completions reset!', 'info');
+  }
 }
 window.resetChronicleCompletions = resetChronicleCompletions;
 

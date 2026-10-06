@@ -476,9 +476,11 @@ class D2SE2ERegressionTests(unittest.TestCase):
         IF:   The Chronicle view is active with save file discoveries loaded.
         WHEN: The user triggers Reset or Complete All but dismisses the confirmation alerts.
         THEN: The alerts are cancelled and chronicle progress score remains intact.
-        WHEN: The user clicks Complete Undroppable followed by Complete All (confirmed).
-        THEN: The progress score advances and reaches 100.00% completion.
-        WHEN: The user confirms Reset to baseline discoveries.
+        WHEN: The user attempts modifications in Browse mode.
+        THEN: Score remains unchanged until Edit mode is activated.
+        WHEN: The user enters Edit mode and clicks Complete Undroppable followed by Complete All.
+        THEN: The progress score advances and reaches 100.00% completion in staged memory.
+        WHEN: The user clicks Discard in Edit mode.
         THEN: The chronicle score reverts back to initial save discoveries.
         """
         print("\n--- [FLOW 7] The Chronicle: Update, Complete All, and Revert/Reset ---")
@@ -503,7 +505,21 @@ class D2SE2ERegressionTests(unittest.TestCase):
         log_bdd("THEN", "Alert is dismissed and chronicle progress score remains intact")
         self.assertEqual(self.driver.find_element(By.ID, "chronicle-overall-score").text, initial_score)
 
-        # Cancellation Sub-flow 2: Dismiss Complete All Alert
+        # Browse Mode Safeguard: Mutating actions require Edit mode
+        log_bdd("WHEN", "User attempts to click Complete Undroppable in Browse mode")
+        undroppable_btn = self.driver.find_element(By.ID, "btn-complete-undroppable")
+        self.safe_click(undroppable_btn)
+        time.sleep(0.3)
+        log_bdd("THEN", "Chronicle score remains unchanged because Edit mode is required")
+        self.assertEqual(self.driver.find_element(By.ID, "chronicle-overall-score").text, initial_score)
+
+        # Enter Edit Mode
+        log_bdd("WHEN", "User turns on Edit mode to stage Chronicle modifications")
+        edit_start_btn = self.driver.find_element(By.ID, "edit-start")
+        self.safe_click(edit_start_btn)
+        time.sleep(0.5)
+
+        # Cancellation Sub-flow 2: Dismiss Complete All Alert in Edit Mode
         log_bdd("WHEN", "User triggers Complete All but dismisses the confirmation alert")
         complete_all_btn = self.driver.find_element(By.ID, "btn-complete-chronicle")
         self.safe_click(complete_all_btn)
@@ -514,17 +530,18 @@ class D2SE2ERegressionTests(unittest.TestCase):
         log_bdd("THEN", "Alert is dismissed and chronicle progress score remains unchanged")
         self.assertEqual(self.driver.find_element(By.ID, "chronicle-overall-score").text, initial_score)
 
-        # Execution Sub-flow 1: Complete Undroppable
-        log_bdd("WHEN", "User clicks Complete Undroppable")
-        undroppable_btn = self.driver.find_element(By.ID, "btn-complete-undroppable")
+        # Execution Sub-flow 1: Complete Undroppable (Staged in Edit Workspace)
+        log_bdd("WHEN", "User clicks Complete Undroppable in Edit mode")
         self.safe_click(undroppable_btn)
         time.sleep(0.5)
 
         undroppable_score = self.driver.find_element(By.ID, "chronicle-overall-score").text
-        log_bdd("THEN", f"Progress score advances to {undroppable_score}")
+        log_bdd("THEN", f"Progress score advances to {undroppable_score} and EditWorkspace tracks changes")
         self.assertNotEqual(undroppable_score, "0.00%")
+        staged_changes = self.driver.execute_script("return window.EditWorkspace.changes")
+        self.assertGreaterEqual(staged_changes, 1)
 
-        # Execution Sub-flow 2: Complete All (100%)
+        # Execution Sub-flow 2: Complete All (100% Staged in Edit Workspace)
         log_bdd("WHEN", "User clicks Complete All and confirms the alert")
         self.safe_click(complete_all_btn)
         alert = self.driver.switch_to.alert
@@ -535,11 +552,10 @@ class D2SE2ERegressionTests(unittest.TestCase):
         log_bdd("THEN", f"Chronicle reaches full completion: {final_score}")
         self.assertEqual(final_score, "100.00%")
 
-        # Execution Sub-flow 3: Revert to Save Baseline
-        log_bdd("WHEN", "User confirms Reset back to save file discoveries")
-        self.safe_click(reset_btn)
-        alert = self.driver.switch_to.alert
-        alert.accept()
+        # Execution Sub-flow 3: Discard Staged Changes
+        log_bdd("WHEN", "User clicks Discard to revert staged modifications")
+        discard_btn = self.driver.find_element(By.ID, "edit-discard")
+        self.safe_click(discard_btn)
         time.sleep(0.5)
 
         reverted_score = self.driver.find_element(By.ID, "chronicle-overall-score").text

@@ -27,6 +27,13 @@
       await window.D2Wasm.init();
       window.D2Wasm.editOriginals = new Map(window.D2Wasm.loadedFiles);
     }
+    try {
+      workspace.chronicleOriginal = localStorage.getItem('bk-chronicle-manual');
+    } catch (e) {
+      workspace.chronicleOriginal = null;
+    }
+    workspace.chronicleDraft = workspace.chronicleOriginal;
+    workspace.hasChronicleChanges = false;
     workspace.active = true; workspace.changes = 0; update();
     if (selectedChar) {
       state.selectedChar = selectedChar;
@@ -70,7 +77,37 @@
           }
         } else { engine.loadedFiles = originals; engine.editOriginals = null; }
       }
+      if (workspace.hasChronicleChanges) {
+        if (save) {
+          try {
+            if (workspace.chronicleDraft !== null && workspace.chronicleDraft !== undefined) {
+              localStorage.setItem('bk-chronicle-manual', workspace.chronicleDraft);
+            } else {
+              localStorage.removeItem('bk-chronicle-manual');
+            }
+          } catch (e) {
+            console.warn('[EditWorkspace] Could not save chronicle completions:', e);
+          }
+        } else {
+          try {
+            if (workspace.chronicleOriginal !== null && workspace.chronicleOriginal !== undefined) {
+              localStorage.setItem('bk-chronicle-manual', workspace.chronicleOriginal);
+            } else {
+              localStorage.removeItem('bk-chronicle-manual');
+            }
+          } catch (e) {
+            console.warn('[EditWorkspace] Could not restore chronicle completions:', e);
+          }
+        }
+      }
+      const hadChronicleChanges = workspace.hasChronicleChanges;
+      workspace.chronicleDraft = null;
+      workspace.chronicleOriginal = null;
+      workspace.hasChronicleChanges = false;
       workspace.active = false; workspace.token = null; workspace.changes = 0; update();
+      if (hadChronicleChanges && typeof window.loadChronicleView === 'function') {
+        await window.loadChronicleView();
+      }
       if (typeof window.clearEditLog === 'function') window.clearEditLog();
       if (typeof window.updateExportButtonState === 'function') window.updateExportButtonState();
       if (selectedChar) {
