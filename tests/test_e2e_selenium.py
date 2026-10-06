@@ -602,11 +602,13 @@ class D2SE2ERegressionTests(unittest.TestCase):
         alert.accept()
         time.sleep(1)
 
-        log_bdd("THEN", "Cache is wiped from IndexedDB/memory and dropzone overlay activates for re-load")
+        log_bdd("THEN", "Cache and manual chronicle completions are wiped from IndexedDB/localStorage/memory")
         cleared_loaded = self.driver.execute_script("return window.D2Wasm.loadedFiles.size")
         cleared_saves = self.driver.execute_script("return window.state.saves.length")
+        cleared_chronicle_manual = self.driver.execute_script("return localStorage.getItem('bk-chronicle-manual')")
         self.assertEqual(cleared_loaded, 0)
         self.assertEqual(cleared_saves, 0)
+        self.assertIsNone(cleared_chronicle_manual)
         
         overlay = self.driver.find_element(By.ID, "d2-dropzone-overlay")
         self.assertIn("active", overlay.get_attribute("class"))

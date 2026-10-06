@@ -3,6 +3,14 @@
  */
 
 // Application State
+try {
+  if (localStorage.getItem('bk-chronicle-v2') !== 'true') {
+    localStorage.removeItem('bk-chronicle-manual');
+    localStorage.removeItem('bk-chronicle-rollback-done');
+    localStorage.setItem('bk-chronicle-v2', 'true');
+  }
+} catch (e) {}
+
 const state = {
   isWasmMode: true,
   core: localStorage.getItem('bk-save-core') === 'hard' ? 'hard' : 'soft',
@@ -468,6 +476,15 @@ async function invalidateWasmCache() {
   state.saves = [];
   state.items = [];
   state.allWasmItems = [];
+  state.chronicle = null;
+  try {
+    localStorage.removeItem('bk-chronicle-manual');
+  } catch (e) {}
+  if (window.EditWorkspace) {
+    window.EditWorkspace.chronicleDraft = null;
+    window.EditWorkspace.chronicleOriginal = null;
+    window.EditWorkspace.hasChronicleChanges = false;
+  }
   updateCharacterFilterDropdown();
   await executeSearch();
   updateExportButtonState();

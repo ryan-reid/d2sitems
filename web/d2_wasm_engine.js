@@ -266,6 +266,9 @@ class D2WasmEngine {
     if (!keepHandle) {
       localStorage.removeItem('bkdiablo-folder-name');
     }
+    try {
+      localStorage.removeItem('bk-chronicle-manual');
+    } catch (e) {}
 
     this.loadedFiles.clear();
     this.initialFileBytes.clear();
