@@ -202,17 +202,8 @@
           <span id="card-base-name" class="creator-tag"></span>
           <span id="card-req-lvl" class="creator-tag req"></span>
           <span id="card-item-lvl" class="creator-tag"></span>
+          <span id="card-ethereal-tag" class="creator-tag ethereal" style="color: #60a5fa; border-color: rgba(96,165,250,0.4); background: rgba(96,165,250,0.15);" hidden>Ethereal</span>
         </div>
-      </div>
-      <div class="creator-placement">
-        <label>
-          <input type="checkbox" id="new-item-autoplace" checked>
-          Auto-place in first available inventory slot
-        </label>
-        <span id="creator-coords-wrap" class="creator-coords" hidden>
-          X: <input id="new-item-x" type="number" min="0" max="15" value="0">
-          Y: <input id="new-item-y" type="number" min="0" max="15" value="0">
-        </span>
       </div>
     </div>
 
@@ -220,6 +211,23 @@
       <div class="creator-grid">
         <label>Item Code (3 chars) <input id="new-item-code" maxlength="3" placeholder="r01"></label>
         <label>Quality <select id="new-item-quality"><option value="Normal">Normal</option><option value="Magic">Magic</option><option value="Rare">Rare</option></select></label>
+      </div>
+    </div>
+
+    <div id="creator-placement-section" class="creator-card" style="margin-top: -4px; margin-bottom: 12px; padding: 8px 12px;" hidden>
+      <div class="creator-placement" style="margin-top: 0; justify-content: flex-start; flex-wrap: wrap;">
+        <label>
+          <input type="checkbox" id="new-item-autoplace" checked>
+          Auto-place in first available inventory slot
+        </label>
+        <label class="creator-ethereal-opt" style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
+          <input type="checkbox" id="new-item-ethereal">
+          Ethereal (Cannot be Repaired)
+        </label>
+        <span id="creator-coords-wrap" class="creator-coords" hidden>
+          X: <input id="new-item-x" type="number" min="0" max="15" value="0">
+          Y: <input id="new-item-y" type="number" min="0" max="15" value="0">
+        </span>
       </div>
     </div>
 
@@ -245,6 +253,14 @@
   if (autoplaceCb) {
     autoplaceCb.onchange = () => {
       el('creator-coords-wrap').hidden = autoplaceCb.checked;
+    };
+  }
+
+  const etherealCb = el('new-item-ethereal');
+  if (etherealCb) {
+    etherealCb.onchange = () => {
+      const tag = el('card-ethereal-tag');
+      if (tag) tag.hidden = !etherealCb.checked;
     };
   }
 
@@ -722,6 +738,7 @@
         if (promptEl) promptEl.hidden = false;
         el('creator-item-card').hidden = true;
         el('creator-custom-section').hidden = true;
+        el('creator-placement-section').hidden = true;
         el('creator-stats-section').hidden = true;
         validateCreatorForm();
         return;
@@ -732,7 +749,10 @@
       if (val === '__custom__') {
         el('creator-item-card').hidden = true;
         el('creator-custom-section').hidden = false;
+        el('creator-placement-section').hidden = false;
         el('creator-stats-section').hidden = true;
+        if (el('card-ethereal-tag')) el('card-ethereal-tag').hidden = true;
+        if (el('new-item-ethereal')) el('new-item-ethereal').checked = false;
         validateCreatorForm();
         return;
       }
@@ -742,12 +762,17 @@
 
       el('creator-custom-section').hidden = true;
       el('creator-item-card').hidden = false;
+      el('creator-placement-section').hidden = false;
       el('creator-stats-section').hidden = false;
 
       el('card-item-name').textContent = item.name;
       el('card-base-name').textContent = `${item.baseName} [${item.code}]`;
       el('card-req-lvl').textContent = `Requires Level: ${item.lvlReq}`;
       el('card-item-lvl').textContent = `Item Level: ${item.lvl}`;
+
+      const isEth = Boolean(item.isEthereal);
+      if (el('new-item-ethereal')) el('new-item-ethereal').checked = isEth;
+      if (el('card-ethereal-tag')) el('card-ethereal-tag').hidden = !isEth;
 
       renderStats(item);
     };
@@ -756,7 +781,10 @@
     if (el('creator-empty-prompt')) el('creator-empty-prompt').hidden = false;
     el('creator-item-card').hidden = true;
     el('creator-custom-section').hidden = true;
+    el('creator-placement-section').hidden = true;
     el('creator-stats-section').hidden = true;
+    if (el('card-ethereal-tag')) el('card-ethereal-tag').hidden = true;
+    if (el('new-item-ethereal')) el('new-item-ethereal').checked = false;
     el('new-item-status').textContent = '';
     el('new-item-submit').disabled = true;
 
@@ -781,6 +809,7 @@
         itemCode: code,
         quality: el('new-item-quality').value,
         itemLevel: 1,
+        isEthereal: Boolean(el('new-item-ethereal')?.checked),
         x: autoPlace ? -1 : +el('new-item-x').value,
         y: autoPlace ? -1 : +el('new-item-y').value,
         stats: {},
@@ -805,6 +834,7 @@
         quality: 'Unique',
         qualityIndex: item.id,
         itemLevel: item.lvl || 99,
+        isEthereal: Boolean(el('new-item-ethereal')?.checked),
         x: autoPlace ? -1 : +el('new-item-x').value,
         y: autoPlace ? -1 : +el('new-item-y').value,
         itemStats: itemStats

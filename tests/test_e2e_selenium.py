@@ -378,6 +378,27 @@ class D2SE2ERegressionTests(unittest.TestCase):
         staged_changes = self.driver.execute_script("return window.EditWorkspace.changes")
         self.assertEqual(staged_changes, 0)
 
+        # Verification of Ethereal Auto-detection for inherently ethereal item (Bonesnap)
+        log_bdd("WHEN", "User opens item creator and selects inherently ethereal item 'Bonesnap'")
+        self.safe_click(create_item_btn)
+        self.wait.until(lambda d: dialog.is_displayed())
+        search_input = self.driver.find_element(By.ID, "new-item-search")
+        search_input.clear()
+        search_input.send_keys("Bonesnap")
+        time.sleep(0.5)
+        self.wait.until(lambda d: len(d.find_elements(By.CSS_SELECTOR, ".creator-combobox-option")) > 0)
+        bonesnap_opt = self.driver.find_elements(By.CSS_SELECTOR, ".creator-combobox-option")[0]
+        self.driver.execute_script(
+            "arguments[0].dispatchEvent(new PointerEvent('pointerdown', {bubbles: true}));", bonesnap_opt
+        )
+        time.sleep(0.5)
+        eth_cb = self.driver.find_element(By.ID, "new-item-ethereal")
+        eth_tag = self.driver.find_element(By.ID, "card-ethereal-tag")
+        self.assertTrue(eth_cb.is_selected(), "Inherently ethereal item Bonesnap auto-checks Ethereal checkbox")
+        self.assertTrue(eth_tag.is_displayed(), "Inherently ethereal item Bonesnap displays card ethereal tag")
+        self.safe_click(cancel_btn)
+        self.wait.until(lambda d: not dialog.is_displayed())
+
         # Execution Sub-flow
         log_bdd("WHEN", "User reopens creator, selects Unique item via combobox, and clicks Stage Item")
         self.safe_click(create_item_btn)

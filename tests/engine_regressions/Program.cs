@@ -60,6 +60,30 @@ Check(validRes.Bytes != null, validRes.Error ?? "valid unique item creation fail
 var validSave = D2Save.Read(validRes.Bytes!, external);
 var shako = validSave.Items.Last();
 Check(shako.Quality == ItemQuality.Unique && ((SetUniqueQualityData)shako.QualityData!).SetUniqueFileIndex == 248, "valid unique item serialized with correct unique ID");
+var bonesnapReq = new NetNewItemRequest
+{
+    ItemCode = "mau", Quality = ItemQuality.Unique, QualityIndex = 23, X = -1, Y = -1,
+    ItemStats = new List<NetNewItemStat>
+    {
+        new() { Id = (StatId)17, Layer = 0, Value = 250 },
+        new() { Id = (StatId)18, Layer = 0, Value = 250 },
+        new() { Id = (StatId)136, Layer = 0, Value = 40 },
+        new() { Id = (StatId)39, Layer = 0, Value = 30 },
+        new() { Id = (StatId)43, Layer = 0, Value = 30 },
+        new() { Id = (StatId)122, Layer = 0, Value = 50 },
+        new() { Id = (StatId)97, Layer = 68, Value = 2 }
+    }
+};
+var bonesnapRes = NetNewItemManager.CreateCharacterItem(bytes, bonesnapReq, excel);
+Check(bonesnapRes.Bytes != null, bonesnapRes.Error ?? "bonesnap creation failed");
+var bonesnapSave = D2Save.Read(bonesnapRes.Bytes!, external);
+var bonesnapItem = bonesnapSave.Items.Last();
+Check(bonesnapItem.Flags.HasFlag(ItemFlags.Ethereal), "inherently ethereal unique Bonesnap has ItemFlags.Ethereal set");
+var explicitEthReq = new NetNewItemRequest { ItemCode = "r01", ItemLevel = 1, X = -1, Y = -1, IsEthereal = true };
+var explicitEthRes = NetNewItemManager.CreateCharacterItem(bytes, explicitEthReq, excel);
+Check(explicitEthRes.Bytes != null, explicitEthRes.Error ?? "explicit ethereal creation failed");
+var explicitEthSave = D2Save.Read(explicitEthRes.Bytes!, external);
+Check(explicitEthSave.Items.Last().Flags.HasFlag(ItemFlags.Ethereal), "explicitly requested ethereal item has ItemFlags.Ethereal set");
 var first = QuestManager.CompleteQuestsBytes(bytes, "all", null, true, true, excel);
 Check(first.Success, first.Message);
 var second = QuestManager.CompleteQuestsBytes(first.OutBytes!, "all", null, true, true, excel);

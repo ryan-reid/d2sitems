@@ -871,6 +871,7 @@ class D2WasmEngine {
           base: uCat?.baseName || '',
           code: uCat?.code || '',
           lvlReq: uCat?.lvlReq || 0,
+          isEthereal: !!uCat?.isEthereal,
           stats: uCat?.stats || [],
           runes: [],
           collected: isTracked,

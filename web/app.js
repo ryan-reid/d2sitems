@@ -2681,6 +2681,7 @@ function createChronicleItemCard(it, categoryName, groupName) {
         isRuneword: isRuneword,
         requiredLevel: it.lvlReq || null,
         lvlReq: it.lvlReq || null,
+        isEthereal: !!it.isEthereal,
         stats: (it.stats || []).map(s => typeof s === 'string' ? { description: s } : s),
         isChronicleItem: true,
         isUnowned: true,

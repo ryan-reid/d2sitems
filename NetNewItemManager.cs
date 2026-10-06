@@ -31,6 +31,8 @@ public sealed class NetNewItemRequest
     public int X { get; set; } = -1;
     public int Y { get; set; } = -1;
     public int TabIndex { get; set; } = 0;
+    public bool IsEthereal { get; set; }
+    public bool? Ethereal { get; set; }
     public List<NetNewItemStat>? ItemStats { get; set; }
     public Dictionary<StatId, long> Stats { get; set; } = new();
     public Dictionary<StatId, StatRange> AllowedRanges { get; set; } = new();
@@ -189,6 +191,68 @@ public static class NetNewItemManager
         }
     }
 
+    private static HashSet<int>? _cachedInherentlyEtherealUniques;
+    private static readonly object _etherealLock = new();
+
+    public static bool IsUniqueInherentlyEthereal(int uniqueId, string excelDir)
+    {
+        lock (_etherealLock)
+        {
+            if (_cachedInherentlyEtherealUniques != null)
+                return _cachedInherentlyEtherealUniques.Contains(uniqueId);
+
+            var set = new HashSet<int> { 23, 32, 175, 250, 324, 333, 334, 386, 504 };
+            try
+            {
+                var path = Path.Combine(excelDir, "uniqueitems.txt");
+                if (File.Exists(path))
+                {
+                    var lines = File.ReadAllLines(path);
+                    if (lines.Length > 1)
+                    {
+                        var header = lines[0].Split('\t');
+                        int idIdx = Array.IndexOf(header, "*ID");
+                        if (idIdx >= 0)
+                        {
+                            var propIndices = new List<int>();
+                            for (int p = 1; p <= 12; p++)
+                            {
+                                int idx = Array.IndexOf(header, $"prop{p}");
+                                if (idx >= 0) propIndices.Add(idx);
+                            }
+
+                            set.Clear();
+                            for (int i = 1; i < lines.Length; i++)
+                            {
+                                var line = lines[i];
+                                if (string.IsNullOrWhiteSpace(line)) continue;
+                                var cols = line.Split('\t');
+                                if (cols.Length <= idIdx || !int.TryParse(cols[idIdx].Trim(), out int id))
+                                    continue;
+
+                                foreach (var pIdx in propIndices)
+                                {
+                                    if (cols.Length > pIdx && cols[pIdx].Trim().Equals("ethereal", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        set.Add(id);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Fall back to default set
+            }
+
+            _cachedInherentlyEtherealUniques = set;
+            return _cachedInherentlyEtherealUniques.Contains(uniqueId);
+        }
+    }
+
     [System.Runtime.Versioning.UnsupportedOSPlatform("browser")]
     public static int RunCli(string[] args, string excelDir)
     {
@@ -259,6 +323,14 @@ public static class NetNewItemManager
         {
             foreach (var (id, val) in request.Stats)
                 statEntries.Add((id, 0, val));
+        }
+
+        statEntries.RemoveAll(s => (int)s.Id < 0);
+
+        bool isEth = request.IsEthereal || (request.Ethereal == true);
+        if (!isEth && request.Quality == ItemQuality.Unique && request.QualityIndex.HasValue)
+        {
+            isEth = IsUniqueInherentlyEthereal(request.QualityIndex.Value, excelDir);
         }
 
         if (request.Quality == ItemQuality.Unique)
@@ -354,6 +426,25 @@ public static class NetNewItemManager
             }
         }
 
+        ushort? defense = baseProps.Defense;
+        byte? durability = baseProps.Durability;
+        byte? maxDurability = baseProps.MaxDurability;
+
+        if (isEth)
+        {
+            flags |= ItemFlags.Ethereal;
+            if (defense.HasValue)
+            {
+                defense = (ushort)((defense.Value * 3) / 2);
+            }
+            if (maxDurability.HasValue && maxDurability.Value > 0)
+            {
+                byte newDur = (byte)((maxDurability.Value / 2) + 1);
+                maxDurability = newDur;
+                durability = newDur;
+            }
+        }
+
         var item = new Item
         {
             Version = 101,
@@ -365,9 +456,9 @@ public static class NetNewItemManager
                 ? new SetUniqueQualityData { SetUniqueFileIndex = request.QualityIndex.Value }
                 : null,
             Flags = flags,
-            Defense = baseProps.Defense,
-            Durability = baseProps.Durability,
-            MaxDurability = baseProps.MaxDurability,
+            Defense = defense,
+            Durability = durability,
+            MaxDurability = maxDurability,
             Quantity = baseProps.Quantity,
             Sockets = sockets,
             Position = new ItemPosition

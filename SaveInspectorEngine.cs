@@ -1475,6 +1475,13 @@ public class SaveInspectorEngine
         int reqLvlIdx = Array.IndexOf(header, "lvl req");
         int invFileIdx = Array.IndexOf(header, "invfile");
 
+        var propIndices = new List<int>();
+        for (int p = 1; p <= 12; p++)
+        {
+            int pIdx = Array.IndexOf(header, $"prop{p}");
+            if (pIdx >= 0) propIndices.Add(pIdx);
+        }
+
         for (int i = 1; i < lines.Length; i++)
         {
             var line = lines[i];
@@ -1489,6 +1496,16 @@ public class SaveInspectorEngine
             if (string.IsNullOrEmpty(index)) continue;
             var code = cols[codeIdx].Trim();
             if (string.IsNullOrEmpty(code)) continue;
+
+            bool isEthereal = false;
+            foreach (var pIdx in propIndices)
+            {
+                if (cols.Length > pIdx && cols[pIdx].Trim().Equals("ethereal", StringComparison.OrdinalIgnoreCase))
+                {
+                    isEthereal = true;
+                    break;
+                }
+            }
 
             var displayName = _uniqueItemNames.TryGetValue(id, out var uName) && !string.IsNullOrEmpty(uName)
                 ? uName
@@ -1525,7 +1542,7 @@ public class SaveInspectorEngine
                 }
             }
 
-            result.Add(new Dictionary<string, object>
+            var itemDict = new Dictionary<string, object>
             {
                 ["id"] = id,
                 ["name"] = displayName,
@@ -1537,7 +1554,13 @@ public class SaveInspectorEngine
                 ["width"] = w,
                 ["height"] = h,
                 ["stats"] = statsList
-            });
+            };
+            if (isEthereal)
+            {
+                itemDict["isEthereal"] = true;
+            }
+
+            result.Add(itemDict);
         }
 
         result.Sort((a, b) => string.Compare((string)a["name"], (string)b["name"], StringComparison.OrdinalIgnoreCase));
