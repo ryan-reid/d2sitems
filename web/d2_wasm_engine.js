@@ -909,6 +909,9 @@ class D2WasmEngine {
    */
   async createMule(name, charClass, hardcore) {
     await this.init();
+    if (typeof window !== 'undefined' && window.EditWorkspace && !window.EditWorkspace.active) {
+      await window.EditWorkspace.start();
+    }
     const res = this.interop.CreateMule(name, charClass, Boolean(hardcore));
     const parsed = typeof res === 'string' ? JSON.parse(res) : res;
     if (!parsed.success) return parsed;
@@ -927,12 +930,13 @@ class D2WasmEngine {
 
     await this.commitFiles(changes);
 
-    // Auto-trigger browser download for user convenience
-    this.downloadFile(d2sName, d2sBytes);
+    if (!this.editOriginals) {
+      this.downloadFile(d2sName, d2sBytes);
+    }
 
     return {
       success: true,
-      message: `Created mule '${name}' (${charClass})! File downloaded.`,
+      message: `Created mule '${name}' (${charClass})!`,
       fileName: d2sName
     };
   }
@@ -942,6 +946,9 @@ class D2WasmEngine {
    */
   async completeQuests(charName, difficulty, act, waypoints, rewards) {
     await this.init();
+    if (typeof window !== 'undefined' && window.EditWorkspace && !window.EditWorkspace.active) {
+      await window.EditWorkspace.start();
+    }
     const fileName = charName.endsWith('.d2s') ? charName : `${charName}.d2s`;
     const bytes = this.loadedFiles.get(fileName);
     if (!bytes) {
@@ -960,10 +967,12 @@ class D2WasmEngine {
     const parsed = typeof res === 'string' ? JSON.parse(res) : res;
     if (parsed.success && parsed.d2sBase64) {
       const updatedBytes = Uint8Array.from(atob(parsed.d2sBase64), c => c.charCodeAt(0));
-      await this.saveFileToDB(fileName, updatedBytes);
-
-      // Trigger download of the modified character
-      this.downloadFile(fileName, updatedBytes);
+      if (this.editOriginals) {
+        this.loadedFiles.set(fileName, updatedBytes);
+      } else {
+        await this.saveFileToDB(fileName, updatedBytes);
+        this.downloadFile(fileName, updatedBytes);
+      }
     }
 
     return parsed;
@@ -974,6 +983,9 @@ class D2WasmEngine {
    */
   async transferItem(rawRequest) {
     await this.init();
+    if (typeof window !== 'undefined' && window.EditWorkspace && !window.EditWorkspace.active) {
+      await window.EditWorkspace.start();
+    }
     const request = normalizeTransferRequest(rawRequest);
     const srcFile = request.SourceFile;
     const tgtFile = request.TargetFile || srcFile;
@@ -995,7 +1007,9 @@ class D2WasmEngine {
       if (parsed.sourceBytesBase64) changes.push([srcFile, Uint8Array.from(atob(parsed.sourceBytesBase64), c => c.charCodeAt(0))]);
       if (parsed.targetBytesBase64 && srcFile !== tgtFile) changes.push([tgtFile, Uint8Array.from(atob(parsed.targetBytesBase64), c => c.charCodeAt(0))]);
       await this.commitFiles(changes);
-      for (const [name, bytes] of changes) this.downloadFile(name, bytes);
+      if (!this.editOriginals) {
+        for (const [name, bytes] of changes) this.downloadFile(name, bytes);
+      }
     }
 
     return parsed;
@@ -1006,6 +1020,9 @@ class D2WasmEngine {
    */
   async bulkTransfer(request) {
     await this.init();
+    if (typeof window !== 'undefined' && window.EditWorkspace && !window.EditWorkspace.active) {
+      await window.EditWorkspace.start();
+    }
     const srcFile = request.source_stash_file;
     const tgtFile = request.target_char_file;
 
@@ -1036,7 +1053,9 @@ class D2WasmEngine {
       if (parsed.sourceBytesBase64) changes.push([srcFile, Uint8Array.from(atob(parsed.sourceBytesBase64), c => c.charCodeAt(0))]);
       if (parsed.targetBytesBase64 && srcFile !== tgtFile) changes.push([tgtFile, Uint8Array.from(atob(parsed.targetBytesBase64), c => c.charCodeAt(0))]);
       await this.commitFiles(changes);
-      for (const [name, bytes] of changes) this.downloadFile(name, bytes);
+      if (!this.editOriginals) {
+        for (const [name, bytes] of changes) this.downloadFile(name, bytes);
+      }
     }
 
     return parsed;
@@ -1047,6 +1066,9 @@ class D2WasmEngine {
    */
   async editStackQuantity(tabIndex, itemCode, quantity, stashFileName, itemSeed) {
     await this.init();
+    if (typeof window !== 'undefined' && window.EditWorkspace && !window.EditWorkspace.active) {
+      await window.EditWorkspace.start();
+    }
     const stashBytes = this.loadedFiles.get(stashFileName);
     if (!stashBytes || !stashFileName) {
       return { success: false, message: 'No shared stash (.d2i) loaded in WebAssembly session.' };
@@ -1073,6 +1095,9 @@ class D2WasmEngine {
    */
   async createItem(fileName, request) {
     await this.init();
+    if (typeof window !== 'undefined' && window.EditWorkspace && !window.EditWorkspace.active) {
+      await window.EditWorkspace.start();
+    }
     const bytes = this.loadedFiles.get(fileName);
     if (!bytes) {
       return { success: false, error: `Save file '${fileName}' not loaded.` };

@@ -814,7 +814,7 @@ const TYPE_FILTER_MAP = {
     'bow', 'crossbow', 'scepter', 'wand', 'staff',
     'hand to hand', 'hand to hand 2', 'orb',
     'amazon bow', 'amazon spear', 'amazon javelin',
-    'missile potion'
+    'missile potion', 'throwing spear', 'thrown weapon', 'throwing weapon'
   ]),
   weapons: new Set([
     'axe', 'sword', 'club', 'hammer', 'mace', 'knife',
@@ -822,7 +822,7 @@ const TYPE_FILTER_MAP = {
     'bow', 'crossbow', 'scepter', 'wand', 'staff',
     'hand to hand', 'hand to hand 2', 'orb',
     'amazon bow', 'amazon spear', 'amazon javelin',
-    'missile potion'
+    'missile potion', 'throwing spear', 'thrown weapon', 'throwing weapon'
   ]),
   armor_all: new Set([
     'armor', 'helm', 'circlet', 'primal helm', 'pelt', 'merc equip',
@@ -831,19 +831,19 @@ const TYPE_FILTER_MAP = {
   ]),
 
   // Weapons (BT-BK categories)
-  throwing: new Set(['throwing axe', 'throwing knife', 'javelin', 'amazon javelin', 'missile potion']),
+  throwing: new Set(['throwing axe', 'throwing knife', 'javelin', 'amazon javelin', 'missile potion', 'throwing spear', 'thrown weapon', 'throwing weapon']),
   throw: new Set(['throwing axe', 'throwing knife', 'missile potion']),
-  axe: new Set(['axe']),
-  axes: new Set(['axe']),
+  axe: new Set(['axe', 'throwing axe']),
+  axes: new Set(['axe', 'throwing axe']),
   sword: new Set(['sword']),
   swords: new Set(['sword']),
   mace: new Set(['mace', 'hammer', 'club']),
   maces: new Set(['mace', 'hammer', 'club']),
-  dagger: new Set(['knife']),
-  daggs: new Set(['knife']),
-  knife: new Set(['knife']),
-  javelin: new Set(['javelin', 'amazon javelin']),
-  javel: new Set(['javelin', 'amazon javelin']),
+  dagger: new Set(['knife', 'throwing knife']),
+  daggs: new Set(['knife', 'throwing knife']),
+  knife: new Set(['knife', 'throwing knife']),
+  javelin: new Set(['javelin', 'amazon javelin', 'throwing spear']),
+  javel: new Set(['javelin', 'amazon javelin', 'throwing spear']),
   polearm: new Set(['polearm']),
   poles: new Set(['polearm']),
   spear: new Set(['spear', 'amazon spear']),
@@ -888,8 +888,8 @@ const TYPE_FILTER_MAP = {
   amulet: new Set(['amulet']),
   amulets: new Set(['amulet']),
   amule: new Set(['amulet']),
-  charm: new Set(['charm', 'small charm', 'medium charm', 'large charm', 'crafted sunder charm', 'charms']),
-  charms: new Set(['charm', 'small charm', 'medium charm', 'large charm', 'crafted sunder charm', 'charms']),
+  charm: new Set(['charm', 'small charm', 'medium charm', 'large charm', 'crafted sunder charm', 'charms', 'torch']),
+  charms: new Set(['charm', 'small charm', 'medium charm', 'large charm', 'crafted sunder charm', 'charms', 'torch']),
   jewel: new Set(['jewel', 'colossal jewel']),
   jewels: new Set(['jewel', 'colossal jewel']),
   rune: new Set(['rune']),
@@ -908,12 +908,16 @@ function matchesTypeFilter(it, filterType) {
   if (!filterType || filterType === 'all') return true;
   const fLower = filterType.toLowerCase().trim();
   const rawType = (it.type || '').toLowerCase().trim();
+  if (!rawType) return false;
 
   const targetSet = TYPE_FILTER_MAP[fLower];
   if (targetSet) {
-    return targetSet.has(rawType);
+    if (targetSet.has(rawType)) return true;
+    if (rawType.endsWith('s') && targetSet.has(rawType.slice(0, -1))) return true;
+    if (targetSet.has(rawType + 's')) return true;
+    return false;
   }
-  return rawType === fLower || rawType.includes(fLower);
+  return rawType === fLower || rawType === (fLower + 's') || (fLower.endsWith('s') && rawType === fLower.slice(0, -1));
 }
 
 if (typeof window !== 'undefined') {
@@ -2317,9 +2321,8 @@ function mergeLocalChronicleCompletions() {
 
 async function toggleChronicleItem(itemName, newStatus) {
   if (!itemName) return;
-  if (!window.EditWorkspace?.active) {
-    showToast('Turn on Edit mode to modify Chronicle completions.', 'info');
-    return;
+  if (window.EditWorkspace && !window.EditWorkspace.active) {
+    await window.EditWorkspace.start();
   }
   const nameLower = itemName.toLowerCase();
 
@@ -2391,9 +2394,8 @@ async function toggleChronicleItem(itemName, newStatus) {
 window.toggleChronicleItem = toggleChronicleItem;
 
 async function completeAllChronicle() {
-  if (!window.EditWorkspace?.active) {
-    showToast('Turn on Edit mode to modify Chronicle completions.', 'info');
-    return;
+  if (window.EditWorkspace && !window.EditWorkspace.active) {
+    await window.EditWorkspace.start();
   }
   if (!confirm("Are you sure you want to mark all Chronicle items as completed (100%)?")) {
     return;
@@ -2457,9 +2459,8 @@ async function completeAllChronicle() {
 window.completeAllChronicle = completeAllChronicle;
 
 async function completeUndroppableChronicle() {
-  if (!window.EditWorkspace?.active) {
-    showToast('Turn on Edit mode to modify Chronicle completions.', 'info');
-    return;
+  if (window.EditWorkspace && !window.EditWorkspace.active) {
+    await window.EditWorkspace.start();
   }
   const undroppableList = [
     'game modifiers',
@@ -2551,6 +2552,10 @@ window.completeUndroppableChronicle = completeUndroppableChronicle;
 async function resetChronicleCompletions() {
   if (!confirm("Reset all manual Chronicle completions and revert to save file discoveries?")) {
     return;
+  }
+
+  if (window.EditWorkspace && !window.EditWorkspace.active) {
+    await window.EditWorkspace.start();
   }
 
   if (window.EditWorkspace?.active) {
@@ -2978,14 +2983,19 @@ async function submitCreateMule() {
 
   if (window.D2Wasm) {
     try {
+      if (window.EditWorkspace && !window.EditWorkspace.active) {
+        await window.EditWorkspace.start();
+      }
       const data = await window.D2Wasm.createMule(name, charClass, hardcore);
       if (data.success) {
+        window.EditWorkspace?.changed();
+        window.recordEdit?.('create mule');
         if (statusEl) {
           statusEl.style.background = 'rgba(34, 197, 94, 0.2)';
           statusEl.style.color = '#4ade80';
-          statusEl.textContent = `Character '${name}' created! Save file downloaded.`;
+          statusEl.textContent = `Character '${name}' created! Staged in Edit mode. Use 'Save changes' above to commit to disk.`;
         }
-        showToast(`Mule '${name}' created & downloaded!`, 'success');
+        showToast(`Mule '${name}' created! Staged in Edit mode. Click 'Save changes' to apply.`, 'success');
         setTimeout(async () => {
           closeCreateMuleModal();
           if (submitBtn) submitBtn.disabled = false;
@@ -3093,14 +3103,19 @@ async function submitCompleteQuests() {
 
   if (window.D2Wasm) {
     try {
+      if (window.EditWorkspace && !window.EditWorkspace.active) {
+        await window.EditWorkspace.start();
+      }
       const data = await window.D2Wasm.completeQuests(charName, difficulty, act, unlockWaypoints, grantRewards);
       if (data.success) {
+        window.EditWorkspace?.changed();
+        window.recordEdit?.('complete quests');
         if (statusEl) {
           statusEl.style.background = 'rgba(34, 197, 94, 0.2)';
           statusEl.style.color = '#4ade80';
-          statusEl.textContent = (data.message || 'Quests updated!') + ' Save file downloaded.';
+          statusEl.textContent = (data.message || 'Quests updated!') + ' Staged in Edit mode. Use \'Save changes\' above to commit to disk.';
         }
-        showToast(`Quests updated for ${charName}! Save downloaded.`, 'success');
+        showToast(`Quests updated for ${charName}! Staged in Edit mode. Click 'Save changes' to apply.`, 'success');
         setTimeout(async () => {
           closeQuestsModal();
           if (submitBtn) submitBtn.disabled = false;
@@ -3351,15 +3366,19 @@ async function submitItemTransfer() {
     }
 
     if (window.D2Wasm) {
+      if (window.EditWorkspace && !window.EditWorkspace.active) {
+        await window.EditWorkspace.start();
+      }
       const data = await window.D2Wasm.transferItem(payload);
       if (data.success) {
+        window.EditWorkspace?.changed();
+        window.recordEdit?.('item transfer');
         if (statusEl) {
           statusEl.style.background = 'rgba(34, 197, 94, 0.2)';
           statusEl.style.color = '#4ade80';
-          statusEl.textContent = (data.message || 'Item transferred!') + ' Save file downloaded.';
+          statusEl.textContent = (data.message || 'Item transferred!') + ' Staged in Edit mode. Use \'Save changes\' above to commit to disk.';
         }
-        showToast('Item transferred! Save file downloaded.', 'success');
-        window.recordEdit?.('item transfer');
+        showToast('Item transferred! Staged in Edit mode. Click \'Save changes\' to apply.', 'success');
         setTimeout(async () => {
           closeTransferItemModal();
           if (dom.itemModal) dom.itemModal.style.display = 'none';
@@ -3494,6 +3513,9 @@ async function submitPackMule() {
 
   if (window.D2Wasm) {
     try {
+      if (window.EditWorkspace && !window.EditWorkspace.active) {
+        await window.EditWorkspace.start();
+      }
       const data = await window.D2Wasm.bulkTransfer({
         source_revision: state.saves.find(save => save.file === stashFile)?.saveRevision,
         target_revision: state.saves.find(save => save.file === charFile)?.saveRevision,
@@ -3505,12 +3527,14 @@ async function submitPackMule() {
         force_live: forceLive
       });
       if (data.success) {
+        window.EditWorkspace?.changed();
+        window.recordEdit?.('pack mule');
         if (statusEl) {
           statusEl.style.background = 'rgba(34, 197, 94, 0.2)';
           statusEl.style.color = '#4ade80';
-          statusEl.textContent = (data.message || 'Mule packed!') + ' Files downloaded.';
+          statusEl.textContent = (data.message || 'Mule packed!') + ' Staged in Edit mode. Use \'Save changes\' above to commit to disk.';
         }
-        showToast(`Packed ${data.itemsMoved} items! Saves downloaded.`, 'success');
+        showToast(`Packed ${data.itemsMoved} items! Staged in Edit mode. Click 'Save changes' to apply.`, 'success');
         setTimeout(async () => {
           closePackMuleModal();
           if (submitBtn) submitBtn.disabled = false;

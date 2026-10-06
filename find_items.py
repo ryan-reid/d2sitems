@@ -62,7 +62,7 @@ TYPE_FILTER_MAP = {
         "bow", "crossbow", "scepter", "wand", "staff",
         "hand to hand", "hand to hand 2", "orb",
         "amazon bow", "amazon spear", "amazon javelin",
-        "missile potion",
+        "missile potion", "throwing spear", "thrown weapon", "throwing weapon",
     },
     "weapons": {
         "axe", "sword", "club", "hammer", "mace", "knife",
@@ -70,21 +70,21 @@ TYPE_FILTER_MAP = {
         "bow", "crossbow", "scepter", "wand", "staff",
         "hand to hand", "hand to hand 2", "orb",
         "amazon bow", "amazon spear", "amazon javelin",
-        "missile potion",
+        "missile potion", "throwing spear", "thrown weapon", "throwing weapon",
     },
-    "throwing": {"throwing axe", "throwing knife", "javelin", "amazon javelin", "missile potion"},
+    "throwing": {"throwing axe", "throwing knife", "javelin", "amazon javelin", "missile potion", "throwing spear", "thrown weapon", "throwing weapon"},
     "throw": {"throwing axe", "throwing knife", "missile potion"},
-    "javelin": {"javelin", "amazon javelin"},
-    "javel": {"javelin", "amazon javelin"},
-    "axe": {"axe"},
-    "axes": {"axe"},
+    "javelin": {"javelin", "amazon javelin", "throwing spear"},
+    "javel": {"javelin", "amazon javelin", "throwing spear"},
+    "axe": {"axe", "throwing axe"},
+    "axes": {"axe", "throwing axe"},
     "sword": {"sword"},
     "swords": {"sword"},
     "mace": {"mace", "hammer", "club"},
     "maces": {"mace", "hammer", "club"},
-    "dagger": {"knife"},
-    "daggs": {"knife"},
-    "knife": {"knife"},
+    "dagger": {"knife", "throwing knife"},
+    "daggs": {"knife", "throwing knife"},
+    "knife": {"knife", "throwing knife"},
     "polearm": {"polearm"},
     "poles": {"polearm"},
     "spear": {"spear", "amazon spear"},
@@ -130,8 +130,8 @@ TYPE_FILTER_MAP = {
     "amulet": {"amulet"},
     "amulets": {"amulet"},
     "amule": {"amulet"},
-    "charm": {"charm", "small charm", "medium charm", "large charm", "crafted sunder charm", "charms"},
-    "charms": {"charm", "small charm", "medium charm", "large charm", "crafted sunder charm", "charms"},
+    "charm": {"charm", "small charm", "medium charm", "large charm", "crafted sunder charm", "charms", "torch"},
+    "charms": {"charm", "small charm", "medium charm", "large charm", "crafted sunder charm", "charms", "torch"},
     "jewel": {"jewel", "colossal jewel"},
     "jewels": {"jewel", "colossal jewel"},
     "rune": {"rune"},
@@ -191,9 +191,18 @@ def matches_field(item, field, pattern):
         return regex.search(item.get("set") or "")
     elif field == "type":
         raw_type = (item.get("type") or "").strip().lower()
+        if not raw_type:
+            return False
         pat = regex.pattern.strip().lower()
         if pat in TYPE_FILTER_MAP:
-            return raw_type in TYPE_FILTER_MAP[pat]
+            target_set = TYPE_FILTER_MAP[pat]
+            if raw_type in target_set:
+                return True
+            if raw_type.endswith("s") and raw_type[:-1] in target_set:
+                return True
+            if (raw_type + "s") in target_set:
+                return True
+            return False
         return bool(regex.search(item.get("type") or ""))
     elif field == "location":
         return regex.search(item.get("location", ""))
@@ -272,7 +281,7 @@ def print_item(source, filename, item, is_mule=False):
         print(f"  Sockets [{item.get('socketCount', '?')}]: {', '.join(socket_names)}")
     print()
 
-def search_items(directory, filters, core_filter, gameversion_filter, is_mule=False):
+def search_items(directory, filters, core_filter, gameversion_filter, is_mule=False, character_filter=None):
     """Search for matching items. Returns list of (source, save_file, item, is_mule) tuples."""
     results = []
     if not os.path.isdir(directory):
@@ -299,6 +308,11 @@ def search_items(directory, filters, core_filter, gameversion_filter, is_mule=Fa
         if "type" in data and data["type"] == "SharedStash":
             source = "Shared Stash"
         save_file = data.get("file", filename)
+
+        if character_filter:
+            cf_lower = character_filter.lower()
+            if cf_lower not in source.lower() and cf_lower not in save_file.lower():
+                continue
 
         for item in data.get("items", []):
             if matches_all_filters(item, filters):
@@ -962,7 +976,8 @@ if __name__ == "__main__":
         parser.add_argument(f"--{field}", metavar="EXPR",
                             help=f"numeric expression for {field} (e.g. 3, >=4, 1-3)")
 
-    # Shorthand boolean flags
+    parser.add_argument("--character", "--char", dest="character", default=None,
+                        help="filter by character or save file name (e.g. Barbarian)")
     parser.add_argument("--ethereal", action="store_true", help="only Ethereal items")
     parser.add_argument("--notethereal", action="store_true", help="only non-Ethereal items")
     parser.add_argument("--core", choices=["hard", "soft", "both"], default=None,
@@ -1010,7 +1025,7 @@ if __name__ == "__main__":
         filters.append(("flags", re.compile(r"Ethereal", re.IGNORECASE), True))
     if args.pattern:
         filters.append(("name", re.compile(args.pattern, re.IGNORECASE), False))
-    if not filters:
+    if not filters and not args.character:
         filters.append(("name", re.compile("Infinity", re.IGNORECASE), False))
 
     core_filter = args.core or config.get("core", "both")
@@ -1025,10 +1040,10 @@ if __name__ == "__main__":
         run_grail(excel_dir, save_dir, config.get("mule_dir"), core_filter, gameversion_filter, exclude=exclude)
         exit(0)
 
-    results = search_items(save_dir, filters, core_filter, gameversion_filter)
+    results = search_items(save_dir, filters, core_filter, gameversion_filter, character_filter=args.character)
     mule_dir = config.get("mule_dir")
     if mule_dir and os.path.isdir(mule_dir):
-        results += search_items(mule_dir, filters, core_filter, gameversion_filter, is_mule=True)
+        results += search_items(mule_dir, filters, core_filter, gameversion_filter, is_mule=True, character_filter=args.character)
 
     if args.json:
         json_results = []

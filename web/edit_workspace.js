@@ -881,21 +881,6 @@
   window.addEventListener('beforeunload', event => {
     if (workspace.active && workspace.changes) { event.preventDefault(); event.returnValue = ''; }
   });
-  const leave = document.createElement('dialog');
-  leave.innerHTML = '<h2>Unsaved edits</h2><p>Save or discard your staged changes before leaving this page.</p><button data-choice="save">Save & continue</button> <button data-choice="discard">Discard & continue</button> <button data-choice="stay">Keep editing</button>';
-  document.body.append(leave);
-  document.querySelector('.mast-nav').addEventListener('click', event => {
-    const button = event.target.closest('.nav-tab');
-    if (!button || button.dataset.tab === state.activeTab || !workspace.active || !workspace.changes) return;
-    event.preventDefault(); event.stopImmediatePropagation();
-    leave.showModal();
-    leave.querySelectorAll('button').forEach(choice => {
-      choice.onclick = run(async () => {
-        if (choice.dataset.choice === 'stay') { leave.close(); return; }
-        await workspace.finish(choice.dataset.choice === 'save'); leave.close(); button.click();
-      });
-    });
-  }, true);
 
   const categories = ['jewelry','sets','uniques','runewords','crafted','bases','charms','other'];
   const organizer = document.createElement('dialog');

@@ -72,7 +72,7 @@
       ? `slot (${document.getElementById('transfer-target-x').value || '?'}, ${document.getElementById('transfer-target-y').value || '?'})`
       : 'first available slot';
     const where = window.state?.isWasmMode
-      ? 'Result is kept in this browser session until you export.'
+      ? 'Result is staged in Edit mode in memory until you Save changes.'
       : 'Result is written to disk with a backup of both files.';
     summary.textContent = `Destination: ${file} → ${cont}, ${slot}. ${where}`;
   }

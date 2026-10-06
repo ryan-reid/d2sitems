@@ -337,13 +337,12 @@
     brk: "Hellfire Brick", mbk: "Megabrick"
   };
 
-  window.openEditStackModalByCode = function (code, displayName, currentQty, tabIndex, selectedItem, quickDelta) {
+  window.openEditStackModalByCode = async function (code, displayName, currentQty, tabIndex, selectedItem, quickDelta) {
     window.closeD2RActionMenu();
     window.hideD2RItemTooltip();
 
-    if (!window.EditWorkspace?.active) {
-      window.showToast?.('Turn on Edit mode to modify stacks.', 'info');
-      return;
+    if (window.EditWorkspace && !window.EditWorkspace.active) {
+      await window.EditWorkspace.start();
     }
 
     code = (code || '').trim().toLowerCase();
@@ -416,13 +415,13 @@
     input.select();
   };
 
-  window.openEditStackModalFromItem = function (itemId) {
+  window.openEditStackModalFromItem = async function (itemId) {
     window.closeD2RActionMenu();
     const it = (d2rState.stashData && d2rState.stashData.tabs && d2rState.stashData.tabs.flatMap(t => t.items || []).find(x => String(x.id) === String(itemId)))
             || (d2rState.charData && [...(d2rState.charData.inventory || []), ...(d2rState.charData.stash || []), ...(d2rState.charData.cube || [])].find(x => String(x.id) === String(itemId)))
             || ((window.state && window.state.items) || []).find(x => String(x.id) === String(itemId));
     if (it) {
-      window.openEditStackModalByCode(it.itemCode, it.displayName || it.name, it.quantity != null ? it.quantity : 1, it.tabIndex != null ? it.tabIndex : 5, it);
+      await window.openEditStackModalByCode(it.itemCode, it.displayName || it.name, it.quantity != null ? it.quantity : 1, it.tabIndex != null ? it.tabIndex : 5, it);
     }
   };
 
@@ -451,10 +450,9 @@
     input.value = Math.max(0, Math.min(255, val));
   };
 
-  window.submitEditStackQuantity = function () {
-    if (!window.EditWorkspace?.active) {
-      window.showToast?.('Turn on Edit mode to modify stacks.', 'info');
-      return;
+  window.submitEditStackQuantity = async function () {
+    if (window.EditWorkspace && !window.EditWorkspace.active) {
+      await window.EditWorkspace.start();
     }
 
     const code = document.getElementById('edit-stack-item-code').value.trim();
@@ -2080,9 +2078,11 @@
   // Atomic Item Transfer Executor
   // -------------------------------------------------------------------------
   window.quickTransferD2RItem = async function (itemId, targetContainer, targetTab, cell = null) {
-    if (!window.EditWorkspace?.active) { window.showToast('Turn on Edit mode to move items.', 'info'); return; }
-    if (window.EditWorkspace.busy) return;
-    window.EditWorkspace.busy = true;
+    if (window.EditWorkspace && !window.EditWorkspace.active) {
+      await window.EditWorkspace.start();
+    }
+    if (window.EditWorkspace?.busy) return;
+    if (window.EditWorkspace) window.EditWorkspace.busy = true;
     window.closeD2RActionMenu();
     window.hideD2RItemTooltip();
 
