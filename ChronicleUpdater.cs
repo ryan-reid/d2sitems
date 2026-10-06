@@ -268,8 +268,11 @@ public static class ChronicleUpdater
 
             if (updateLive)
             {
-                var liveSoft = Path.Combine(defaultSaveDir, "ModernSharedStashSoftCoreV2.d2i");
-                var liveHard = Path.Combine(defaultSaveDir, "ModernSharedStashHardCoreV2.d2i");
+                var resolvedSaveDir = defaultSaveDir.StartsWith("~")
+                    ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), defaultSaveDir.Substring(1).TrimStart('\\', '/'))
+                    : defaultSaveDir;
+                var liveSoft = Path.Combine(resolvedSaveDir, "ModernSharedStashSoftCoreV2.d2i");
+                var liveHard = Path.Combine(resolvedSaveDir, "ModernSharedStashHardCoreV2.d2i");
                 if (File.Exists(liveSoft)) targetFiles.Add(liveSoft);
                 if (File.Exists(liveHard)) targetFiles.Add(liveHard);
             }

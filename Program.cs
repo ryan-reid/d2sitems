@@ -21,9 +21,12 @@ var config = LoadConfig("d2sitems.conf");
 
 var excelDir = config.GetValueOrDefault("excel_dir",
     Path.GetFullPath("mods/BKDiablo/bkdiablo.mpq/data/global/excel"));
-var defaultSaveDir = config.GetValueOrDefault("save_dir",
+var rawSaveDir = config.GetValueOrDefault("save_dir",
     Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
         "Saved Games", "Diablo II Resurrected"));
+var defaultSaveDir = rawSaveDir.StartsWith("~")
+    ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), rawSaveDir.Substring(1).TrimStart('\\', '/'))
+    : rawSaveDir;
 
 var filteredArgs = new List<string>();
 string? catalogRevisionOverride = null;

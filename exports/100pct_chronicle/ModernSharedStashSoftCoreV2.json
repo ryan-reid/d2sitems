@@ -1,6 +1,6 @@
 {
-  "catalogRevision": "118B9CC1C118FB4CDBB76BD48FC09DD98F6AA2790175A499DB17B020DFC9D97A",
-  "saveRevision": "3FF9613E5B62CFB1FD32931A31E87762ABA8AAEB0305973CFBABB44FA48A76DF",
+  "catalogRevision": "0D7E624E2622ED2535A968328F049748CF86A20A0B9FCA9BA956698B46173B15",
+  "saveRevision": "0DA09D437774CCBFB50AE11BCC07CE98D849A2EC289C9F1FC3D95E821FEC4678",
   "file": "ModernSharedStashSoftCoreV2.d2i",
   "type": "SharedStash",
   "core": "soft",
@@ -2985,6 +2985,12 @@
         "name": "Gheed's Lucky Charm",
         "source": 0,
         "timestamp": 29900000
+      },
+      {
+        "id": 510,
+        "name": "test",
+        "source": 0,
+        "timestamp": 29900000
       }
     ],
     "sets": [
@@ -4289,6 +4295,156 @@
         "name": "Immovable Object",
         "source": 3157,
         "timestamp": 29818125
+      },
+      {
+        "id": 217,
+        "name": "Blessed Deflector",
+        "source": 0,
+        "timestamp": 29900000
+      },
+      {
+        "id": 218,
+        "name": "All-Penetrating Trident",
+        "source": 0,
+        "timestamp": 29900000
+      },
+      {
+        "id": 219,
+        "name": "Blessing from the Queen Xaera",
+        "source": 0,
+        "timestamp": 29900000
+      },
+      {
+        "id": 220,
+        "name": "Mage Slayer",
+        "source": 0,
+        "timestamp": 29900000
+      },
+      {
+        "id": 221,
+        "name": "Insignia of the Order",
+        "source": 0,
+        "timestamp": 29900000
+      },
+      {
+        "id": 222,
+        "name": "Shadowless Cloak",
+        "source": 0,
+        "timestamp": 29900000
+      },
+      {
+        "id": 223,
+        "name": "Guardian of Balance",
+        "source": 0,
+        "timestamp": 29900000
+      },
+      {
+        "id": 224,
+        "name": "Offering",
+        "source": 0,
+        "timestamp": 29900000
+      },
+      {
+        "id": 225,
+        "name": "Fearless Traveller",
+        "source": 0,
+        "timestamp": 29900000
+      },
+      {
+        "id": 226,
+        "name": "Deeds of Valor",
+        "source": 0,
+        "timestamp": 29900000
+      },
+      {
+        "id": 227,
+        "name": "Pendant of the Old one",
+        "source": 0,
+        "timestamp": 29900000
+      },
+      {
+        "id": 228,
+        "name": "Zakarums Last Faith",
+        "source": 0,
+        "timestamp": 29900000
+      },
+      {
+        "id": 229,
+        "name": "Sankekur's Fall",
+        "source": 0,
+        "timestamp": 29900000
+      },
+      {
+        "id": 230,
+        "name": "Witness to all tragedy",
+        "source": 0,
+        "timestamp": 29900000
+      },
+      {
+        "id": 231,
+        "name": "Steps of the Prodigy",
+        "source": 0,
+        "timestamp": 29900000
+      },
+      {
+        "id": 232,
+        "name": "Pristine Foundation",
+        "source": 0,
+        "timestamp": 29900000
+      },
+      {
+        "id": 233,
+        "name": "Unstable Manifestation",
+        "source": 0,
+        "timestamp": 29900000
+      },
+      {
+        "id": 234,
+        "name": "Force of Will",
+        "source": 0,
+        "timestamp": 29900000
+      },
+      {
+        "id": 235,
+        "name": "Hellfire",
+        "source": 0,
+        "timestamp": 29900000
+      },
+      {
+        "id": 236,
+        "name": "Spirit Robe",
+        "source": 0,
+        "timestamp": 29900000
+      },
+      {
+        "id": 237,
+        "name": "Force of Nature",
+        "source": 0,
+        "timestamp": 29900000
+      },
+      {
+        "id": 238,
+        "name": "Philosophy by the Caoi Dulra",
+        "source": 0,
+        "timestamp": 29900000
+      },
+      {
+        "id": 239,
+        "name": "The Beast Within",
+        "source": 0,
+        "timestamp": 29900000
+      },
+      {
+        "id": 240,
+        "name": "Focus",
+        "source": 0,
+        "timestamp": 29900000
+      },
+      {
+        "id": 241,
+        "name": "Restraint",
+        "source": 0,
+        "timestamp": 29900000
       }
     ],
     "runewords": [
