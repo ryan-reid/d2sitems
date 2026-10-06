@@ -59,6 +59,14 @@ if (args.Length >= 1 && (args[0] == "complete-quests" || args[0] == "--complete-
     return;
 }
 
+// Check for update-chronicle mode
+if (args.Length >= 1 && (args[0] == "update-chronicle" || args[0] == "--update-chronicle"))
+{
+    int exitCode = D2SItems.ChronicleUpdater.RunCli(args, defaultSaveDir, excelDir);
+    Environment.Exit(exitCode);
+    return;
+}
+
 if (args.Length > 0 && (args[0] == "commit-workspace" || args[0] == "pack-workspace"))
 {
     Environment.ExitCode = EditWorkspaceCli.Run(args[0], excelDir);
