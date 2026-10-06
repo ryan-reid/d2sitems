@@ -417,6 +417,18 @@ code { font-family: var(--font-mono); font-size: 0.88em; background: var(--surfa
   box-shadow: 0 0 0 2px rgba(227, 179, 65, 0.2);
 }
 
+optgroup {
+  font-weight: 700;
+  color: var(--gold);
+  background: var(--surface);
+  font-style: normal;
+}
+
+option {
+  color: var(--text);
+  background: var(--surface);
+}
+
 .profile-selector-wrap {
   display: flex;
   align-items: center;

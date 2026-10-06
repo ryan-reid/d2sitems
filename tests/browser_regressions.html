@@ -25,6 +25,10 @@
   const testChronicle = engine.getChronicleProgress(dataset.saves);
   const gull = testChronicle.categories.find(c => c.category === 'Unique Items').items.find(i => i.name === 'Gull');
   check(gull && gull.tracked && gull.source === 'Shared' && gull.core === 'soft', 'offline chronicle identifies tracked items and sources');
+  const weapons = dataset.items.filter(i => ['Axe', 'Bow', 'Hammer', 'Hand to Hand 2', 'Javelin', 'Knife', 'Mace', 'Orb', 'Polearm', 'Scepter', 'Spear', 'Staff', 'Sword', 'Throwing Axe', 'Wand', 'Amazon Javelin', 'Amazon Spear'].includes(i.type));
+  check(weapons.length > 50, 'offline engine parses over 50 weapons with authentic weapon types');
+  const throwingWeapons = dataset.items.filter(i => ['Throwing Axe', 'Throwing Knife', 'Javelin', 'Amazon Javelin'].includes(i.type));
+  check(throwingWeapons.length >= 5 && throwingWeapons.some(i => i.name && i.name.includes('Scalper')), 'offline engine parses throwing weapons including The Scalper and javelins');
 
   const item = dataset.items.find(item => item.isStash && item.tabIndex === 0 && item.itemCode === 'cm1');
   engine.editOriginals = new Map(engine.loadedFiles);

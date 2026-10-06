@@ -1350,6 +1350,9 @@ public class SaveInspectorEngine
                     var sName = _skillNames.TryGetValue(skillId, out var sn) ? sn : $"Skill {param}";
                     parts.Add($"+{value} to {sName}");
                     break;
+                case 36:
+                    parts.Add($"+{value} to Random Class Skills");
+                    break;
                 default:
                     if (statId >= 0)
                         parts.Add($"{FormatStatName((StatId)statId)}: {value}");

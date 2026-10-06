@@ -47,4 +47,52 @@ class CatalogTests(unittest.TestCase):
             rebuilt = build_image_mappings([str(d) for d in dirs], [str(d) for d in hd], json_path=str(root / 'item_images.json'))
             self.assertNotEqual(before, rebuilt['revision'])
 
+
+class ItemFilterTests(unittest.TestCase):
+    def setUp(self):
+        self.stash_data = json.loads((ROOT / 'tests/fixtures/baselines/ModernSharedStashSoftCoreV2.golden.json').read_text(encoding='utf-8'))
+        self.items = self.stash_data.get('items', [])
+
+    def test_filter_weapons_all(self):
+        import re
+        from find_items import matches_field
+        weapons = [it for it in self.items if matches_field(it, 'type', re.compile('weapon', re.I))]
+        self.assertGreater(len(weapons), 0)
+        self.assertEqual(len(weapons), 64)
+        for w in weapons:
+            self.assertNotIn(w.get('type', '').lower(), ['armor', 'shield', 'ring', 'amulet', 'charm'])
+
+    def test_filter_throwing_weapons(self):
+        import re
+        from find_items import matches_field
+        throwing = [it for it in self.items if matches_field(it, 'type', re.compile('throwing', re.I))]
+        self.assertEqual(len(throwing), 6)
+        names = [it['name'] for it in throwing]
+        self.assertTrue(any('The Scalper' in n for n in names))
+        self.assertTrue(any("Demon's Arch" in n for n in names))
+        self.assertTrue(any("Gargoyle's Bite" in n for n in names))
+
+    def test_filter_javelins(self):
+        import re
+        from find_items import matches_field
+        javelins = [it for it in self.items if matches_field(it, 'type', re.compile('javelin', re.I))]
+        self.assertEqual(len(javelins), 5)
+        for jav in javelins:
+            self.assertIn(jav.get('type'), ['Javelin', 'Amazon Javelin'])
+
+    def test_index_html_has_throwing_and_bt_bk_categories(self):
+        html = (ROOT / 'web/index.html').read_text(encoding='utf-8')
+        self.assertIn('<option value="weapon">Weapons (All)</option>', html)
+        self.assertIn('<option value="throwing">Throwing Weapons (Axes, Knives, Javelins)</option>', html)
+        self.assertIn('<option value="javelin">Javelins</option>', html)
+        self.assertIn('<option value="mace">Maces / Clubs / Hammers</option>', html)
+        self.assertIn('<option value="dagger">Daggers / Knives</option>', html)
+
+    def test_app_js_has_type_filter_map_and_matcher(self):
+        js = (ROOT / 'web/app.js').read_text(encoding='utf-8')
+        self.assertIn('TYPE_FILTER_MAP', js)
+        self.assertIn('matchesTypeFilter', js)
+        self.assertIn('matchesTypeFilter(it, f.type)', js)
+
 if __name__ == '__main__': unittest.main()
+

@@ -806,6 +806,121 @@ dom.rescanBtn.addEventListener('click', async () => {
   await reloadWasmSavesFromDisk();
 });
 
+const TYPE_FILTER_MAP = {
+  // Broad categories
+  weapon: new Set([
+    'axe', 'sword', 'club', 'hammer', 'mace', 'knife',
+    'throwing axe', 'throwing knife', 'javelin', 'spear', 'polearm',
+    'bow', 'crossbow', 'scepter', 'wand', 'staff',
+    'hand to hand', 'hand to hand 2', 'orb',
+    'amazon bow', 'amazon spear', 'amazon javelin',
+    'missile potion'
+  ]),
+  weapons: new Set([
+    'axe', 'sword', 'club', 'hammer', 'mace', 'knife',
+    'throwing axe', 'throwing knife', 'javelin', 'spear', 'polearm',
+    'bow', 'crossbow', 'scepter', 'wand', 'staff',
+    'hand to hand', 'hand to hand 2', 'orb',
+    'amazon bow', 'amazon spear', 'amazon javelin',
+    'missile potion'
+  ]),
+  armor_all: new Set([
+    'armor', 'helm', 'circlet', 'primal helm', 'pelt', 'merc equip',
+    'shield', 'auric shields', 'voodoo heads', 'grimoire',
+    'gloves', 'boots', 'belt'
+  ]),
+
+  // Weapons (BT-BK categories)
+  throwing: new Set(['throwing axe', 'throwing knife', 'javelin', 'amazon javelin', 'missile potion']),
+  throw: new Set(['throwing axe', 'throwing knife', 'missile potion']),
+  axe: new Set(['axe']),
+  axes: new Set(['axe']),
+  sword: new Set(['sword']),
+  swords: new Set(['sword']),
+  mace: new Set(['mace', 'hammer', 'club']),
+  maces: new Set(['mace', 'hammer', 'club']),
+  dagger: new Set(['knife']),
+  daggs: new Set(['knife']),
+  knife: new Set(['knife']),
+  javelin: new Set(['javelin', 'amazon javelin']),
+  javel: new Set(['javelin', 'amazon javelin']),
+  polearm: new Set(['polearm']),
+  poles: new Set(['polearm']),
+  spear: new Set(['spear', 'amazon spear']),
+  bow: new Set(['bow', 'amazon bow']),
+  bows: new Set(['bow', 'amazon bow']),
+  crossbow: new Set(['crossbow']),
+  xbow: new Set(['crossbow']),
+  xbows: new Set(['crossbow']),
+  scepter: new Set(['scepter']),
+  scept: new Set(['scepter']),
+  wand: new Set(['wand']),
+  wands: new Set(['wand']),
+  staff: new Set(['staff']),
+  stave: new Set(['staff']),
+  staves: new Set(['staff']),
+  claw: new Set(['hand to hand', 'hand to hand 2']),
+  claws: new Set(['hand to hand', 'hand to hand 2']),
+  assas: new Set(['hand to hand', 'hand to hand 2']),
+  orb: new Set(['orb']),
+  orbs: new Set(['orb']),
+  sorce: new Set(['orb']),
+  amazon: new Set(['amazon bow', 'amazon spear', 'amazon javelin']),
+  amazo: new Set(['amazon bow', 'amazon spear', 'amazon javelin']),
+
+  // Armor (BT-BK categories)
+  helm: new Set(['helm', 'circlet', 'primal helm', 'pelt', 'merc equip']),
+  helms: new Set(['helm', 'circlet', 'primal helm', 'pelt', 'merc equip']),
+  armor: new Set(['armor']),
+  shield: new Set(['shield', 'auric shields', 'voodoo heads', 'grimoire']),
+  shields: new Set(['shield', 'auric shields', 'voodoo heads', 'grimoire']),
+  shlds: new Set(['shield', 'auric shields', 'voodoo heads', 'grimoire']),
+  gloves: new Set(['gloves']),
+  glove: new Set(['gloves']),
+  boots: new Set(['boots']),
+  boot: new Set(['boots']),
+  belt: new Set(['belt']),
+  belts: new Set(['belt']),
+
+  // Accessories & Sockets (BT-BK categories)
+  ring: new Set(['ring']),
+  rings: new Set(['ring']),
+  amulet: new Set(['amulet']),
+  amulets: new Set(['amulet']),
+  amule: new Set(['amulet']),
+  charm: new Set(['charm', 'small charm', 'medium charm', 'large charm', 'crafted sunder charm', 'charms']),
+  charms: new Set(['charm', 'small charm', 'medium charm', 'large charm', 'crafted sunder charm', 'charms']),
+  jewel: new Set(['jewel', 'colossal jewel']),
+  jewels: new Set(['jewel', 'colossal jewel']),
+  rune: new Set(['rune']),
+  runes: new Set(['rune']),
+  gem: new Set([
+    'gem', 'chipped gem', 'flawed gem', 'standard gem', 'flawless gem', 'perfect gem', 'ascended gem',
+    'amethyst', 'diamond', 'emerald', 'ruby', 'sapphire', 'topaz', 'skull'
+  ]),
+  gems: new Set([
+    'gem', 'chipped gem', 'flawed gem', 'standard gem', 'flawless gem', 'perfect gem', 'ascended gem',
+    'amethyst', 'diamond', 'emerald', 'ruby', 'sapphire', 'topaz', 'skull'
+  ])
+};
+
+function matchesTypeFilter(it, filterType) {
+  if (!filterType || filterType === 'all') return true;
+  const fLower = filterType.toLowerCase().trim();
+  const rawType = (it.type || '').toLowerCase().trim();
+
+  const targetSet = TYPE_FILTER_MAP[fLower];
+  if (targetSet) {
+    return targetSet.has(rawType);
+  }
+  return rawType === fLower || rawType.includes(fLower);
+}
+
+if (typeof window !== 'undefined') {
+  window.TYPE_FILTER_MAP = TYPE_FILTER_MAP;
+  window.matchesTypeFilter = matchesTypeFilter;
+}
+
 // Search & Filter Execution
 let searchDebounceTimer = null;
 function debouncedSearch() {
@@ -826,7 +941,7 @@ async function executeSearch() {
     filtered = filtered.filter(it => (it.sourceName || '').toLowerCase() === srcLower || (it.sourceFile || '').toLowerCase() === srcLower);
   }
   if (f.type !== 'all') {
-    filtered = filtered.filter(it => (it.type || '').toLowerCase() === f.type.toLowerCase());
+    filtered = filtered.filter(it => matchesTypeFilter(it, f.type));
   }
   if (f.tier !== 'all') {
     filtered = filtered.filter(it => (it.tier || '').toLowerCase() === f.tier.toLowerCase());

@@ -55,6 +55,97 @@ RESIST_STAT_IDS = {
     "resistpoison": "PoisonResist",
 }
 
+TYPE_FILTER_MAP = {
+    "weapon": {
+        "axe", "sword", "club", "hammer", "mace", "knife",
+        "throwing axe", "throwing knife", "javelin", "spear", "polearm",
+        "bow", "crossbow", "scepter", "wand", "staff",
+        "hand to hand", "hand to hand 2", "orb",
+        "amazon bow", "amazon spear", "amazon javelin",
+        "missile potion",
+    },
+    "weapons": {
+        "axe", "sword", "club", "hammer", "mace", "knife",
+        "throwing axe", "throwing knife", "javelin", "spear", "polearm",
+        "bow", "crossbow", "scepter", "wand", "staff",
+        "hand to hand", "hand to hand 2", "orb",
+        "amazon bow", "amazon spear", "amazon javelin",
+        "missile potion",
+    },
+    "throwing": {"throwing axe", "throwing knife", "javelin", "amazon javelin", "missile potion"},
+    "throw": {"throwing axe", "throwing knife", "missile potion"},
+    "javelin": {"javelin", "amazon javelin"},
+    "javel": {"javelin", "amazon javelin"},
+    "axe": {"axe"},
+    "axes": {"axe"},
+    "sword": {"sword"},
+    "swords": {"sword"},
+    "mace": {"mace", "hammer", "club"},
+    "maces": {"mace", "hammer", "club"},
+    "dagger": {"knife"},
+    "daggs": {"knife"},
+    "knife": {"knife"},
+    "polearm": {"polearm"},
+    "poles": {"polearm"},
+    "spear": {"spear", "amazon spear"},
+    "bow": {"bow", "amazon bow"},
+    "bows": {"bow", "amazon bow"},
+    "crossbow": {"crossbow"},
+    "xbow": {"crossbow"},
+    "xbows": {"crossbow"},
+    "scepter": {"scepter"},
+    "scept": {"scepter"},
+    "wand": {"wand"},
+    "wands": {"wand"},
+    "staff": {"staff"},
+    "stave": {"staff"},
+    "staves": {"staff"},
+    "claw": {"hand to hand", "hand to hand 2"},
+    "claws": {"hand to hand", "hand to hand 2"},
+    "assas": {"hand to hand", "hand to hand 2"},
+    "orb": {"orb"},
+    "orbs": {"orb"},
+    "sorce": {"orb"},
+    "amazon": {"amazon bow", "amazon spear", "amazon javelin"},
+    "amazo": {"amazon bow", "amazon spear", "amazon javelin"},
+    "armor_all": {
+        "armor", "helm", "circlet", "primal helm", "pelt", "merc equip",
+        "shield", "auric shields", "voodoo heads", "grimoire",
+        "gloves", "boots", "belt",
+    },
+    "helm": {"helm", "circlet", "primal helm", "pelt", "merc equip"},
+    "helms": {"helm", "circlet", "primal helm", "pelt", "merc equip"},
+    "armor": {"armor"},
+    "shield": {"shield", "auric shields", "voodoo heads", "grimoire"},
+    "shields": {"shield", "auric shields", "voodoo heads", "grimoire"},
+    "shlds": {"shield", "auric shields", "voodoo heads", "grimoire"},
+    "gloves": {"gloves"},
+    "glove": {"gloves"},
+    "boots": {"boots"},
+    "boot": {"boots"},
+    "belt": {"belt"},
+    "belts": {"belt"},
+    "ring": {"ring"},
+    "rings": {"ring"},
+    "amulet": {"amulet"},
+    "amulets": {"amulet"},
+    "amule": {"amulet"},
+    "charm": {"charm", "small charm", "medium charm", "large charm", "crafted sunder charm", "charms"},
+    "charms": {"charm", "small charm", "medium charm", "large charm", "crafted sunder charm", "charms"},
+    "jewel": {"jewel", "colossal jewel"},
+    "jewels": {"jewel", "colossal jewel"},
+    "rune": {"rune"},
+    "runes": {"rune"},
+    "gem": {
+        "gem", "chipped gem", "flawed gem", "standard gem", "flawless gem", "perfect gem", "ascended gem",
+        "amethyst", "diamond", "emerald", "ruby", "sapphire", "topaz", "skull",
+    },
+    "gems": {
+        "gem", "chipped gem", "flawed gem", "standard gem", "flawless gem", "perfect gem", "ascended gem",
+        "amethyst", "diamond", "emerald", "ruby", "sapphire", "topaz", "skull",
+    },
+}
+
 def get_stat_value(item, stat_id):
     """Sum all values for a given stat ID across stats, runewordStats, and set bonuses."""
     total = 0
@@ -99,7 +190,11 @@ def matches_field(item, field, pattern):
     elif field == "set":
         return regex.search(item.get("set") or "")
     elif field == "type":
-        return regex.search(item.get("type") or "")
+        raw_type = (item.get("type") or "").strip().lower()
+        pat = regex.pattern.strip().lower()
+        if pat in TYPE_FILTER_MAP:
+            return raw_type in TYPE_FILTER_MAP[pat]
+        return bool(regex.search(item.get("type") or ""))
     elif field == "location":
         return regex.search(item.get("location", ""))
     elif field == "stat":
